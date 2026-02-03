@@ -1,0 +1,20 @@
+module.exports = {
+  host: process.env.DB_HOST || 'localhost',
+  port: parseInt(process.env.DB_PORT, 10) || 3306,
+  database: process.env.DB_NAME || 'restro_pos',
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || '',
+  connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT, 10) || 100,
+  pool: {
+    min: parseInt(process.env.DB_POOL_MIN, 10) || 2,
+    max: parseInt(process.env.DB_POOL_MAX, 10) || 10,
+  },
+  waitForConnections: true,
+  queueLimit: 0,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 10000,
+  timezone: '+00:00',
+  dateStrings: true,
+  multipleStatements: false,
+  charset: 'utf8mb4',
+};

@@ -1,0 +1,61 @@
+{
+  "name": "restro-pos-backend",
+  "version": "1.0.0",
+  "description": "Enterprise Restaurant POS System - ERP + POS + Inventory + Menu Engine + Tax Engine + Realtime",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "nodemon src/app.js",
+    "migrate": "node src/database/migrate.js",
+    "migrate:rollback": "node src/database/migrate.js rollback",
+    "seed": "node src/database/seed.js",
+    "queue:work": "node src/queues/worker.js",
+    "test": "jest",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix"
+  },
+  "keywords": [
+    "pos",
+    "restaurant",
+    "erp",
+    "inventory",
+    "billing",
+    "kot",
+    "realtime"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.18.2",
+    "mysql2": "^3.6.5",
+    "redis": "^4.6.12",
+    "ioredis": "^5.3.2",
+    "socket.io": "^4.7.4",
+    "bullmq": "^5.1.1",
+    "jsonwebtoken": "^9.0.2",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.3.1",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "compression": "^1.7.4",
+    "morgan": "^1.10.0",
+    "winston": "^3.11.0",
+    "joi": "^17.11.0",
+    "dayjs": "^1.11.10",
+    "uuid": "^9.0.1",
+    "lodash": "^4.17.21",
+    "express-rate-limit": "^7.1.5",
+    "node-cron": "^3.0.3",
+    "pdfkit": "^0.14.0",
+    "exceljs": "^4.4.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2",
+    "eslint": "^8.56.0",
+    "jest": "^29.7.0",
+    "supertest": "^6.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

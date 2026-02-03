@@ -1,0 +1,55 @@
+# Dependencies
+node_modules
+npm-debug.log*
+
+# Git
+.git
+.gitignore
+
+# Environment files (will use docker-compose env)
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs
+*.log
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist
+build
+coverage
+.nyc_output
+
+# Docker
+Dockerfile*
+docker-compose*
+.docker
+
+# Documentation (not needed in container)
+docs
+*.md
+!README.md
+
+# Tests
+__tests__
+*.test.js
+*.spec.js
+jest.config.js
+
+# Uploads (mounted as volume)
+uploads
+
+# PM2 (using docker instead)
+ecosystem.config.js
+.pm2

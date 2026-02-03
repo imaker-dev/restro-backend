@@ -1,0 +1,222 @@
+-- =====================================================
+-- ORDERS & KOT DOMAIN TABLES
+-- =====================================================
+
+-- Orders
+CREATE TABLE IF NOT EXISTS orders (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    uuid VARCHAR(36) NOT NULL UNIQUE,
+    outlet_id BIGINT UNSIGNED NOT NULL,
+    order_number VARCHAR(30) NOT NULL,
+    order_type ENUM('dine_in', 'takeaway', 'delivery', 'online') DEFAULT 'dine_in',
+    table_id BIGINT UNSIGNED,
+    table_session_id BIGINT UNSIGNED,
+    floor_id BIGINT UNSIGNED,
+    section_id BIGINT UNSIGNED,
+    customer_id BIGINT UNSIGNED,
+    customer_name VARCHAR(100),
+    customer_phone VARCHAR(20),
+    guest_count INT DEFAULT 1,
+    status ENUM('pending', 'confirmed', 'preparing', 'ready', 'served', 'billed', 'paid', 'cancelled') DEFAULT 'pending',
+    subtotal DECIMAL(12, 2) DEFAULT 0,
+    discount_amount DECIMAL(12, 2) DEFAULT 0,
+    tax_amount DECIMAL(12, 2) DEFAULT 0,
+    service_charge DECIMAL(12, 2) DEFAULT 0,
+    packaging_charge DECIMAL(12, 2) DEFAULT 0,
+    delivery_charge DECIMAL(12, 2) DEFAULT 0,
+    round_off DECIMAL(5, 2) DEFAULT 0,
+    total_amount DECIMAL(12, 2) DEFAULT 0,
+    paid_amount DECIMAL(12, 2) DEFAULT 0,
+    due_amount DECIMAL(12, 2) DEFAULT 0,
+    payment_status ENUM('pending', 'partial', 'completed', 'refunded') DEFAULT 'pending',
+    tax_details JSON,
+    discount_details JSON,
+    special_instructions TEXT,
+    internal_notes TEXT,
+    is_priority BOOLEAN DEFAULT FALSE,
+    is_complimentary BOOLEAN DEFAULT FALSE,
+    complimentary_reason VARCHAR(255),
+    approved_by BIGINT UNSIGNED,
+    created_by BIGINT UNSIGNED NOT NULL,
+    updated_by BIGINT UNSIGNED,
+    billed_by BIGINT UNSIGNED,
+    billed_at DATETIME,
+    cancelled_by BIGINT UNSIGNED,
+    cancelled_at DATETIME,
+    cancel_reason VARCHAR(255),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_order_number_outlet (outlet_id, order_number),
+    FOREIGN KEY (outlet_id) REFERENCES outlets(id) ON DELETE CASCADE,
+    FOREIGN KEY (table_id) REFERENCES tables(id) ON DELETE SET NULL,
+    FOREIGN KEY (floor_id) REFERENCES floors(id) ON DELETE SET NULL,
+    FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE SET NULL,
+    INDEX idx_orders_outlet (outlet_id),
+    INDEX idx_orders_number (order_number),
+    INDEX idx_orders_table (table_id),
+    INDEX idx_orders_status (status),
+    INDEX idx_orders_payment_status (payment_status),
+    INDEX idx_orders_created_at (created_at),
+    INDEX idx_orders_type (order_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Order items
+CREATE TABLE IF NOT EXISTS order_items (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    order_id BIGINT UNSIGNED NOT NULL,
+    item_id BIGINT UNSIGNED NOT NULL,
+    variant_id BIGINT UNSIGNED,
+    item_name VARCHAR(150) NOT NULL,
+    variant_name VARCHAR(50),
+    item_type ENUM('veg', 'non_veg', 'egg', 'vegan'),
+    quantity DECIMAL(10, 3) NOT NULL DEFAULT 1,
+    unit_price DECIMAL(10, 2) NOT NULL,
+    base_price DECIMAL(10, 2) NOT NULL,
+    discount_amount DECIMAL(10, 2) DEFAULT 0,
+    tax_amount DECIMAL(10, 2) DEFAULT 0,
+    total_price DECIMAL(10, 2) NOT NULL,
+    tax_group_id BIGINT UNSIGNED,
+    tax_details JSON,
+    price_rule_applied JSON,
+    special_instructions TEXT,
+    status ENUM('pending', 'sent_to_kitchen', 'preparing', 'ready', 'served', 'cancelled') DEFAULT 'pending',
+    kot_id BIGINT UNSIGNED,
+    is_complimentary BOOLEAN DEFAULT FALSE,
+    complimentary_reason VARCHAR(255),
+    cancelled_by BIGINT UNSIGNED,
+    cancelled_at DATETIME,
+    cancel_reason VARCHAR(255),
+    cancel_quantity DECIMAL(10, 3) DEFAULT 0,
+    created_by BIGINT UNSIGNED,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE RESTRICT,
+    FOREIGN KEY (variant_id) REFERENCES variants(id) ON DELETE SET NULL,
+    INDEX idx_order_items_order (order_id),
+    INDEX idx_order_items_item (item_id),
+    INDEX idx_order_items_status (status),
+    INDEX idx_order_items_kot (kot_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Order item addons
+CREATE TABLE IF NOT EXISTS order_item_addons (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    order_item_id BIGINT UNSIGNED NOT NULL,
+    addon_id BIGINT UNSIGNED NOT NULL,
+    addon_group_id BIGINT UNSIGNED NOT NULL,
+    addon_name VARCHAR(100) NOT NULL,
+    addon_group_name VARCHAR(100),
+    quantity INT DEFAULT 1,
+    unit_price DECIMAL(10, 2) NOT NULL,
+    total_price DECIMAL(10, 2) NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (order_item_id) REFERENCES order_items(id) ON DELETE CASCADE,
+    FOREIGN KEY (addon_id) REFERENCES addons(id) ON DELETE RESTRICT,
+    FOREIGN KEY (addon_group_id) REFERENCES addon_groups(id) ON DELETE RESTRICT,
+    INDEX idx_order_item_addons_item (order_item_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- KOT tickets
+CREATE TABLE IF NOT EXISTS kot_tickets (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    outlet_id BIGINT UNSIGNED NOT NULL,
+    order_id BIGINT UNSIGNED NOT NULL,
+    kot_number VARCHAR(30) NOT NULL,
+    table_number VARCHAR(20),
+    station ENUM('kitchen', 'bar', 'dessert', 'other') DEFAULT 'kitchen',
+    status ENUM('pending', 'accepted', 'preparing', 'ready', 'served', 'cancelled') DEFAULT 'pending',
+    priority TINYINT DEFAULT 0,
+    notes TEXT,
+    printed_count INT DEFAULT 0,
+    last_printed_at DATETIME,
+    accepted_by BIGINT UNSIGNED,
+    accepted_at DATETIME,
+    ready_at DATETIME,
+    served_at DATETIME,
+    served_by BIGINT UNSIGNED,
+    cancelled_by BIGINT UNSIGNED,
+    cancelled_at DATETIME,
+    cancel_reason VARCHAR(255),
+    created_by BIGINT UNSIGNED NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (outlet_id) REFERENCES outlets(id) ON DELETE CASCADE,
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    INDEX idx_kot_outlet (outlet_id),
+    INDEX idx_kot_order (order_id),
+    INDEX idx_kot_number (kot_number),
+    INDEX idx_kot_status (status),
+    INDEX idx_kot_station (station),
+    INDEX idx_kot_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- KOT items
+CREATE TABLE IF NOT EXISTS kot_items (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    kot_id BIGINT UNSIGNED NOT NULL,
+    order_item_id BIGINT UNSIGNED NOT NULL,
+    item_name VARCHAR(150) NOT NULL,
+    variant_name VARCHAR(50),
+    quantity DECIMAL(10, 3) NOT NULL,
+    addons_text TEXT,
+    special_instructions TEXT,
+    status ENUM('pending', 'preparing', 'ready', 'served', 'cancelled') DEFAULT 'pending',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (kot_id) REFERENCES kot_tickets(id) ON DELETE CASCADE,
+    FOREIGN KEY (order_item_id) REFERENCES order_items(id) ON DELETE CASCADE,
+    INDEX idx_kot_items_kot (kot_id),
+    INDEX idx_kot_items_order_item (order_item_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Order cancellation/deletion logs
+CREATE TABLE IF NOT EXISTS order_cancel_logs (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    order_id BIGINT UNSIGNED NOT NULL,
+    order_item_id BIGINT UNSIGNED,
+    cancel_type ENUM('full_order', 'partial_item', 'quantity_reduce') NOT NULL,
+    original_quantity DECIMAL(10, 3),
+    cancelled_quantity DECIMAL(10, 3),
+    reason_id BIGINT UNSIGNED,
+    reason_text VARCHAR(255),
+    refund_amount DECIMAL(10, 2) DEFAULT 0,
+    approved_by BIGINT UNSIGNED,
+    cancelled_by BIGINT UNSIGNED NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    FOREIGN KEY (order_item_id) REFERENCES order_items(id) ON DELETE SET NULL,
+    INDEX idx_cancel_logs_order (order_id),
+    INDEX idx_cancel_logs_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Delete/cancel reasons master
+CREATE TABLE IF NOT EXISTS cancel_reasons (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    outlet_id BIGINT UNSIGNED,
+    reason_type ENUM('order_cancel', 'item_cancel', 'void', 'return') NOT NULL,
+    reason VARCHAR(255) NOT NULL,
+    requires_approval BOOLEAN DEFAULT FALSE,
+    is_active BOOLEAN DEFAULT TRUE,
+    display_order INT DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (outlet_id) REFERENCES outlets(id) ON DELETE CASCADE,
+    INDEX idx_cancel_reasons_type (reason_type),
+    INDEX idx_cancel_reasons_is_active (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Order transfer logs
+CREATE TABLE IF NOT EXISTS order_transfer_logs (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    order_id BIGINT UNSIGNED NOT NULL,
+    from_table_id BIGINT UNSIGNED,
+    to_table_id BIGINT UNSIGNED,
+    from_waiter_id BIGINT UNSIGNED,
+    to_waiter_id BIGINT UNSIGNED,
+    transfer_type ENUM('table', 'waiter', 'both') NOT NULL,
+    reason VARCHAR(255),
+    transferred_by BIGINT UNSIGNED NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    INDEX idx_transfer_logs_order (order_id),
+    INDEX idx_transfer_logs_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -1,0 +1,150 @@
+# ============================================
+# Restro POS - Full Stack Docker Compose
+# Usage: docker-compose up -d
+# ============================================
+
+version: '3.8'
+
+services:
+  # ==========================================
+  # MySQL Database
+  # ==========================================
+  mysql:
+    image: mysql:8.0
+    container_name: restro-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${DB_NAME:-restro_pos}
+      MYSQL_USER: ${DB_USER:-restro_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-restro_password}
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --max_connections=200
+      --innodb_buffer_pool_size=256M
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD:-rootpassword}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - restro-network
+
+  # ==========================================
+  # Redis Cache & Pub/Sub
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: restro-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - restro-network
+
+  # ==========================================
+  # Main API Server
+  # ==========================================
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: restro-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 3000
+      # Database
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-restro_pos}
+      DB_USER: ${DB_USER:-restro_user}
+      DB_PASSWORD: ${DB_PASSWORD:-restro_password}
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # JWT
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      JWT_ACCESS_EXPIRY: ${JWT_ACCESS_EXPIRY:-15m}
+      JWT_REFRESH_EXPIRY: ${JWT_REFRESH_EXPIRY:-7d}
+      # Other
+      ENABLE_CRON_JOBS: "true"
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - restro-network
+
+  # ==========================================
+  # Queue Worker (Background Jobs)
+  # ==========================================
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: restro-worker
+    restart: unless-stopped
+    command: ["node", "src/queues/worker.js"]
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      # Database
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-restro_pos}
+      DB_USER: ${DB_USER:-restro_user}
+      DB_PASSWORD: ${DB_PASSWORD:-restro_password}
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - restro-network
+
+# ==========================================
+# Networks
+# ==========================================
+networks:
+  restro-network:
+    driver: bridge
+
+# ==========================================
+# Volumes (Persistent Data)
+# ==========================================
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local

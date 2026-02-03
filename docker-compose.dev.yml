@@ -1,0 +1,114 @@
+# ============================================
+# Restro POS - Development Docker Compose
+# Only MySQL + Redis (Run Node.js locally for hot-reload)
+# Usage: docker-compose -f docker-compose.dev.yml up -d
+# ============================================
+
+version: '3.8'
+
+services:
+  # ==========================================
+  # MySQL Database (Development)
+  # ==========================================
+  mysql:
+    image: mysql:8.0
+    container_name: restro-mysql-dev
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: restro_pos
+      MYSQL_USER: restro_user
+      MYSQL_PASSWORD: restro_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_dev_data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - restro-dev-network
+
+  # ==========================================
+  # Redis (Development)
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: restro-redis-dev
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_dev_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - restro-dev-network
+
+  # ==========================================
+  # Redis Commander (Optional - GUI for Redis)
+  # Access at http://localhost:8081
+  # ==========================================
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: restro-redis-commander
+    restart: unless-stopped
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis
+    networks:
+      - restro-dev-network
+    profiles:
+      - tools
+
+  # ==========================================
+  # phpMyAdmin (Optional - GUI for MySQL)
+  # Access at http://localhost:8080
+  # ==========================================
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: restro-phpmyadmin
+    restart: unless-stopped
+    environment:
+      PMA_HOST: mysql
+      PMA_USER: root
+      PMA_PASSWORD: root
+    ports:
+      - "8080:80"
+    depends_on:
+      - mysql
+    networks:
+      - restro-dev-network
+    profiles:
+      - tools
+
+# ==========================================
+# Networks
+# ==========================================
+networks:
+  restro-dev-network:
+    driver: bridge
+
+# ==========================================
+# Volumes
+# ==========================================
+volumes:
+  mysql_dev_data:
+    driver: local
+  redis_dev_data:
+    driver: local
