@@ -7,6 +7,7 @@ const compression = require('compression');
 const morgan = require('morgan');
 const http = require('http');
 
+
 const config = require('./config');
 const logger = require('./utils/logger');
 const { initializeDatabase } = require('./database');
