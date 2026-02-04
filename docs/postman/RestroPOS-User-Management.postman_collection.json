@@ -1,0 +1,902 @@
+{
+  "info": {
+    "_postman_id": "restro-pos-user-management",
+    "name": "RestroPOS - User & Access Management",
+    "description": "Complete API collection for user creation, floor/section assignment, and access control testing.\n\n## Test Scenarios Covered:\n1. Floor Assignment - Captain assigned to specific floors\n2. Section Assignment - Captain can access Restaurant but not Bar\n3. Menu Access Control - Restrict menu categories per user\n4. Multi-Floor Manager - Manager with full access\n\n## How to Use:\n1. Run 'Login as Admin' first to get access token\n2. Run 'Get Test Data' folder to fetch floors, sections, categories\n3. Run user creation scenarios as needed\n\n**Author:** iMaker Technology Private Limited\n**Version:** 1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {"key": "baseUrl", "value": "http://localhost:3000/api/v1", "type": "string"},
+    {"key": "accessToken", "value": "", "type": "string"},
+    {"key": "refreshToken", "value": "", "type": "string"},
+    {"key": "outletId", "value": "1", "type": "string"},
+    {"key": "groundFloorId", "value": "1", "type": "string"},
+    {"key": "firstFloorId", "value": "2", "type": "string"},
+    {"key": "rooftopFloorId", "value": "3", "type": "string"},
+    {"key": "restaurantSectionId", "value": "1", "type": "string"},
+    {"key": "barSectionId", "value": "2", "type": "string"},
+    {"key": "acSectionId", "value": "3", "type": "string"},
+    {"key": "captainRoleId", "value": "4", "type": "string"},
+    {"key": "managerRoleId", "value": "3", "type": "string"},
+    {"key": "waiterRoleId", "value": "5", "type": "string"},
+    {"key": "createdUserId", "value": "", "type": "string"}
+  ],
+  "item": [
+    {
+      "name": "1. Authentication",
+      "description": "Login and token management",
+      "item": [
+        {
+          "name": "Login as Admin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.success) {",
+                  "    pm.collectionVariables.set('accessToken', jsonData.data.accessToken);",
+                  "    pm.collectionVariables.set('refreshToken', jsonData.data.refreshToken);",
+                  "    pm.test('Login successful', function() {",
+                  "        pm.expect(jsonData.success).to.be.true;",
+                  "    });",
+                  "    pm.test('Access token received', function() {",
+                  "        pm.expect(jsonData.data.accessToken).to.be.a('string');",
+                  "    });",
+                  "} else {",
+                  "    pm.test('Login failed: ' + jsonData.message, function() {",
+                  "        pm.expect.fail(jsonData.message);",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@restropos.com\",\n  \"password\": \"admin123\"\n}"
+            },
+            "url": {"raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"]}
+          }
+        },
+        {
+          "name": "Get Current User Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Profile retrieved', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});",
+                  "pm.test('Has permissions array', function() {",
+                  "    pm.expect(jsonData.data.permissions).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "url": {"raw": "{{baseUrl}}/auth/me", "host": ["{{baseUrl}}"], "path": ["auth", "me"]}
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Get Test Data",
+      "description": "Fetch floors, sections, categories, and roles for testing",
+      "item": [
+        {
+          "name": "Get All Roles",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.success && jsonData.data) {",
+                  "    jsonData.data.forEach(function(role) {",
+                  "        if (role.name === 'captain') pm.collectionVariables.set('captainRoleId', role.id.toString());",
+                  "        if (role.name === 'manager') pm.collectionVariables.set('managerRoleId', role.id.toString());",
+                  "        if (role.name === 'waiter') pm.collectionVariables.set('waiterRoleId', role.id.toString());",
+                  "    });",
+                  "    pm.test('Roles fetched', function() {",
+                  "        pm.expect(jsonData.data.length).to.be.above(0);",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "url": {"raw": "{{baseUrl}}/users/roles", "host": ["{{baseUrl}}"], "path": ["users", "roles"]}
+          }
+        },
+        {
+          "name": "Get Outlets",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.success && jsonData.data && jsonData.data.length > 0) {",
+                  "    pm.collectionVariables.set('outletId', jsonData.data[0].id.toString());",
+                  "    pm.test('Outlet ID set: ' + jsonData.data[0].id, function() {",
+                  "        pm.expect(jsonData.data[0].id).to.be.above(0);",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "url": {"raw": "{{baseUrl}}/outlets", "host": ["{{baseUrl}}"], "path": ["outlets"]}
+          }
+        },
+        {
+          "name": "Get Floors",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.success && jsonData.data) {",
+                  "    jsonData.data.forEach(function(floor, index) {",
+                  "        if (floor.floor_number === 0 || floor.name.toLowerCase().includes('ground')) {",
+                  "            pm.collectionVariables.set('groundFloorId', floor.id.toString());",
+                  "        }",
+                  "        if (floor.floor_number === 1 || floor.name.toLowerCase().includes('first')) {",
+                  "            pm.collectionVariables.set('firstFloorId', floor.id.toString());",
+                  "        }",
+                  "        if (floor.name.toLowerCase().includes('rooftop') || floor.name.toLowerCase().includes('roof')) {",
+                  "            pm.collectionVariables.set('rooftopFloorId', floor.id.toString());",
+                  "        }",
+                  "    });",
+                  "    pm.test('Floors fetched: ' + jsonData.data.length, function() {",
+                  "        pm.expect(jsonData.data.length).to.be.above(0);",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "url": {"raw": "{{baseUrl}}/outlets/{{outletId}}/floors", "host": ["{{baseUrl}}"], "path": ["outlets", "{{outletId}}", "floors"]}
+          }
+        },
+        {
+          "name": "Get Sections",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.success && jsonData.data) {",
+                  "    jsonData.data.forEach(function(section) {",
+                  "        if (section.section_type === 'dine_in' || section.name.toLowerCase().includes('restaurant')) {",
+                  "            pm.collectionVariables.set('restaurantSectionId', section.id.toString());",
+                  "        }",
+                  "        if (section.section_type === 'bar' || section.name.toLowerCase().includes('bar')) {",
+                  "            pm.collectionVariables.set('barSectionId', section.id.toString());",
+                  "        }",
+                  "        if (section.section_type === 'ac' || section.name.toLowerCase().includes('ac')) {",
+                  "            pm.collectionVariables.set('acSectionId', section.id.toString());",
+                  "        }",
+                  "    });",
+                  "    pm.test('Sections fetched: ' + jsonData.data.length, function() {",
+                  "        pm.expect(jsonData.data.length).to.be.above(0);",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "url": {"raw": "{{baseUrl}}/outlets/{{outletId}}/sections", "host": ["{{baseUrl}}"], "path": ["outlets", "{{outletId}}", "sections"]}
+          }
+        },
+        {
+          "name": "Get Menu Categories",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Categories fetched', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "url": {
+              "raw": "{{baseUrl}}/menu/categories?outletId={{outletId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["menu", "categories"],
+              "query": [{"key": "outletId", "value": "{{outletId}}"}]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Floor Assignment Tests",
+      "description": "Test captain assigned to specific floors only",
+      "item": [
+        {
+          "name": "3.1 Create Captain - Ground Floor Only",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": ["pm.variables.set('timestamp', Date.now());"],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Captain created for Ground Floor', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(pm.response.code).to.equal(201);",
+                  "});",
+                  "if (jsonData.success) {",
+                  "    pm.collectionVariables.set('createdUserId', jsonData.data.id.toString());",
+                  "    pm.test('User ID: ' + jsonData.data.id, function() {",
+                  "        pm.expect(jsonData.data.id).to.be.above(0);",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Captain Ground Floor\",\n  \"email\": \"captain.gf.{{$timestamp}}@test.com\",\n  \"employeeCode\": \"CAPGF{{$timestamp}}\",\n  \"password\": \"Captain@123\",\n  \"pin\": \"1111\",\n  \"isActive\": true,\n  \"roles\": [\n    {\n      \"roleId\": {{captainRoleId}},\n      \"outletId\": {{outletId}}\n    }\n  ],\n  \"floors\": [\n    {\n      \"floorId\": {{groundFloorId}},\n      \"outletId\": {{outletId}},\n      \"isPrimary\": true\n    }\n  ]\n}"
+            },
+            "url": {"raw": "{{baseUrl}}/users", "host": ["{{baseUrl}}"], "path": ["users"]}
+          }
+        },
+        {
+          "name": "3.2 Create Captain - First Floor Only",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": ["pm.variables.set('timestamp', Date.now());"],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Captain created for First Floor', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Captain First Floor\",\n  \"email\": \"captain.ff.{{$timestamp}}@test.com\",\n  \"employeeCode\": \"CAPFF{{$timestamp}}\",\n  \"password\": \"Captain@123\",\n  \"pin\": \"2222\",\n  \"isActive\": true,\n  \"roles\": [\n    {\n      \"roleId\": {{captainRoleId}},\n      \"outletId\": {{outletId}}\n    }\n  ],\n  \"floors\": [\n    {\n      \"floorId\": {{firstFloorId}},\n      \"outletId\": {{outletId}},\n      \"isPrimary\": true\n    }\n  ]\n}"
+            },
+            "url": {"raw": "{{baseUrl}}/users", "host": ["{{baseUrl}}"], "path": ["users"]}
+          }
+        },
+        {
+          "name": "3.3 Create Captain - Multi Floor (Ground + First)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": ["pm.variables.set('timestamp', Date.now());"],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Captain created with multiple floors', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Captain Multi Floor\",\n  \"email\": \"captain.mf.{{$timestamp}}@test.com\",\n  \"employeeCode\": \"CAPMF{{$timestamp}}\",\n  \"password\": \"Captain@123\",\n  \"pin\": \"3333\",\n  \"isActive\": true,\n  \"roles\": [\n    {\n      \"roleId\": {{captainRoleId}},\n      \"outletId\": {{outletId}}\n    }\n  ],\n  \"floors\": [\n    {\n      \"floorId\": {{groundFloorId}},\n      \"outletId\": {{outletId}},\n      \"isPrimary\": true\n    },\n    {\n      \"floorId\": {{firstFloorId}},\n      \"outletId\": {{outletId}},\n      \"isPrimary\": false\n    }\n  ]\n}"
+            },
+            "url": {"raw": "{{baseUrl}}/users", "host": ["{{baseUrl}}"], "path": ["users"]}
+          }
+        },
+        {
+          "name": "3.4 Update User Floor Assignment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Floor assignment updated', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"floors\": [\n    {\n      \"floorId\": {{groundFloorId}},\n      \"outletId\": {{outletId}},\n      \"isPrimary\": true\n    },\n    {\n      \"floorId\": {{rooftopFloorId}},\n      \"outletId\": {{outletId}},\n      \"isPrimary\": false\n    }\n  ]\n}"
+            },
+            "url": {"raw": "{{baseUrl}}/users/{{createdUserId}}", "host": ["{{baseUrl}}"], "path": ["users", "{{createdUserId}}"]}
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Section Assignment Tests",
+      "description": "Test captain can access Restaurant but not Bar orders",
+      "item": [
+        {
+          "name": "4.1 Create Captain - Restaurant Section Only",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": ["pm.variables.set('timestamp', Date.now());"],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Captain created for Restaurant section only', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});",
+                  "if (jsonData.success) {",
+                  "    pm.collectionVariables.set('createdUserId', jsonData.data.id.toString());",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Captain Restaurant Only\",\n  \"email\": \"captain.rest.{{$timestamp}}@test.com\",\n  \"employeeCode\": \"CAPREST{{$timestamp}}\",\n  \"password\": \"Captain@123\",\n  \"pin\": \"4444\",\n  \"isActive\": true,\n  \"roles\": [\n    {\n      \"roleId\": {{captainRoleId}},\n      \"outletId\": {{outletId}}\n    }\n  ],\n  \"sections\": [\n    {\n      \"sectionId\": {{restaurantSectionId}},\n      \"outletId\": {{outletId}},\n      \"canViewMenu\": true,\n      \"canTakeOrders\": true,\n      \"isPrimary\": true\n    }\n  ]\n}"
+            },
+            "url": {"raw": "{{baseUrl}}/users", "host": ["{{baseUrl}}"], "path": ["users"]}
+          }
+        },
+        {
+          "name": "4.2 Create Captain - Restaurant Full + Bar View Only",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": ["pm.variables.set('timestamp', Date.now());"],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Captain created with mixed section permissions', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});",
+                  "pm.test('Restaurant: Full Access, Bar: View Only', function() {",
+                  "    pm.expect(pm.response.code).to.equal(201);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Captain Restaurant + Bar View\",\n  \"email\": \"captain.rbv.{{$timestamp}}@test.com\",\n  \"employeeCode\": \"CAPRBV{{$timestamp}}\",\n  \"password\": \"Captain@123\",\n  \"pin\": \"5555\",\n  \"isActive\": true,\n  \"roles\": [\n    {\n      \"roleId\": {{captainRoleId}},\n      \"outletId\": {{outletId}}\n    }\n  ],\n  \"sections\": [\n    {\n      \"sectionId\": {{restaurantSectionId}},\n      \"outletId\": {{outletId}},\n      \"canViewMenu\": true,\n      \"canTakeOrders\": true,\n      \"isPrimary\": true\n    },\n    {\n      \"sectionId\": {{barSectionId}},\n      \"outletId\": {{outletId}},\n      \"canViewMenu\": true,\n      \"canTakeOrders\": false,\n      \"isPrimary\": false\n    }\n  ]\n}"
+            },
+            "url": {"raw": "{{baseUrl}}/users", "host": ["{{baseUrl}}"], "path": ["users"]}
+          }
+        },
+        {
+          "name": "4.3 Create Captain - Bar Section Only",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": ["pm.variables.set('timestamp', Date.now());"],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Captain created for Bar section only', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Captain Bar Only\",\n  \"email\": \"captain.bar.{{$timestamp}}@test.com\",\n  \"employeeCode\": \"CAPBAR{{$timestamp}}\",\n  \"password\": \"Captain@123\",\n  \"pin\": \"6666\",\n  \"isActive\": true,\n  \"roles\": [\n    {\n      \"roleId\": {{captainRoleId}},\n      \"outletId\": {{outletId}}\n    }\n  ],\n  \"sections\": [\n    {\n      \"sectionId\": {{barSectionId}},\n      \"outletId\": {{outletId}},\n      \"canViewMenu\": true,\n      \"canTakeOrders\": true,\n      \"isPrimary\": true\n    }\n  ]\n}"
+            },
+            "url": {"raw": "{{baseUrl}}/users", "host": ["{{baseUrl}}"], "path": ["users"]}
+          }
+        },
+        {
+          "name": "4.4 Create Captain - Floor + Section Combined",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": ["pm.variables.set('timestamp', Date.now());"],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Captain created with floor + section assignment', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Captain Ground Floor Restaurant\",\n  \"email\": \"captain.gfr.{{$timestamp}}@test.com\",\n  \"employeeCode\": \"CAPGFR{{$timestamp}}\",\n  \"password\": \"Captain@123\",\n  \"pin\": \"7777\",\n  \"isActive\": true,\n  \"roles\": [\n    {\n      \"roleId\": {{captainRoleId}},\n      \"outletId\": {{outletId}}\n    }\n  ],\n  \"floors\": [\n    {\n      \"floorId\": {{groundFloorId}},\n      \"outletId\": {{outletId}},\n      \"isPrimary\": true\n    }\n  ],\n  \"sections\": [\n    {\n      \"sectionId\": {{restaurantSectionId}},\n      \"outletId\": {{outletId}},\n      \"canViewMenu\": true,\n      \"canTakeOrders\": true,\n      \"isPrimary\": true\n    }\n  ]\n}"
+            },
+            "url": {"raw": "{{baseUrl}}/users", "host": ["{{baseUrl}}"], "path": ["users"]}
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Menu Access Control Tests",
+      "description": "Restrict which menu categories a user can view/order",
+      "item": [
+        {
+          "name": "5.1 Create Waiter - Limited Menu Categories",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": ["pm.variables.set('timestamp', Date.now());"],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Waiter created with limited menu access', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Waiter Limited Menu\",\n  \"email\": \"waiter.lm.{{$timestamp}}@test.com\",\n  \"employeeCode\": \"WTRLM{{$timestamp}}\",\n  \"pin\": \"8888\",\n  \"isActive\": true,\n  \"roles\": [\n    {\n      \"roleId\": {{waiterRoleId}},\n      \"outletId\": {{outletId}}\n    }\n  ],\n  \"menuAccess\": [\n    {\n      \"categoryId\": 1,\n      \"outletId\": {{outletId}},\n      \"canView\": true,\n      \"canOrder\": true\n    },\n    {\n      \"categoryId\": 2,\n      \"outletId\": {{outletId}},\n      \"canView\": true,\n      \"canOrder\": true\n    },\n    {\n      \"categoryId\": 3,\n      \"outletId\": {{outletId}},\n      \"canView\": true,\n      \"canOrder\": false\n    }\n  ]\n}"
+            },
+            "url": {"raw": "{{baseUrl}}/users", "host": ["{{baseUrl}}"], "path": ["users"]}
+          }
+        },
+        {
+          "name": "5.2 Create Waiter - Food Only (No Beverages)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": ["pm.variables.set('timestamp', Date.now());"],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Waiter created with food-only menu access', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Waiter Food Only\",\n  \"email\": \"waiter.food.{{$timestamp}}@test.com\",\n  \"employeeCode\": \"WTRFOOD{{$timestamp}}\",\n  \"pin\": \"9999\",\n  \"isActive\": true,\n  \"roles\": [\n    {\n      \"roleId\": {{waiterRoleId}},\n      \"outletId\": {{outletId}}\n    }\n  ],\n  \"sections\": [\n    {\n      \"sectionId\": {{restaurantSectionId}},\n      \"outletId\": {{outletId}},\n      \"canViewMenu\": true,\n      \"canTakeOrders\": true,\n      \"isPrimary\": true\n    }\n  ],\n  \"menuAccess\": [\n    {\n      \"categoryId\": 1,\n      \"outletId\": {{outletId}},\n      \"canView\": true,\n      \"canOrder\": true\n    },\n    {\n      \"categoryId\": 2,\n      \"outletId\": {{outletId}},\n      \"canView\": true,\n      \"canOrder\": true\n    }\n  ]\n}"
+            },
+            "url": {"raw": "{{baseUrl}}/users", "host": ["{{baseUrl}}"], "path": ["users"]}
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Multi-Floor Manager Tests",
+      "description": "Manager with access to all floors and sections",
+      "item": [
+        {
+          "name": "6.1 Create Manager - All Floors Access",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": ["pm.variables.set('timestamp', Date.now());"],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Manager created with all floors access', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});",
+                  "if (jsonData.success) {",
+                  "    pm.collectionVariables.set('createdUserId', jsonData.data.id.toString());",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Manager All Floors\",\n  \"email\": \"manager.af.{{$timestamp}}@test.com\",\n  \"phone\": \"+91-9876500001\",\n  \"employeeCode\": \"MGRAF{{$timestamp}}\",\n  \"password\": \"Manager@123\",\n  \"pin\": \"1234\",\n  \"isActive\": true,\n  \"roles\": [\n    {\n      \"roleId\": {{managerRoleId}},\n      \"outletId\": {{outletId}}\n    }\n  ],\n  \"floors\": [\n    {\n      \"floorId\": {{groundFloorId}},\n      \"outletId\": {{outletId}},\n      \"isPrimary\": true\n    },\n    {\n      \"floorId\": {{firstFloorId}},\n      \"outletId\": {{outletId}},\n      \"isPrimary\": false\n    },\n    {\n      \"floorId\": {{rooftopFloorId}},\n      \"outletId\": {{outletId}},\n      \"isPrimary\": false\n    }\n  ]\n}"
+            },
+            "url": {"raw": "{{baseUrl}}/users", "host": ["{{baseUrl}}"], "path": ["users"]}
+          }
+        },
+        {
+          "name": "6.2 Create Manager - All Sections Access",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": ["pm.variables.set('timestamp', Date.now());"],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Manager created with all sections access', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Manager All Sections\",\n  \"email\": \"manager.as.{{$timestamp}}@test.com\",\n  \"phone\": \"+91-9876500002\",\n  \"employeeCode\": \"MGRAS{{$timestamp}}\",\n  \"password\": \"Manager@123\",\n  \"pin\": \"2345\",\n  \"isActive\": true,\n  \"roles\": [\n    {\n      \"roleId\": {{managerRoleId}},\n      \"outletId\": {{outletId}}\n    }\n  ],\n  \"sections\": [\n    {\n      \"sectionId\": {{restaurantSectionId}},\n      \"outletId\": {{outletId}},\n      \"canViewMenu\": true,\n      \"canTakeOrders\": true,\n      \"isPrimary\": true\n    },\n    {\n      \"sectionId\": {{barSectionId}},\n      \"outletId\": {{outletId}},\n      \"canViewMenu\": true,\n      \"canTakeOrders\": true,\n      \"isPrimary\": false\n    },\n    {\n      \"sectionId\": {{acSectionId}},\n      \"outletId\": {{outletId}},\n      \"canViewMenu\": true,\n      \"canTakeOrders\": true,\n      \"isPrimary\": false\n    }\n  ]\n}"
+            },
+            "url": {"raw": "{{baseUrl}}/users", "host": ["{{baseUrl}}"], "path": ["users"]}
+          }
+        },
+        {
+          "name": "6.3 Create Manager - Full Access (Floors + Sections + Menu)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": ["pm.variables.set('timestamp', Date.now());"],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Manager created with full access', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});",
+                  "pm.test('Has floors, sections, and menu access', function() {",
+                  "    pm.expect(pm.response.code).to.equal(201);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Manager Full Access\",\n  \"email\": \"manager.full.{{$timestamp}}@test.com\",\n  \"phone\": \"+91-9876500003\",\n  \"employeeCode\": \"MGRFULL{{$timestamp}}\",\n  \"password\": \"Manager@123\",\n  \"pin\": \"3456\",\n  \"isActive\": true,\n  \"roles\": [\n    {\n      \"roleId\": {{managerRoleId}},\n      \"outletId\": {{outletId}}\n    }\n  ],\n  \"floors\": [\n    {\"floorId\": {{groundFloorId}}, \"outletId\": {{outletId}}, \"isPrimary\": true},\n    {\"floorId\": {{firstFloorId}}, \"outletId\": {{outletId}}, \"isPrimary\": false},\n    {\"floorId\": {{rooftopFloorId}}, \"outletId\": {{outletId}}, \"isPrimary\": false}\n  ],\n  \"sections\": [\n    {\"sectionId\": {{restaurantSectionId}}, \"outletId\": {{outletId}}, \"canViewMenu\": true, \"canTakeOrders\": true, \"isPrimary\": true},\n    {\"sectionId\": {{barSectionId}}, \"outletId\": {{outletId}}, \"canViewMenu\": true, \"canTakeOrders\": true, \"isPrimary\": false},\n    {\"sectionId\": {{acSectionId}}, \"outletId\": {{outletId}}, \"canViewMenu\": true, \"canTakeOrders\": true, \"isPrimary\": false}\n  ],\n  \"menuAccess\": [\n    {\"categoryId\": 1, \"outletId\": {{outletId}}, \"canView\": true, \"canOrder\": true},\n    {\"categoryId\": 2, \"outletId\": {{outletId}}, \"canView\": true, \"canOrder\": true},\n    {\"categoryId\": 3, \"outletId\": {{outletId}}, \"canView\": true, \"canOrder\": true},\n    {\"categoryId\": 4, \"outletId\": {{outletId}}, \"canView\": true, \"canOrder\": true},\n    {\"categoryId\": 5, \"outletId\": {{outletId}}, \"canView\": true, \"canOrder\": true}\n  ]\n}"
+            },
+            "url": {"raw": "{{baseUrl}}/users", "host": ["{{baseUrl}}"], "path": ["users"]}
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. User Retrieval & Verification",
+      "description": "Verify created users and their assignments",
+      "item": [
+        {
+          "name": "7.1 Get User by ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('User retrieved successfully', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});",
+                  "pm.test('User has required fields', function() {",
+                  "    pm.expect(jsonData.data).to.have.property('id');",
+                  "    pm.expect(jsonData.data).to.have.property('name');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "url": {"raw": "{{baseUrl}}/users/{{createdUserId}}", "host": ["{{baseUrl}}"], "path": ["users", "{{createdUserId}}"]}
+          }
+        },
+        {
+          "name": "7.2 List Captains",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Captains listed', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});",
+                  "pm.test('Returns array of users', function() {",
+                  "    pm.expect(jsonData.data).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "url": {
+              "raw": "{{baseUrl}}/users?roleId={{captainRoleId}}&outletId={{outletId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["users"],
+              "query": [
+                {"key": "roleId", "value": "{{captainRoleId}}"},
+                {"key": "outletId", "value": "{{outletId}}"}
+              ]
+            }
+          }
+        },
+        {
+          "name": "7.3 List Managers",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "url": {
+              "raw": "{{baseUrl}}/users?roleId={{managerRoleId}}&outletId={{outletId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["users"],
+              "query": [
+                {"key": "roleId", "value": "{{managerRoleId}}"},
+                {"key": "outletId", "value": "{{outletId}}"}
+              ]
+            }
+          }
+        },
+        {
+          "name": "7.4 List All Active Users",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "url": {
+              "raw": "{{baseUrl}}/users?isActive=true&limit=50",
+              "host": ["{{baseUrl}}"],
+              "path": ["users"],
+              "query": [
+                {"key": "isActive", "value": "true"},
+                {"key": "limit", "value": "50"}
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Role Management",
+      "description": "Assign and remove roles from users",
+      "item": [
+        {
+          "name": "8.1 Assign Additional Role",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roleId\": {{waiterRoleId}},\n  \"outletId\": {{outletId}}\n}"
+            },
+            "url": {"raw": "{{baseUrl}}/users/{{createdUserId}}/roles", "host": ["{{baseUrl}}"], "path": ["users", "{{createdUserId}}", "roles"]}
+          }
+        },
+        {
+          "name": "8.2 Remove Role",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roleId\": {{waiterRoleId}},\n  \"outletId\": {{outletId}}\n}"
+            },
+            "url": {"raw": "{{baseUrl}}/users/{{createdUserId}}/roles", "host": ["{{baseUrl}}"], "path": ["users", "{{createdUserId}}", "roles"]}
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Cleanup",
+      "description": "Delete test users (optional)",
+      "item": [
+        {
+          "name": "Delete Test User",
+          "request": {
+            "method": "DELETE",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "url": {"raw": "{{baseUrl}}/users/{{createdUserId}}", "host": ["{{baseUrl}}"], "path": ["users", "{{createdUserId}}"]}
+          }
+        }
+      ]
+    }
+  ]
+}

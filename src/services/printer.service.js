@@ -1,0 +1,633 @@
+/**
+ * Printer Service
+ * Handles print job queue for KOT, BOT, Bills
+ * Supports local bridge agent polling pattern
+ */
+
+const { getPool } = require('../database');
+const { v4: uuidv4 } = require('uuid');
+const { pubsub } = require('../config/redis');
+const logger = require('../utils/logger');
+const crypto = require('crypto');
+
+const printerService = {
+  // ========================
+  // PRINTER MANAGEMENT
+  // ========================
+
+  async createPrinter(data) {
+    const pool = getPool();
+    const uuid = uuidv4();
+    const code = data.code || `PRN${Date.now().toString(36).toUpperCase()}`;
+
+    const [result] = await pool.query(
+      `INSERT INTO printers (
+        uuid, outlet_id, name, code, printer_type, station,
+        counter_id, kitchen_station_id, ip_address, port,
+        connection_type, paper_width, characters_per_line,
+        supports_cash_drawer, supports_cutter, supports_logo
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uuid, data.outletId, data.name, code, data.printerType || 'kot',
+        data.station, data.counterId, data.kitchenStationId,
+        data.ipAddress, data.port || 9100, data.connectionType || 'network',
+        data.paperWidth || '80mm', data.charactersPerLine || 48,
+        data.supportsCashDrawer || false, data.supportsCutter !== false,
+        data.supportsLogo || false
+      ]
+    );
+
+    return { id: result.insertId, uuid, code };
+  },
+
+  async getPrinters(outletId, filters = {}) {
+    const pool = getPool();
+    let query = `SELECT * FROM printers WHERE outlet_id = ?`;
+    const params = [outletId];
+
+    if (filters.station) {
+      query += ` AND station = ?`;
+      params.push(filters.station);
+    }
+    if (filters.printerType) {
+      query += ` AND printer_type = ?`;
+      params.push(filters.printerType);
+    }
+    if (filters.isActive !== undefined) {
+      query += ` AND is_active = ?`;
+      params.push(filters.isActive);
+    }
+
+    query += ` ORDER BY name`;
+    const [printers] = await pool.query(query, params);
+    return printers;
+  },
+
+  async getPrinterById(id) {
+    const pool = getPool();
+    const [printers] = await pool.query('SELECT * FROM printers WHERE id = ?', [id]);
+    return printers[0];
+  },
+
+  async getPrinterByStation(outletId, station) {
+    const pool = getPool();
+    const [printers] = await pool.query(
+      `SELECT * FROM printers WHERE outlet_id = ? AND station = ? AND is_active = 1 LIMIT 1`,
+      [outletId, station]
+    );
+    return printers[0];
+  },
+
+  async updatePrinter(id, data) {
+    const pool = getPool();
+    const updates = [];
+    const params = [];
+
+    const fields = ['name', 'station', 'ip_address', 'port', 'paper_width', 
+                    'characters_per_line', 'supports_cash_drawer', 'supports_cutter',
+                    'supports_logo', 'is_active'];
+    
+    for (const field of fields) {
+      const camelField = field.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+      if (data[camelField] !== undefined) {
+        updates.push(`${field} = ?`);
+        params.push(data[camelField]);
+      }
+    }
+
+    if (updates.length === 0) return;
+
+    params.push(id);
+    await pool.query(`UPDATE printers SET ${updates.join(', ')} WHERE id = ?`, params);
+  },
+
+  async updatePrinterStatus(id, isOnline) {
+    const pool = getPool();
+    await pool.query(
+      `UPDATE printers SET is_online = ?, last_seen_at = NOW() WHERE id = ?`,
+      [isOnline, id]
+    );
+  },
+
+  // ========================
+  // PRINT JOB QUEUE
+  // ========================
+
+  async createPrintJob(data) {
+    const pool = getPool();
+    const uuid = uuidv4();
+
+    // Find appropriate printer for this station
+    let printerId = data.printerId;
+    if (!printerId && data.station) {
+      const printer = await this.getPrinterByStation(data.outletId, data.station);
+      printerId = printer?.id;
+    }
+
+    const [result] = await pool.query(
+      `INSERT INTO print_jobs (
+        uuid, outlet_id, printer_id, job_type, station,
+        kot_id, order_id, invoice_id, content, content_type,
+        reference_number, table_number, priority, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uuid, data.outletId, printerId, data.jobType, data.station,
+        data.kotId, data.orderId, data.invoiceId, data.content,
+        data.contentType || 'text', data.referenceNumber,
+        data.tableNumber, data.priority || 0, data.createdBy
+      ]
+    );
+
+    const jobId = result.insertId;
+
+    // Log creation
+    await pool.query(
+      `INSERT INTO print_job_logs (print_job_id, action, details) VALUES (?, 'created', ?)`,
+      [jobId, JSON.stringify({ station: data.station, type: data.jobType })]
+    );
+
+    // Notify bridges via pub/sub
+    pubsub.publish('print:new_job', {
+      outletId: data.outletId,
+      station: data.station,
+      jobId,
+      jobType: data.jobType,
+      referenceNumber: data.referenceNumber
+    });
+
+    logger.info(`Print job created: ${uuid} for ${data.station}`);
+    return { id: jobId, uuid };
+  },
+
+  async getPendingJobs(outletId, station, limit = 10) {
+    const pool = getPool();
+    
+    const [jobs] = await pool.query(
+      `SELECT pj.*, p.name as printer_name, p.ip_address, p.port
+       FROM print_jobs pj
+       LEFT JOIN printers p ON pj.printer_id = p.id
+       WHERE pj.outlet_id = ? 
+         AND pj.station = ?
+         AND pj.status = 'pending'
+         AND pj.attempts < pj.max_attempts
+       ORDER BY pj.priority DESC, pj.created_at ASC
+       LIMIT ?`,
+      [outletId, station, limit]
+    );
+
+    return jobs;
+  },
+
+  async getNextPendingJob(outletId, station) {
+    const pool = getPool();
+    
+    const [jobs] = await pool.query(
+      `SELECT pj.*, p.name as printer_name, p.ip_address, p.port
+       FROM print_jobs pj
+       LEFT JOIN printers p ON pj.printer_id = p.id
+       WHERE pj.outlet_id = ? 
+         AND pj.station = ?
+         AND pj.status = 'pending'
+         AND pj.attempts < pj.max_attempts
+       ORDER BY pj.priority DESC, pj.created_at ASC
+       LIMIT 1`,
+      [outletId, station]
+    );
+
+    if (jobs[0]) {
+      // Mark as processing
+      await pool.query(
+        `UPDATE print_jobs SET status = 'processing', processed_at = NOW(), attempts = attempts + 1 WHERE id = ?`,
+        [jobs[0].id]
+      );
+    }
+
+    return jobs[0] || null;
+  },
+
+  async markJobPrinted(jobId, bridgeId = null) {
+    const pool = getPool();
+
+    await pool.query(
+      `UPDATE print_jobs SET status = 'printed', printed_at = NOW() WHERE id = ?`,
+      [jobId]
+    );
+
+    await pool.query(
+      `INSERT INTO print_job_logs (print_job_id, action, bridge_id) VALUES (?, 'printed', ?)`,
+      [jobId, bridgeId]
+    );
+
+    // Update bridge stats
+    if (bridgeId) {
+      await pool.query(
+        `UPDATE printer_bridges SET total_jobs_printed = total_jobs_printed + 1, last_poll_at = NOW() WHERE id = ?`,
+        [bridgeId]
+      );
+    }
+
+    logger.info(`Print job ${jobId} marked as printed`);
+  },
+
+  async markJobFailed(jobId, error, bridgeId = null) {
+    const pool = getPool();
+
+    const [job] = await pool.query('SELECT attempts, max_attempts FROM print_jobs WHERE id = ?', [jobId]);
+    
+    const newStatus = job[0].attempts >= job[0].max_attempts ? 'failed' : 'pending';
+
+    await pool.query(
+      `UPDATE print_jobs SET status = ?, last_error = ? WHERE id = ?`,
+      [newStatus, error, jobId]
+    );
+
+    await pool.query(
+      `INSERT INTO print_job_logs (print_job_id, action, details, bridge_id) VALUES (?, 'failed', ?, ?)`,
+      [jobId, error, bridgeId]
+    );
+
+    if (bridgeId) {
+      await pool.query(
+        `UPDATE printer_bridges SET failed_jobs = failed_jobs + 1 WHERE id = ?`,
+        [bridgeId]
+      );
+    }
+  },
+
+  async cancelJob(jobId, reason) {
+    const pool = getPool();
+
+    await pool.query(
+      `UPDATE print_jobs SET status = 'cancelled' WHERE id = ?`,
+      [jobId]
+    );
+
+    await pool.query(
+      `INSERT INTO print_job_logs (print_job_id, action, details) VALUES (?, 'cancelled', ?)`,
+      [jobId, reason]
+    );
+  },
+
+  async retryJob(jobId) {
+    const pool = getPool();
+
+    await pool.query(
+      `UPDATE print_jobs SET status = 'pending', attempts = 0 WHERE id = ?`,
+      [jobId]
+    );
+
+    await pool.query(
+      `INSERT INTO print_job_logs (print_job_id, action) VALUES (?, 'retried')`,
+      [jobId]
+    );
+  },
+
+  // ========================
+  // BRIDGE MANAGEMENT
+  // ========================
+
+  async createBridge(data) {
+    const pool = getPool();
+    const uuid = uuidv4();
+    const apiKey = crypto.randomBytes(32).toString('hex');
+    const hashedKey = crypto.createHash('sha256').update(apiKey).digest('hex');
+
+    const [result] = await pool.query(
+      `INSERT INTO printer_bridges (
+        uuid, outlet_id, name, bridge_code, api_key, assigned_stations
+      ) VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        uuid, data.outletId, data.name, data.bridgeCode,
+        hashedKey, JSON.stringify(data.assignedStations || [])
+      ]
+    );
+
+    return { 
+      id: result.insertId, 
+      uuid, 
+      bridgeCode: data.bridgeCode,
+      apiKey // Return plain key only on creation
+    };
+  },
+
+  async validateBridgeApiKey(outletId, bridgeCode, apiKey) {
+    const pool = getPool();
+    const hashedKey = crypto.createHash('sha256').update(apiKey).digest('hex');
+
+    const [bridges] = await pool.query(
+      `SELECT * FROM printer_bridges 
+       WHERE outlet_id = ? AND bridge_code = ? AND api_key = ? AND is_active = 1`,
+      [outletId, bridgeCode, hashedKey]
+    );
+
+    if (bridges[0]) {
+      // Update last seen
+      await pool.query(
+        `UPDATE printer_bridges SET is_online = 1, last_poll_at = NOW() WHERE id = ?`,
+        [bridges[0].id]
+      );
+    }
+
+    return bridges[0] || null;
+  },
+
+  async getBridges(outletId) {
+    const pool = getPool();
+    const [bridges] = await pool.query(
+      `SELECT id, uuid, outlet_id, name, bridge_code, assigned_stations,
+              is_active, is_online, last_poll_at, total_jobs_printed, failed_jobs,
+              created_at
+       FROM printer_bridges WHERE outlet_id = ?`,
+      [outletId]
+    );
+    return bridges;
+  },
+
+  async updateBridgeStatus(bridgeId, isOnline, lastIp = null) {
+    const pool = getPool();
+    await pool.query(
+      `UPDATE printer_bridges SET is_online = ?, last_poll_at = NOW(), last_ip = ? WHERE id = ?`,
+      [isOnline, lastIp, bridgeId]
+    );
+  },
+
+  // ========================
+  // CONTENT FORMATTING
+  // ========================
+
+  formatKotContent(kotData) {
+    const lines = [];
+    const width = 42;
+    const separator = '='.repeat(width);
+    const dash = '-'.repeat(width);
+
+    // Header
+    lines.push(separator);
+    const title = kotData.station === 'bar' ? 'BAR ORDER (BOT)' : 'KITCHEN ORDER (KOT)';
+    lines.push(this.centerText(title, width));
+    lines.push(separator);
+
+    // Order info
+    lines.push(`KOT #: ${kotData.kotNumber}`);
+    lines.push(`Table: ${kotData.tableNumber || 'Takeaway'}    Time: ${kotData.time}`);
+    lines.push(dash);
+
+    // Items
+    for (const item of kotData.items || []) {
+      lines.push(`${item.quantity} x ${item.itemName}`);
+      if (item.variantName) {
+        lines.push(`   (${item.variantName})`);
+      }
+      if (item.instructions) {
+        lines.push(`   >> ${item.instructions}`);
+      }
+    }
+
+    lines.push(dash);
+    lines.push(`Captain: ${kotData.captainName || 'N/A'}`);
+    lines.push(separator);
+    lines.push(''); // Empty line for paper feed
+
+    return lines.join('\n');
+  },
+
+  formatBillContent(billData) {
+    const lines = [];
+    const width = 48;
+    const separator = '='.repeat(width);
+    const dash = '-'.repeat(width);
+
+    // Header with outlet info
+    lines.push(separator);
+    lines.push(this.centerText(billData.outletName, width));
+    if (billData.outletAddress) {
+      lines.push(this.centerText(billData.outletAddress, width));
+    }
+    if (billData.outletGstin) {
+      lines.push(this.centerText(`GSTIN: ${billData.outletGstin}`, width));
+    }
+    lines.push(separator);
+
+    // Invoice info
+    lines.push(`Invoice: ${billData.invoiceNumber}`);
+    lines.push(`Date: ${billData.date}    Time: ${billData.time}`);
+    if (billData.tableNumber) {
+      lines.push(`Table: ${billData.tableNumber}`);
+    }
+    lines.push(dash);
+
+    // Items
+    for (const item of billData.items || []) {
+      lines.push(item.itemName);
+      const qtyPrice = `   ${item.quantity} x ${item.unitPrice}`;
+      const total = item.totalPrice.toString();
+      lines.push(this.padBetween(qtyPrice, total, width));
+    }
+
+    lines.push(dash);
+
+    // Totals
+    lines.push(this.padBetween('Subtotal:', billData.subtotal, width));
+
+    for (const tax of billData.taxes || []) {
+      lines.push(this.padBetween(`${tax.name} (${tax.rate}%):`, tax.amount, width));
+    }
+
+    if (billData.serviceCharge) {
+      lines.push(this.padBetween('Service Charge:', billData.serviceCharge, width));
+    }
+
+    if (billData.discount) {
+      lines.push(this.padBetween('Discount:', `-${billData.discount}`, width));
+    }
+
+    lines.push(dash);
+    lines.push(this.padBetween('GRAND TOTAL:', billData.grandTotal, width, true));
+    lines.push(separator);
+
+    // Payment
+    if (billData.paymentMode) {
+      lines.push(`Payment: ${billData.paymentMode.toUpperCase()}`);
+    }
+
+    // Footer
+    lines.push('');
+    lines.push(this.centerText('Thank you for dining with us!', width));
+    lines.push(separator);
+    lines.push(''); // Paper feed
+
+    return lines.join('\n');
+  },
+
+  centerText(text, width) {
+    const padding = Math.max(0, Math.floor((width - text.length) / 2));
+    return ' '.repeat(padding) + text;
+  },
+
+  padBetween(left, right, width, bold = false) {
+    const rightStr = right.toString();
+    const padding = Math.max(1, width - left.length - rightStr.length);
+    return left + ' '.repeat(padding) + rightStr;
+  },
+
+  // ========================
+  // ESC/POS COMMANDS
+  // ========================
+
+  getEscPosCommands() {
+    return {
+      INIT: '\x1B\x40',              // Initialize printer
+      BOLD_ON: '\x1B\x45\x01',       // Bold on
+      BOLD_OFF: '\x1B\x45\x00',      // Bold off
+      ALIGN_LEFT: '\x1B\x61\x00',    // Align left
+      ALIGN_CENTER: '\x1B\x61\x01', // Align center
+      ALIGN_RIGHT: '\x1B\x61\x02',  // Align right
+      DOUBLE_HEIGHT: '\x1B\x21\x10', // Double height
+      NORMAL: '\x1B\x21\x00',        // Normal text
+      FEED_LINES: '\x1B\x64\x05',    // Feed 5 lines
+      CUT: '\x1D\x56\x00',           // Full cut
+      PARTIAL_CUT: '\x1D\x56\x01',   // Partial cut
+      OPEN_DRAWER: '\x1B\x70\x00\x19\xFA', // Open cash drawer
+      BEEP: '\x1B\x42\x03\x02'       // Beep 3 times
+    };
+  },
+
+  wrapWithEscPos(content, options = {}) {
+    const cmd = this.getEscPosCommands();
+    let output = cmd.INIT;
+
+    if (options.beep) {
+      output += cmd.BEEP;
+    }
+
+    output += content;
+    output += cmd.FEED_LINES;
+
+    if (options.cut !== false) {
+      output += options.partialCut ? cmd.PARTIAL_CUT : cmd.CUT;
+    }
+
+    if (options.openDrawer) {
+      output += cmd.OPEN_DRAWER;
+    }
+
+    return output;
+  },
+
+  // ========================
+  // HIGH-LEVEL PRINT METHODS
+  // ========================
+
+  async printKot(kotData, userId) {
+    const content = this.formatKotContent(kotData);
+    const station = kotData.station || 'kitchen';
+
+    return this.createPrintJob({
+      outletId: kotData.outletId,
+      jobType: station === 'bar' ? 'bot' : 'kot',
+      station,
+      kotId: kotData.kotId,
+      orderId: kotData.orderId,
+      content: this.wrapWithEscPos(content, { beep: true }),
+      contentType: 'escpos',
+      referenceNumber: kotData.kotNumber,
+      tableNumber: kotData.tableNumber,
+      priority: 10, // KOTs are high priority
+      createdBy: userId
+    });
+  },
+
+  async printBill(billData, userId) {
+    const content = this.formatBillContent(billData);
+
+    return this.createPrintJob({
+      outletId: billData.outletId,
+      jobType: billData.isDuplicate ? 'duplicate_bill' : 'bill',
+      station: 'cashier',
+      orderId: billData.orderId,
+      invoiceId: billData.invoiceId,
+      content: this.wrapWithEscPos(content, { openDrawer: billData.openDrawer }),
+      contentType: 'escpos',
+      referenceNumber: billData.invoiceNumber,
+      tableNumber: billData.tableNumber,
+      priority: 5,
+      createdBy: userId
+    });
+  },
+
+  async openCashDrawer(outletId, userId) {
+    const cmd = this.getEscPosCommands();
+    
+    return this.createPrintJob({
+      outletId,
+      jobType: 'cash_drawer',
+      station: 'cashier',
+      content: cmd.INIT + cmd.OPEN_DRAWER,
+      contentType: 'escpos',
+      referenceNumber: 'DRAWER',
+      priority: 15, // Highest priority
+      createdBy: userId
+    });
+  },
+
+  async printTestPage(outletId, station, userId) {
+    const content = [
+      '================================',
+      '        PRINTER TEST PAGE',
+      '================================',
+      '',
+      `Station: ${station}`,
+      `Time: ${new Date().toLocaleString()}`,
+      '',
+      'If you can read this,',
+      'the printer is working correctly!',
+      '',
+      '================================'
+    ].join('\n');
+
+    return this.createPrintJob({
+      outletId,
+      jobType: 'test',
+      station,
+      content: this.wrapWithEscPos(content),
+      contentType: 'escpos',
+      referenceNumber: 'TEST',
+      createdBy: userId
+    });
+  },
+
+  // ========================
+  // STATS & MONITORING
+  // ========================
+
+  async getJobStats(outletId, date = null) {
+    const pool = getPool();
+    const targetDate = date || new Date().toISOString().slice(0, 10);
+
+    const [stats] = await pool.query(
+      `SELECT 
+         station,
+         job_type,
+         status,
+         COUNT(*) as count
+       FROM print_jobs
+       WHERE outlet_id = ? AND DATE(created_at) = ?
+       GROUP BY station, job_type, status`,
+      [outletId, targetDate]
+    );
+
+    const [pendingCount] = await pool.query(
+      `SELECT COUNT(*) as count FROM print_jobs 
+       WHERE outlet_id = ? AND status = 'pending'`,
+      [outletId]
+    );
+
+    return {
+      date: targetDate,
+      pending: pendingCount[0].count,
+      breakdown: stats
+    };
+  }
+};
+
+module.exports = printerService;

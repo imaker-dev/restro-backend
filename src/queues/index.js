@@ -2,8 +2,10 @@ const { Queue } = require('bullmq');
 const redisConfig = require('../config/redis.config');
 const { QUEUE_NAMES } = require('../constants');
 const logger = require('../utils/logger');
+const { isRedisAvailable } = require('../config/redis');
 
 const queues = {};
+let queuesInitialized = false;
 
 const redisConnection = {
   host: redisConfig.host,
@@ -28,33 +30,50 @@ const defaultJobOptions = {
 };
 
 const initializeQueues = async () => {
-  const queueNames = Object.values(QUEUE_NAMES);
-
-  for (const name of queueNames) {
-    queues[name] = new Queue(name, {
-      connection: redisConnection,
-      prefix: process.env.QUEUE_PREFIX || 'restro-pos',
-      defaultJobOptions,
-    });
-
-    queues[name].on('error', (error) => {
-      logger.error(`Queue ${name} error:`, error);
-    });
+  // Skip queue initialization if Redis is not available
+  if (!isRedisAvailable()) {
+    logger.warn('Queues disabled - Redis not available');
+    logger.warn('Background jobs (printing, notifications, reports) will not work');
+    return queues;
   }
 
-  logger.info(`Initialized ${queueNames.length} queues`);
-  return queues;
+  try {
+    const queueNames = Object.values(QUEUE_NAMES);
+
+    for (const name of queueNames) {
+      queues[name] = new Queue(name, {
+        connection: redisConnection,
+        prefix: process.env.QUEUE_PREFIX || 'restro-pos',
+        defaultJobOptions,
+      });
+
+      queues[name].on('error', (error) => {
+        logger.error(`Queue ${name} error:`, error);
+      });
+    }
+
+    queuesInitialized = true;
+    logger.info(`Initialized ${queueNames.length} queues`);
+    return queues;
+  } catch (error) {
+    logger.warn('Failed to initialize queues:', error.message);
+    return queues;
+  }
 };
 
 const getQueue = (name) => {
-  if (!queues[name]) {
-    throw new Error(`Queue ${name} not found`);
+  if (!queuesInitialized || !queues[name]) {
+    return null;
   }
   return queues[name];
 };
 
 const addJob = async (queueName, jobName, data, options = {}) => {
   const queue = getQueue(queueName);
+  if (!queue) {
+    logger.warn(`Cannot add job ${jobName} - queue ${queueName} not available`);
+    return null;
+  }
   const job = await queue.add(jobName, data, {
     ...defaultJobOptions,
     ...options,
@@ -65,6 +84,10 @@ const addJob = async (queueName, jobName, data, options = {}) => {
 
 const addBulkJobs = async (queueName, jobs) => {
   const queue = getQueue(queueName);
+  if (!queue) {
+    logger.warn(`Cannot add bulk jobs - queue ${queueName} not available`);
+    return [];
+  }
   const result = await queue.addBulk(
     jobs.map((job) => ({
       name: job.name,

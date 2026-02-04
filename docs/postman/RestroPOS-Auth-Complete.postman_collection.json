@@ -1,0 +1,334 @@
+{
+  "info": {
+    "name": "RestroPOS - Auth & User Management",
+    "description": "Complete Authentication, User Management & Permission System.\n\n## Login Methods\n- **Email/Password**: For admin panel access\n- **PIN**: For quick staff access (all roles)\n\n## Roles & Default Permissions\n| Role | Permissions |\n|------|-------------|\n| Admin | ALL (superuser) |\n| Manager | 58 permissions |\n| Captain | 22 permissions |\n| Kitchen | 7 permissions |\n| Bartender | 8 permissions |\n| Cashier | 11 permissions |\n| Inventory | 9 permissions |\n\n## Key Rules\n1. PIN is **required** for all staff\n2. All roles can login with PIN\n3. Manager can only grant permissions they have\n4. Permissions auto-granted based on role",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {"key": "baseUrl", "value": "http://localhost:3000/api/v1"},
+    {"key": "adminToken", "value": ""},
+    {"key": "managerToken", "value": ""},
+    {"key": "captainToken", "value": ""},
+    {"key": "refreshToken", "value": ""},
+    {"key": "outletId", "value": "1"},
+    {"key": "managerId", "value": ""},
+    {"key": "captainId", "value": ""},
+    {"key": "managerRoleId", "value": "3"},
+    {"key": "captainRoleId", "value": "4"}
+  ],
+  "item": [
+    {
+      "name": "1. Auth - Login",
+      "description": "Login endpoints for all roles",
+      "item": [
+        {
+          "name": "1.1 Admin Login (Email)",
+          "event": [
+            {"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if (res.success) {", "  pm.collectionVariables.set('adminToken', res.data.accessToken);", "  pm.collectionVariables.set('refreshToken', res.data.refreshToken);", "}", "pm.test('Login successful', () => pm.expect(res.success).to.be.true);", "pm.test('Has tokens', () => {", "  pm.expect(res.data.accessToken).to.be.a('string');", "  pm.expect(res.data.refreshToken).to.be.a('string');", "});", "pm.test('Has user info', () => pm.expect(res.data.user.name).to.be.a('string'));"], "type": "text/javascript"}}
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"email\": \"admin@restropos.com\",\n  \"password\": \"admin123\"\n}"},
+            "url": "{{baseUrl}}/auth/login",
+            "description": "Login with email and password. Use for admin panel."
+          }
+        },
+        {
+          "name": "1.2 Manager Login (PIN)",
+          "event": [
+            {"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if (res.success) {", "  pm.collectionVariables.set('managerToken', res.data.accessToken);", "}", "pm.test('PIN login successful', () => pm.expect(res.success).to.be.true);"], "type": "text/javascript"}}
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"employeeCode\": \"MGR001\",\n  \"pin\": \"1234\",\n  \"outletId\": {{outletId}}\n}"},
+            "url": "{{baseUrl}}/auth/login/pin",
+            "description": "Quick login with employee code and PIN. Works for all staff roles."
+          }
+        },
+        {
+          "name": "1.3 Captain Login (PIN)",
+          "event": [
+            {"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if (res.success) {", "  pm.collectionVariables.set('captainToken', res.data.accessToken);", "}", "pm.test('PIN login successful', () => pm.expect(res.success).to.be.true);"], "type": "text/javascript"}}
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"employeeCode\": \"CAP001\",\n  \"pin\": \"5678\",\n  \"outletId\": {{outletId}}\n}"},
+            "url": "{{baseUrl}}/auth/login/pin",
+            "description": "Captain login with PIN."
+          }
+        },
+        {
+          "name": "1.4 Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"},
+            "url": "{{baseUrl}}/auth/refresh",
+            "description": "Get new access token using refresh token."
+          }
+        },
+        {
+          "name": "1.5 Logout",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"},
+            "url": "{{baseUrl}}/auth/logout"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Auth - Profile",
+      "description": "Get current user profile and permissions",
+      "item": [
+        {
+          "name": "2.1 Get My Profile (Admin)",
+          "event": [
+            {"listen": "test", "script": {"exec": ["const res = pm.response.json();", "pm.test('Has user data', () => pm.expect(res.data.name).to.be.a('string'));", "pm.test('Has roles', () => pm.expect(res.data.roles).to.be.an('array'));", "pm.test('Has permissions', () => pm.expect(res.data.permissions).to.be.an('array'));"], "type": "text/javascript"}}
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}],
+            "url": "{{baseUrl}}/auth/me",
+            "description": "Get current user profile with roles and permissions."
+          }
+        },
+        {
+          "name": "2.2 Get My Profile (Manager)",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{managerToken}}"}],
+            "url": "{{baseUrl}}/auth/me"
+          }
+        },
+        {
+          "name": "2.3 Change PIN",
+          "request": {
+            "method": "PUT",
+            "header": [{"key": "Authorization", "value": "Bearer {{managerToken}}"}, {"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"currentPin\": \"1234\",\n  \"newPin\": \"4321\",\n  \"confirmPin\": \"4321\"\n}"},
+            "url": "{{baseUrl}}/auth/pin"
+          }
+        },
+        {
+          "name": "2.4 Change Password",
+          "request": {
+            "method": "PUT",
+            "header": [{"key": "Authorization", "value": "Bearer {{managerToken}}"}, {"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"currentPassword\": \"Manager@123\",\n  \"newPassword\": \"Manager@456\",\n  \"confirmPassword\": \"Manager@456\"\n}"},
+            "url": "{{baseUrl}}/auth/password"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Users - Admin Creates Manager",
+      "description": "Admin creates manager with all 58 default permissions",
+      "item": [
+        {
+          "name": "3.1 Create Manager",
+          "event": [
+            {"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if (res.success) {", "  pm.collectionVariables.set('managerId', res.data.id);", "}", "pm.test('Manager created', () => pm.expect(res.success).to.be.true);", "pm.test('Has 58 permissions', () => pm.expect(res.data.permissionCount).to.equal(58));", "pm.test('Has roles', () => pm.expect(res.data.roles).to.be.an('array'));"], "type": "text/javascript"}}
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"name\": \"John Manager\",\n  \"email\": \"john.manager@restaurant.com\",\n  \"employeeCode\": \"MGR001\",\n  \"password\": \"Manager@123\",\n  \"pin\": \"1234\",\n  \"isActive\": true,\n  \"roles\": [\n    {\n      \"roleId\": {{managerRoleId}},\n      \"outletId\": {{outletId}}\n    }\n  ]\n}"},
+            "url": "{{baseUrl}}/users",
+            "description": "Create manager with email, password, and PIN. Manager gets all 58 default permissions automatically."
+          }
+        },
+        {
+          "name": "3.2 Get Manager Details",
+          "event": [
+            {"listen": "test", "script": {"exec": ["const res = pm.response.json();", "pm.test('Has permissions array', () => pm.expect(res.data.permissions).to.be.an('array'));", "pm.test('Has permission count', () => pm.expect(res.data.permissionCount).to.be.a('number'));"], "type": "text/javascript"}}
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}],
+            "url": "{{baseUrl}}/users/{{managerId}}"
+          }
+        },
+        {
+          "name": "3.3 Manager Login Test (PIN)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"employeeCode\": \"MGR001\",\n  \"pin\": \"1234\",\n  \"outletId\": {{outletId}}\n}"},
+            "url": "{{baseUrl}}/auth/login/pin"
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Users - Admin Creates Captain",
+      "description": "Admin creates captain with all 22 default permissions",
+      "item": [
+        {
+          "name": "4.1 Create Captain (PIN only)",
+          "event": [
+            {"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if (res.success) {", "  pm.collectionVariables.set('captainId', res.data.id);", "}", "pm.test('Captain created', () => pm.expect(res.success).to.be.true);", "pm.test('Has 22 permissions', () => pm.expect(res.data.permissionCount).to.equal(22));"], "type": "text/javascript"}}
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"name\": \"Mike Captain\",\n  \"employeeCode\": \"CAP001\",\n  \"pin\": \"5678\",\n  \"isActive\": true,\n  \"roles\": [\n    {\n      \"roleId\": {{captainRoleId}},\n      \"outletId\": {{outletId}}\n    }\n  ]\n}"},
+            "url": "{{baseUrl}}/users",
+            "description": "Create captain with just PIN (no email/password needed). Captain gets all 22 default permissions."
+          }
+        },
+        {
+          "name": "4.2 Captain Login Test (PIN)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"employeeCode\": \"CAP001\",\n  \"pin\": \"5678\",\n  \"outletId\": {{outletId}}\n}"},
+            "url": "{{baseUrl}}/auth/login/pin"
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Users - Manager Creates Captain",
+      "description": "Manager can create captains with PIN",
+      "item": [
+        {
+          "name": "5.1 Manager Creates Captain",
+          "event": [
+            {"listen": "test", "script": {"exec": ["const res = pm.response.json();", "pm.test('Captain created by manager', () => pm.expect(res.success).to.be.true);", "pm.test('Has 22 permissions', () => pm.expect(res.data.permissionCount).to.equal(22));"], "type": "text/javascript"}}
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{managerToken}}"}, {"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"name\": \"Tom Waiter\",\n  \"employeeCode\": \"CAP002\",\n  \"pin\": \"9999\",\n  \"isActive\": true,\n  \"roles\": [\n    {\n      \"roleId\": {{captainRoleId}},\n      \"outletId\": {{outletId}}\n    }\n  ]\n}"},
+            "url": "{{baseUrl}}/users",
+            "description": "Manager creates captain. Captain gets full 22 default permissions."
+          }
+        },
+        {
+          "name": "5.2 Manager CANNOT Create Manager",
+          "event": [
+            {"listen": "test", "script": {"exec": ["const res = pm.response.json();", "pm.test('Should fail', () => pm.expect(res.success).to.be.false);", "pm.test('Error message', () => pm.expect(res.message).to.include('staff'));"], "type": "text/javascript"}}
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{managerToken}}"}, {"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"name\": \"Another Manager\",\n  \"email\": \"another.mgr@test.com\",\n  \"employeeCode\": \"MGR999\",\n  \"pin\": \"1111\",\n  \"roles\": [{\"roleId\": {{managerRoleId}}, \"outletId\": {{outletId}}}]\n}"},
+            "url": "{{baseUrl}}/users",
+            "description": "Manager cannot create another manager - should fail."
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Permissions",
+      "description": "Permission management endpoints",
+      "item": [
+        {
+          "name": "6.1 Get All Permissions",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}],
+            "url": "{{baseUrl}}/permissions",
+            "description": "Get all available permissions grouped by category."
+          }
+        },
+        {
+          "name": "6.2 Get My Permissions",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{managerToken}}"}],
+            "url": "{{baseUrl}}/permissions/my",
+            "description": "Get current user's permissions."
+          }
+        },
+        {
+          "name": "6.3 Get Grantable Permissions",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{managerToken}}"}],
+            "url": "{{baseUrl}}/permissions/grantable",
+            "description": "Get permissions that current user can grant to others."
+          }
+        },
+        {
+          "name": "6.4 Get User Permissions",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}],
+            "url": "{{baseUrl}}/users/{{captainId}}/permissions"
+          }
+        },
+        {
+          "name": "6.5 Grant Permission to Captain",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"permissions\": [\"ORDER_CANCEL\", \"BILL_CANCEL\"],\n  \"reason\": \"Granting additional permissions\"\n}"},
+            "url": "{{baseUrl}}/users/{{captainId}}/permissions/grant"
+          }
+        },
+        {
+          "name": "6.6 Manager Grant (BLOCKED)",
+          "event": [
+            {"listen": "test", "script": {"exec": ["const res = pm.response.json();", "pm.test('Should be blocked', () => pm.expect(res.success).to.be.false);"], "type": "text/javascript"}}
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{managerToken}}"}, {"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"permissions\": [\"OUTLET_SETTINGS\"],\n  \"reason\": \"This should fail - manager doesn't have OUTLET_SETTINGS\"\n}"},
+            "url": "{{baseUrl}}/users/{{captainId}}/permissions/grant",
+            "description": "Manager cannot grant permissions they don't have."
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Roles",
+      "description": "Role management",
+      "item": [
+        {
+          "name": "7.1 Get All Roles",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}],
+            "url": "{{baseUrl}}/users/roles"
+          }
+        },
+        {
+          "name": "7.2 Get Role Permissions",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}],
+            "url": "{{baseUrl}}/permissions/roles/{{captainRoleId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Cleanup",
+      "item": [
+        {
+          "name": "8.1 Delete Test Captain",
+          "request": {
+            "method": "DELETE",
+            "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}],
+            "url": "{{baseUrl}}/users/{{captainId}}"
+          }
+        },
+        {
+          "name": "8.2 Delete Test Manager",
+          "request": {
+            "method": "DELETE",
+            "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}],
+            "url": "{{baseUrl}}/users/{{managerId}}"
+          }
+        }
+      ]
+    }
+  ]
+}

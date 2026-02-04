@@ -1,0 +1,267 @@
+{
+  "info": {
+    "_postman_id": "restro-pos-auth-module",
+    "name": "RestroPOS - Auth & User Management",
+    "description": "Complete Authentication & User Management API Collection\n\nHierarchy:\n- Super Admin / Admin → Manages Managers\n- Manager → Can view/list Captains and other staff\n\nFloors/Sections are OPTIONAL during user creation.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {"key": "baseUrl", "value": "http://localhost:3000/api/v1"},
+    {"key": "accessToken", "value": ""},
+    {"key": "refreshToken", "value": ""},
+    {"key": "adminToken", "value": ""},
+    {"key": "managerToken", "value": ""},
+    {"key": "captainToken", "value": ""},
+    {"key": "outletId", "value": "1"},
+    {"key": "createdManagerId", "value": ""},
+    {"key": "createdCaptainId", "value": ""},
+    {"key": "managerRoleId", "value": "3"},
+    {"key": "captainRoleId", "value": "4"},
+    {"key": "waiterRoleId", "value": "5"},
+    {"key": "sessionId", "value": ""}
+  ],
+  "item": [
+    {
+      "name": "1. Authentication",
+      "item": [
+        {
+          "name": "1.1 Login - Admin (Email)",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "if (jsonData.success) {", "  pm.collectionVariables.set('accessToken', jsonData.data.accessToken);", "  pm.collectionVariables.set('refreshToken', jsonData.data.refreshToken);", "  pm.collectionVariables.set('adminToken', jsonData.data.accessToken);", "  pm.test('Admin login successful', () => pm.expect(jsonData.success).to.be.true);", "} else {", "  pm.test('Login failed: ' + jsonData.message, () => pm.expect.fail());", "}"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"email\": \"admin@restropos.com\",\n  \"password\": \"admin123\"\n}"}, "url": "{{baseUrl}}/auth/login"}
+        },
+        {
+          "name": "1.2 Login - PIN (Staff Quick Access)",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('PIN login response', () => pm.expect(pm.response.code).to.be.oneOf([200, 401]));"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"employeeCode\": \"CAP001\",\n  \"pin\": \"3456\",\n  \"outletId\": {{outletId}}\n}"}, "url": "{{baseUrl}}/auth/login/pin"}
+        },
+        {
+          "name": "1.3 Get Current User Profile",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Profile retrieved', () => pm.expect(jsonData.success).to.be.true);", "pm.test('Has user data', () => pm.expect(jsonData.data).to.have.property('id'));"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}], "url": "{{baseUrl}}/auth/me"}
+        },
+        {
+          "name": "1.4 Refresh Token",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "if (jsonData.success) {", "  pm.collectionVariables.set('accessToken', jsonData.data.accessToken);", "  pm.test('Token refreshed', () => pm.expect(jsonData.success).to.be.true);", "}"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"}, "url": "{{baseUrl}}/auth/refresh"}
+        },
+        {
+          "name": "1.5 Change Password",
+          "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"currentPassword\": \"admin123\",\n  \"newPassword\": \"Admin@123\",\n  \"confirmPassword\": \"Admin@123\"\n}"}, "url": "{{baseUrl}}/auth/password"}
+        },
+        {
+          "name": "1.6 Change PIN",
+          "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"currentPin\": \"1234\",\n  \"newPin\": \"5678\"\n}"}, "url": "{{baseUrl}}/auth/pin"}
+        },
+        {
+          "name": "1.7 Get Active Sessions",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "if (jsonData.success && jsonData.data.length > 0) {", "  pm.collectionVariables.set('sessionId', jsonData.data[0].id);", "}", "pm.test('Sessions retrieved', () => pm.expect(jsonData.success).to.be.true);"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}], "url": "{{baseUrl}}/auth/sessions"}
+        },
+        {
+          "name": "1.8 Revoke Session",
+          "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}], "url": "{{baseUrl}}/auth/sessions/{{sessionId}}"}
+        },
+        {
+          "name": "1.9 Logout",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"}, "url": "{{baseUrl}}/auth/logout"}
+        },
+        {
+          "name": "1.10 Logout All Devices",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}], "url": "{{baseUrl}}/auth/logout/all"}
+        }
+      ]
+    },
+    {
+      "name": "2. Roles & Permissions",
+      "item": [
+        {
+          "name": "2.1 Get All Roles",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "if (jsonData.success) {", "  jsonData.data.forEach(r => {", "    if (r.name.toLowerCase() === 'manager') pm.collectionVariables.set('managerRoleId', r.id.toString());", "    if (r.name.toLowerCase() === 'captain') pm.collectionVariables.set('captainRoleId', r.id.toString());", "    if (r.name.toLowerCase() === 'waiter') pm.collectionVariables.set('waiterRoleId', r.id.toString());", "  });", "  pm.test('Roles fetched: ' + jsonData.data.length, () => pm.expect(jsonData.data.length).to.be.above(0));", "}"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}], "url": "{{baseUrl}}/users/roles"}
+        },
+        {
+          "name": "2.2 Get Role by ID",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}], "url": "{{baseUrl}}/users/roles/{{managerRoleId}}"}
+        },
+        {
+          "name": "2.3 Get All Permissions",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}], "url": "{{baseUrl}}/users/permissions"}
+        }
+      ]
+    },
+    {
+      "name": "3. Admin Creates Manager",
+      "item": [
+        {
+          "name": "3.1 Create Manager (Basic - No Floor/Section)",
+          "event": [{"listen": "prerequest", "script": {"exec": ["pm.variables.set('ts', Date.now());"], "type": "text/javascript"}}, {"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Manager created', () => pm.expect(jsonData.success).to.be.true);", "if (jsonData.success) {", "  pm.collectionVariables.set('createdManagerId', jsonData.data.id.toString());", "  pm.test('Manager ID: ' + jsonData.data.id, () => pm.expect(jsonData.data.id).to.be.above(0));", "}"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Test Manager {{$timestamp}}\",\n  \"email\": \"manager.{{$timestamp}}@test.com\",\n  \"phone\": \"+91-9876543210\",\n  \"employeeCode\": \"MGR{{$timestamp}}\",\n  \"password\": \"Manager@123\",\n  \"pin\": \"1234\",\n  \"isActive\": true,\n  \"roles\": [{\"roleId\": {{managerRoleId}}, \"outletId\": {{outletId}}}]\n}"}, "url": "{{baseUrl}}/users"}
+        },
+        {
+          "name": "3.2 Create Manager (With Optional Floor Assignment)",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Manager with floor created', () => pm.expect(jsonData.success).to.be.true);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Floor Manager {{$timestamp}}\",\n  \"email\": \"floor.mgr.{{$timestamp}}@test.com\",\n  \"employeeCode\": \"FMGR{{$timestamp}}\",\n  \"password\": \"Manager@123\",\n  \"pin\": \"2345\",\n  \"isActive\": true,\n  \"roles\": [{\"roleId\": {{managerRoleId}}, \"outletId\": {{outletId}}}],\n  \"floors\": [{\"floorId\": 1, \"outletId\": {{outletId}}, \"isPrimary\": true}]\n}"}, "url": "{{baseUrl}}/users"}
+        },
+        {
+          "name": "3.3 Get Manager by ID",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Manager retrieved', () => pm.expect(jsonData.success).to.be.true);", "pm.test('Has roles', () => pm.expect(jsonData.data.roles).to.be.an('array'));"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/users/{{createdManagerId}}"}
+        },
+        {
+          "name": "3.4 Update Manager",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Manager updated', () => pm.expect(jsonData.success).to.be.true);"], "type": "text/javascript"}}],
+          "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Updated Manager Name\",\n  \"phone\": \"+91-9876500000\",\n  \"isActive\": true\n}"}, "url": "{{baseUrl}}/users/{{createdManagerId}}"}
+        },
+        {
+          "name": "3.5 List All Managers",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Managers listed', () => pm.expect(jsonData.success).to.be.true);", "pm.test('Returns array', () => pm.expect(jsonData.data).to.be.an('array'));"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": {"raw": "{{baseUrl}}/users?roleId={{managerRoleId}}&outletId={{outletId}}", "host": ["{{baseUrl}}"], "path": ["users"], "query": [{"key": "roleId", "value": "{{managerRoleId}}"}, {"key": "outletId", "value": "{{outletId}}"}]}}
+        }
+      ]
+    },
+    {
+      "name": "4. Admin Creates Captain",
+      "item": [
+        {
+          "name": "4.1 Create Captain (Basic)",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Captain created', () => pm.expect(jsonData.success).to.be.true);", "if (jsonData.success) {", "  pm.collectionVariables.set('createdCaptainId', jsonData.data.id.toString());", "}"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Test Captain {{$timestamp}}\",\n  \"email\": \"captain.{{$timestamp}}@test.com\",\n  \"employeeCode\": \"CAP{{$timestamp}}\",\n  \"password\": \"Captain@123\",\n  \"pin\": \"3456\",\n  \"isActive\": true,\n  \"roles\": [{\"roleId\": {{captainRoleId}}, \"outletId\": {{outletId}}}]\n}"}, "url": "{{baseUrl}}/users"}
+        },
+        {
+          "name": "4.2 Create Captain (With Floor & Section)",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Captain with assignments created', () => pm.expect(jsonData.success).to.be.true);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Captain Floor Section {{$timestamp}}\",\n  \"email\": \"captain.fs.{{$timestamp}}@test.com\",\n  \"employeeCode\": \"CAPFS{{$timestamp}}\",\n  \"pin\": \"4567\",\n  \"isActive\": true,\n  \"roles\": [{\"roleId\": {{captainRoleId}}, \"outletId\": {{outletId}}}],\n  \"floors\": [{\"floorId\": 1, \"outletId\": {{outletId}}, \"isPrimary\": true}],\n  \"sections\": [{\"sectionId\": 1, \"outletId\": {{outletId}}, \"canViewMenu\": true, \"canTakeOrders\": true, \"isPrimary\": true}]\n}"}, "url": "{{baseUrl}}/users"}
+        },
+        {
+          "name": "4.3 Get Captain by ID",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/users/{{createdCaptainId}}"}
+        },
+        {
+          "name": "4.4 Update Captain",
+          "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Updated Captain Name\",\n  \"isActive\": true\n}"}, "url": "{{baseUrl}}/users/{{createdCaptainId}}"}
+        },
+        {
+          "name": "4.5 List All Captains",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": {"raw": "{{baseUrl}}/users?roleId={{captainRoleId}}&outletId={{outletId}}", "host": ["{{baseUrl}}"], "path": ["users"], "query": [{"key": "roleId", "value": "{{captainRoleId}}"}, {"key": "outletId", "value": "{{outletId}}"}]}}
+        }
+      ]
+    },
+    {
+      "name": "5. Admin Creates Waiter",
+      "item": [
+        {
+          "name": "5.1 Create Waiter (PIN Only - No Password)",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Waiter created (PIN only)', () => pm.expect(jsonData.success).to.be.true);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Test Waiter {{$timestamp}}\",\n  \"employeeCode\": \"WTR{{$timestamp}}\",\n  \"pin\": \"5678\",\n  \"isActive\": true,\n  \"roles\": [{\"roleId\": {{waiterRoleId}}, \"outletId\": {{outletId}}}]\n}"}, "url": "{{baseUrl}}/users"}
+        },
+        {
+          "name": "5.2 List All Waiters",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": {"raw": "{{baseUrl}}/users?roleId={{waiterRoleId}}&outletId={{outletId}}", "host": ["{{baseUrl}}"], "path": ["users"], "query": [{"key": "roleId", "value": "{{waiterRoleId}}"}, {"key": "outletId", "value": "{{outletId}}"}]}}
+        }
+      ]
+    },
+    {
+      "name": "6. Role Assignment",
+      "item": [
+        {
+          "name": "6.1 Assign Additional Role to User",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Role assigned', () => pm.expect(jsonData.success).to.be.true);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"roleId\": {{waiterRoleId}},\n  \"outletId\": {{outletId}}\n}"}, "url": "{{baseUrl}}/users/{{createdCaptainId}}/roles"}
+        },
+        {
+          "name": "6.2 Remove Role from User",
+          "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"roleId\": {{waiterRoleId}},\n  \"outletId\": {{outletId}}\n}"}, "url": "{{baseUrl}}/users/{{createdCaptainId}}/roles"}
+        }
+      ]
+    },
+    {
+      "name": "7. Manager Manages Staff",
+      "description": "Managers can CRUD captains and staff but CANNOT manage other managers/admins",
+      "item": [
+        {
+          "name": "7.1 Login as Manager",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "if (jsonData.success) {", "  pm.collectionVariables.set('managerToken', jsonData.data.accessToken);", "  pm.test('Manager login successful', () => pm.expect(jsonData.success).to.be.true);", "}"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"email\": \"manager@test.com\",\n  \"password\": \"Manager@123\"\n}"}, "url": "{{baseUrl}}/auth/login"}
+        },
+        {
+          "name": "7.2 Manager - List All Users",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Manager can list users', () => pm.expect(jsonData.success).to.be.true);"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{managerToken}}"}], "url": "{{baseUrl}}/users"}
+        },
+        {
+          "name": "7.3 Manager - View Captain Details",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{managerToken}}"}], "url": "{{baseUrl}}/users/{{createdCaptainId}}"}
+        },
+        {
+          "name": "7.4 Manager - Get Roles",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{managerToken}}"}], "url": "{{baseUrl}}/users/roles"}
+        },
+        {
+          "name": "7.5 Manager - CAN Create Captain (Staff)",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Manager can create captain', () => pm.expect(jsonData.success).to.be.true);", "if (jsonData.success) { pm.collectionVariables.set('managerCreatedCaptainId', jsonData.data.id.toString()); }"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{managerToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Manager Created Captain\",\n  \"employeeCode\": \"MCAP{{$timestamp}}\",\n  \"pin\": \"9999\",\n  \"isActive\": true,\n  \"roles\": [{\"roleId\": {{captainRoleId}}, \"outletId\": {{outletId}}}]\n}"}, "url": "{{baseUrl}}/users"}
+        },
+        {
+          "name": "7.6 Manager - CANNOT Create Manager (Blocked)",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Manager cannot create manager', () => pm.expect(jsonData.success).to.be.false);", "pm.test('Error message received', () => pm.expect(jsonData.message).to.include('staff'));"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{managerToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Should Fail Manager\",\n  \"email\": \"fail.mgr@test.com\",\n  \"employeeCode\": \"FMGR{{$timestamp}}\",\n  \"password\": \"Manager@123\",\n  \"pin\": \"1234\",\n  \"isActive\": true,\n  \"roles\": [{\"roleId\": {{managerRoleId}}, \"outletId\": {{outletId}}}]\n}"}, "url": "{{baseUrl}}/users"}
+        },
+        {
+          "name": "7.7 Manager - CAN Update Captain",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Manager can update captain', () => pm.expect(jsonData.success).to.be.true);"], "type": "text/javascript"}}],
+          "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{managerToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Updated by Manager\"\n}"}, "url": "{{baseUrl}}/users/{{managerCreatedCaptainId}}"}
+        },
+        {
+          "name": "7.8 Manager - CANNOT Update Another Manager (Blocked)",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Manager cannot update manager', () => pm.expect(jsonData.success).to.be.false);"], "type": "text/javascript"}}],
+          "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{managerToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Should Fail Update\"\n}"}, "url": "{{baseUrl}}/users/{{createdManagerId}}"}
+        },
+        {
+          "name": "7.9 Manager - CAN Delete Captain",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Manager can delete captain', () => pm.expect(jsonData.success).to.be.true);"], "type": "text/javascript"}}],
+          "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{managerToken}}"}], "url": "{{baseUrl}}/users/{{managerCreatedCaptainId}}"}
+        }
+      ]
+    },
+    {
+      "name": "8. User Search & Filters",
+      "item": [
+        {
+          "name": "8.1 Search Users by Name",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": {"raw": "{{baseUrl}}/users?search=captain", "host": ["{{baseUrl}}"], "path": ["users"], "query": [{"key": "search", "value": "captain"}]}}
+        },
+        {
+          "name": "8.2 Filter Active Users Only",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": {"raw": "{{baseUrl}}/users?isActive=true", "host": ["{{baseUrl}}"], "path": ["users"], "query": [{"key": "isActive", "value": "true"}]}}
+        },
+        {
+          "name": "8.3 Paginated Users (Page 1, 10 per page)",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": {"raw": "{{baseUrl}}/users?page=1&limit=10", "host": ["{{baseUrl}}"], "path": ["users"], "query": [{"key": "page", "value": "1"}, {"key": "limit", "value": "10"}]}}
+        },
+        {
+          "name": "8.4 Users Sorted by Name",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": {"raw": "{{baseUrl}}/users?sortBy=name&sortOrder=ASC", "host": ["{{baseUrl}}"], "path": ["users"], "query": [{"key": "sortBy", "value": "name"}, {"key": "sortOrder", "value": "ASC"}]}}
+        }
+      ]
+    },
+    {
+      "name": "9. Deactivate & Delete Users",
+      "item": [
+        {
+          "name": "9.1 Deactivate User (Soft)",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('User deactivated', () => pm.expect(jsonData.success).to.be.true);"], "type": "text/javascript"}}],
+          "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"isActive\": false\n}"}, "url": "{{baseUrl}}/users/{{createdCaptainId}}"}
+        },
+        {
+          "name": "9.2 Reactivate User",
+          "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"isActive\": true\n}"}, "url": "{{baseUrl}}/users/{{createdCaptainId}}"}
+        },
+        {
+          "name": "9.3 Delete User (Soft Delete)",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('User deleted', () => pm.expect(jsonData.success).to.be.true);"], "type": "text/javascript"}}],
+          "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/users/{{createdCaptainId}}"}
+        }
+      ]
+    }
+  ]
+}

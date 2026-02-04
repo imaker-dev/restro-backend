@@ -1,7 +1,7 @@
 const { Server } = require('socket.io');
 const corsConfig = require('./cors.config');
 const logger = require('../utils/logger');
-const { pubsub } = require('./redis');
+const { pubsub, isRedisAvailable } = require('./redis');
 
 let io = null;
 
@@ -35,6 +35,30 @@ const initializeSocket = (server) => {
       logger.debug(`Socket ${socket.id} joined kitchen:${outletId}`);
     });
 
+    // Join bar room
+    socket.on('join:bar', (outletId) => {
+      socket.join(`bar:${outletId}`);
+      logger.debug(`Socket ${socket.id} joined bar:${outletId}`);
+    });
+
+    // Join station room (kitchen, bar, mocktail, dessert)
+    socket.on('join:station', ({ outletId, station }) => {
+      socket.join(`station:${outletId}:${station}`);
+      logger.debug(`Socket ${socket.id} joined station:${outletId}:${station}`);
+    });
+
+    // Join cashier room
+    socket.on('join:cashier', (outletId) => {
+      socket.join(`cashier:${outletId}`);
+      logger.debug(`Socket ${socket.id} joined cashier:${outletId}`);
+    });
+
+    // Join captain room (for order updates)
+    socket.on('join:captain', (outletId) => {
+      socket.join(`captain:${outletId}`);
+      logger.debug(`Socket ${socket.id} joined captain:${outletId}`);
+    });
+
     // Leave rooms
     socket.on('leave:outlet', (outletId) => {
       socket.leave(`outlet:${outletId}`);
@@ -59,30 +83,55 @@ const initializeSocket = (server) => {
     });
   });
 
-  // Subscribe to Redis channels for cross-worker communication
-  setupRedisPubSub();
+  // Subscribe to Redis channels for cross-worker communication (if Redis available)
+  if (isRedisAvailable()) {
+    setupRedisPubSub();
+  } else {
+    logger.warn('Socket.IO running without Redis pub/sub - multi-instance sync disabled');
+  }
 
   return io;
 };
 
 const setupRedisPubSub = () => {
+  if (!isRedisAvailable()) return;
   // Table updates
   pubsub.subscribe('table:update', (data) => {
     io.to(`floor:${data.outletId}:${data.floorId}`).emit('table:updated', data);
+    io.to(`outlet:${data.outletId}`).emit('table:updated', data);
   });
 
-  // Order updates
+  // Order updates - broadcast to outlet, captain, and cashier
   pubsub.subscribe('order:update', (data) => {
     io.to(`outlet:${data.outletId}`).emit('order:updated', data);
+    io.to(`captain:${data.outletId}`).emit('order:updated', data);
+    io.to(`cashier:${data.outletId}`).emit('order:updated', data);
   });
 
-  // KOT updates
+  // KOT updates - route to specific station
   pubsub.subscribe('kot:update', (data) => {
+    // Send to general kitchen room
     io.to(`kitchen:${data.outletId}`).emit('kot:updated', data);
+    
+    // Send to specific station room
+    if (data.station) {
+      io.to(`station:${data.outletId}:${data.station}`).emit('kot:updated', data);
+      
+      // Also send to bar room if bar station
+      if (data.station === 'bar') {
+        io.to(`bar:${data.outletId}`).emit('kot:updated', data);
+      }
+    }
+    
+    // Notify captain when item is ready
+    if (data.type === 'kot:item_ready' || data.type === 'kot:ready') {
+      io.to(`captain:${data.outletId}`).emit('item:ready', data);
+    }
   });
 
-  // Payment updates
+  // Payment updates - send to cashier and outlet
   pubsub.subscribe('payment:update', (data) => {
+    io.to(`cashier:${data.outletId}`).emit('payment:updated', data);
     io.to(`outlet:${data.outletId}`).emit('payment:updated', data);
   });
 
