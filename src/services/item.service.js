@@ -1,0 +1,608 @@
+/**
+ * Item Service
+ * Handles menu items with variants, addons, quantity rules, and visibility
+ */
+
+const { getPool } = require('../database');
+const { cache } = require('../config/redis');
+const logger = require('../utils/logger');
+
+const CACHE_TTL = 1800;
+
+const itemService = {
+  // ========================
+  // ITEM CRUD
+  // ========================
+
+  async create(data) {
+    const pool = getPool();
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      const {
+        outletId, categoryId, sku, name, shortName, description,
+        itemType = 'veg', basePrice, costPrice = 0, taxGroupId,
+        imageUrl, preparationTimeMins = 15, spiceLevel = 0,
+        calories, allergens, tags,
+        isCustomizable = false, hasVariants = false, hasAddons = false,
+        allowSpecialNotes = true, minQuantity = 1, maxQuantity, stepQuantity = 1,
+        isAvailable = true, isRecommended = false, isBestseller = false, isNew = false,
+        displayOrder = 0, isActive = true,
+        kitchenStationId, counterId,
+        // Visibility rules
+        floorIds = [], sectionIds = [], timeSlotIds = [],
+        // Variants
+        variants = [],
+        // Addon groups
+        addonGroupIds = []
+      } = data;
+
+      const itemSlug = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      const itemSku = sku || `ITM${Date.now()}`;
+
+      const [result] = await connection.query(
+        `INSERT INTO items (
+          outlet_id, category_id, sku, name, short_name, slug, description,
+          item_type, base_price, cost_price, tax_group_id,
+          image_url, preparation_time_mins, spice_level, calories, allergens, tags,
+          is_customizable, has_variants, has_addons, allow_special_notes,
+          min_quantity, max_quantity, step_quantity,
+          is_available, is_recommended, is_bestseller, is_new,
+          display_order, is_active, kitchen_station_id, counter_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          outletId, categoryId, itemSku, name, shortName, itemSlug, description,
+          itemType, basePrice, costPrice, taxGroupId,
+          imageUrl, preparationTimeMins, spiceLevel, calories, allergens, tags,
+          isCustomizable, hasVariants, hasAddons, allowSpecialNotes,
+          minQuantity, maxQuantity, stepQuantity,
+          isAvailable, isRecommended, isBestseller, isNew,
+          displayOrder, isActive, kitchenStationId, counterId
+        ]
+      );
+
+      const itemId = result.insertId;
+
+      // Add variants
+      for (const variant of variants) {
+        await connection.query(
+          `INSERT INTO variants (item_id, name, sku, price, cost_price, tax_group_id, is_default, inventory_multiplier, display_order, is_active)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+          [itemId, variant.name, variant.sku, variant.price, variant.costPrice || 0, variant.taxGroupId, variant.isDefault || false, variant.inventoryMultiplier || 1, variant.displayOrder || 0]
+        );
+      }
+
+      // Add addon group mappings
+      for (let i = 0; i < addonGroupIds.length; i++) {
+        const groupId = addonGroupIds[i];
+        await connection.query(
+          `INSERT INTO item_addon_groups (item_id, addon_group_id, display_order, is_active)
+           VALUES (?, ?, ?, 1)`,
+          [itemId, groupId, i]
+        );
+      }
+
+      // Add floor visibility
+      for (const floorId of floorIds) {
+        await connection.query(
+          `INSERT INTO item_floors (item_id, floor_id, is_available) VALUES (?, ?, 1)`,
+          [itemId, floorId]
+        );
+      }
+
+      // Add section visibility
+      for (const sectionId of sectionIds) {
+        await connection.query(
+          `INSERT INTO item_sections (item_id, section_id, is_available) VALUES (?, ?, 1)`,
+          [itemId, sectionId]
+        );
+      }
+
+      // Add time slot visibility
+      for (const timeSlotId of timeSlotIds) {
+        await connection.query(
+          `INSERT INTO item_time_slots (item_id, time_slot_id, is_available) VALUES (?, ?, 1)`,
+          [itemId, timeSlotId]
+        );
+      }
+
+      // Add kitchen station mapping
+      if (kitchenStationId) {
+        await connection.query(
+          `INSERT INTO item_kitchen_stations (item_id, kitchen_station_id, is_primary) VALUES (?, ?, 1)`,
+          [itemId, kitchenStationId]
+        );
+      }
+
+      // Add counter mapping
+      if (counterId) {
+        await connection.query(
+          `INSERT INTO item_counters (item_id, counter_id, is_primary) VALUES (?, ?, 1)`,
+          [itemId, counterId]
+        );
+      }
+
+      await connection.commit();
+      await this.invalidateCache(outletId);
+
+      return this.getById(itemId);
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  },
+
+  async getByCategory(categoryId, includeInactive = false) {
+    const pool = getPool();
+    let query = `
+      SELECT i.*, c.name as category_name, tg.name as tax_group_name, tg.total_rate as tax_rate
+      FROM items i
+      JOIN categories c ON i.category_id = c.id
+      LEFT JOIN tax_groups tg ON i.tax_group_id = tg.id
+      WHERE i.category_id = ? AND i.deleted_at IS NULL
+    `;
+    const params = [categoryId];
+
+    if (!includeInactive) {
+      query += ' AND i.is_active = 1 AND i.is_available = 1';
+    }
+    query += ' ORDER BY i.display_order, i.name';
+
+    const [items] = await pool.query(query, params);
+    return items;
+  },
+
+  async getByOutlet(outletId, filters = {}) {
+    const pool = getPool();
+    let query = `
+      SELECT i.*, c.name as category_name, tg.name as tax_group_name, tg.total_rate as tax_rate
+      FROM items i
+      JOIN categories c ON i.category_id = c.id
+      LEFT JOIN tax_groups tg ON i.tax_group_id = tg.id
+      WHERE i.outlet_id = ? AND i.deleted_at IS NULL
+    `;
+    const params = [outletId];
+
+    if (!filters.includeInactive) {
+      query += ' AND i.is_active = 1';
+    }
+    if (filters.categoryId) {
+      query += ' AND i.category_id = ?';
+      params.push(filters.categoryId);
+    }
+    if (filters.itemType) {
+      query += ' AND i.item_type = ?';
+      params.push(filters.itemType);
+    }
+    if (filters.search) {
+      query += ' AND (i.name LIKE ? OR i.sku LIKE ?)';
+      params.push(`%${filters.search}%`, `%${filters.search}%`);
+    }
+    if (filters.isBestseller) {
+      query += ' AND i.is_bestseller = 1';
+    }
+    if (filters.isRecommended) {
+      query += ' AND i.is_recommended = 1';
+    }
+
+    query += ' ORDER BY c.display_order, i.display_order, i.name';
+
+    if (filters.limit) {
+      query += ' LIMIT ?';
+      params.push(parseInt(filters.limit));
+    }
+
+    const [items] = await pool.query(query, params);
+    return items;
+  },
+
+  async getById(id) {
+    const pool = getPool();
+    const [rows] = await pool.query(
+      `SELECT i.*, c.name as category_name, tg.name as tax_group_name, tg.total_rate as tax_rate, tg.is_inclusive as tax_inclusive
+       FROM items i
+       JOIN categories c ON i.category_id = c.id
+       LEFT JOIN tax_groups tg ON i.tax_group_id = tg.id
+       WHERE i.id = ? AND i.deleted_at IS NULL`,
+      [id]
+    );
+    return rows[0] || null;
+  },
+
+  async getFullDetails(id) {
+    const item = await this.getById(id);
+    if (!item) return null;
+
+    const pool = getPool();
+
+    // Get variants
+    const [variants] = await pool.query(
+      `SELECT v.*, tg.name as tax_group_name, tg.total_rate as tax_rate
+       FROM variants v
+       LEFT JOIN tax_groups tg ON v.tax_group_id = tg.id
+       WHERE v.item_id = ? AND v.is_active = 1
+       ORDER BY v.display_order, v.name`,
+      [id]
+    );
+
+    // Get addon groups with addons
+    const [addonGroups] = await pool.query(
+      `SELECT ag.*, iag.is_required as item_required
+       FROM item_addon_groups iag
+       JOIN addon_groups ag ON iag.addon_group_id = ag.id
+       WHERE iag.item_id = ? AND iag.is_active = 1 AND ag.is_active = 1
+       ORDER BY iag.display_order`,
+      [id]
+    );
+
+    for (const group of addonGroups) {
+      const [addons] = await pool.query(
+        `SELECT * FROM addons WHERE addon_group_id = ? AND is_active = 1 ORDER BY display_order, name`,
+        [group.id]
+      );
+      group.addons = addons;
+    }
+
+    // Get visibility rules
+    const [floors] = await pool.query(
+      `SELECT f.id, f.name, if_.is_available, if_.price_override
+       FROM item_floors if_
+       JOIN floors f ON if_.floor_id = f.id
+       WHERE if_.item_id = ?`,
+      [id]
+    );
+
+    const [sections] = await pool.query(
+      `SELECT s.id, s.name, s.section_type, is_.is_available, is_.price_override
+       FROM item_sections is_
+       JOIN sections s ON is_.section_id = s.id
+       WHERE is_.item_id = ?`,
+      [id]
+    );
+
+    const [timeSlots] = await pool.query(
+      `SELECT ts.id, ts.name, ts.start_time, ts.end_time, its.is_available, its.price_override
+       FROM item_time_slots its
+       JOIN time_slots ts ON its.time_slot_id = ts.id
+       WHERE its.item_id = ?`,
+      [id]
+    );
+
+    // Get kitchen station
+    const [stations] = await pool.query(
+      `SELECT ks.* FROM item_kitchen_stations iks
+       JOIN kitchen_stations ks ON iks.kitchen_station_id = ks.id
+       WHERE iks.item_id = ?`,
+      [id]
+    );
+
+    // Get counter
+    const [counters] = await pool.query(
+      `SELECT c.* FROM item_counters ic
+       JOIN counters c ON ic.counter_id = c.id
+       WHERE ic.item_id = ?`,
+      [id]
+    );
+
+    return {
+      ...item,
+      variants,
+      addonGroups,
+      visibility: { floors, sections, timeSlots },
+      kitchenStations: stations,
+      counters
+    };
+  },
+
+  async update(id, data) {
+    const pool = getPool();
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      const fields = [];
+      const values = [];
+
+      const fieldMap = {
+        categoryId: 'category_id', sku: 'sku', name: 'name', shortName: 'short_name',
+        description: 'description', itemType: 'item_type', basePrice: 'base_price',
+        costPrice: 'cost_price', taxGroupId: 'tax_group_id', imageUrl: 'image_url',
+        preparationTimeMins: 'preparation_time_mins', spiceLevel: 'spice_level',
+        calories: 'calories', allergens: 'allergens', tags: 'tags',
+        isCustomizable: 'is_customizable', hasVariants: 'has_variants', hasAddons: 'has_addons',
+        allowSpecialNotes: 'allow_special_notes', minQuantity: 'min_quantity',
+        maxQuantity: 'max_quantity', stepQuantity: 'step_quantity',
+        isAvailable: 'is_available', isRecommended: 'is_recommended',
+        isBestseller: 'is_bestseller', isNew: 'is_new',
+        displayOrder: 'display_order', isActive: 'is_active',
+        kitchenStationId: 'kitchen_station_id', counterId: 'counter_id'
+      };
+
+      for (const [key, column] of Object.entries(fieldMap)) {
+        if (data[key] !== undefined) {
+          fields.push(`${column} = ?`);
+          values.push(data[key]);
+        }
+      }
+
+      if (fields.length > 0) {
+        values.push(id);
+        await connection.query(`UPDATE items SET ${fields.join(', ')} WHERE id = ?`, values);
+      }
+
+      // Update visibility rules
+      if (data.floorIds !== undefined) {
+        await connection.query('DELETE FROM item_floors WHERE item_id = ?', [id]);
+        for (const floorId of data.floorIds) {
+          await connection.query(
+            `INSERT INTO item_floors (item_id, floor_id, is_available) VALUES (?, ?, 1)`,
+            [id, floorId]
+          );
+        }
+      }
+
+      if (data.sectionIds !== undefined) {
+        await connection.query('DELETE FROM item_sections WHERE item_id = ?', [id]);
+        for (const sectionId of data.sectionIds) {
+          await connection.query(
+            `INSERT INTO item_sections (item_id, section_id, is_available) VALUES (?, ?, 1)`,
+            [id, sectionId]
+          );
+        }
+      }
+
+      if (data.timeSlotIds !== undefined) {
+        await connection.query('DELETE FROM item_time_slots WHERE item_id = ?', [id]);
+        for (const timeSlotId of data.timeSlotIds) {
+          await connection.query(
+            `INSERT INTO item_time_slots (item_id, time_slot_id, is_available) VALUES (?, ?, 1)`,
+            [id, timeSlotId]
+          );
+        }
+      }
+
+      if (data.addonGroupIds !== undefined) {
+        await connection.query('DELETE FROM item_addon_groups WHERE item_id = ?', [id]);
+        for (let i = 0; i < data.addonGroupIds.length; i++) {
+          await connection.query(
+            `INSERT INTO item_addon_groups (item_id, addon_group_id, display_order, is_active) VALUES (?, ?, ?, 1)`,
+            [id, data.addonGroupIds[i], i]
+          );
+        }
+      }
+
+      await connection.commit();
+
+      const item = await this.getById(id);
+      if (item) await this.invalidateCache(item.outlet_id);
+      return item;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  },
+
+  async delete(id) {
+    const pool = getPool();
+    const item = await this.getById(id);
+    if (!item) return false;
+
+    await pool.query('UPDATE items SET deleted_at = NOW(), is_active = 0 WHERE id = ?', [id]);
+    await this.invalidateCache(item.outlet_id);
+    return true;
+  },
+
+  // ========================
+  // VARIANTS
+  // ========================
+
+  async addVariant(itemId, data) {
+    const pool = getPool();
+    const {
+      name, sku, price, costPrice = 0, taxGroupId,
+      isDefault = false, inventoryMultiplier = 1, displayOrder = 0
+    } = data;
+
+    // If setting as default, unset other defaults
+    if (isDefault) {
+      await pool.query('UPDATE variants SET is_default = 0 WHERE item_id = ?', [itemId]);
+    }
+
+    const [result] = await pool.query(
+      `INSERT INTO variants (item_id, name, sku, price, cost_price, tax_group_id, is_default, inventory_multiplier, display_order, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+      [itemId, name, sku, price, costPrice, taxGroupId, isDefault, inventoryMultiplier, displayOrder]
+    );
+
+    // Update item to have variants
+    await pool.query('UPDATE items SET has_variants = 1 WHERE id = ?', [itemId]);
+
+    const item = await this.getById(itemId);
+    if (item) await this.invalidateCache(item.outlet_id);
+
+    return { id: result.insertId, itemId, ...data };
+  },
+
+  async getVariants(itemId) {
+    const pool = getPool();
+    const [variants] = await pool.query(
+      `SELECT v.*, tg.name as tax_group_name, tg.total_rate as tax_rate
+       FROM variants v
+       LEFT JOIN tax_groups tg ON v.tax_group_id = tg.id
+       WHERE v.item_id = ? AND v.is_active = 1
+       ORDER BY v.display_order, v.name`,
+      [itemId]
+    );
+    return variants;
+  },
+
+  async updateVariant(variantId, data) {
+    const pool = getPool();
+    const fields = [];
+    const values = [];
+
+    if (data.name !== undefined) { fields.push('name = ?'); values.push(data.name); }
+    if (data.sku !== undefined) { fields.push('sku = ?'); values.push(data.sku); }
+    if (data.price !== undefined) { fields.push('price = ?'); values.push(data.price); }
+    if (data.costPrice !== undefined) { fields.push('cost_price = ?'); values.push(data.costPrice); }
+    if (data.taxGroupId !== undefined) { fields.push('tax_group_id = ?'); values.push(data.taxGroupId); }
+    if (data.isDefault !== undefined) { fields.push('is_default = ?'); values.push(data.isDefault); }
+    if (data.inventoryMultiplier !== undefined) { fields.push('inventory_multiplier = ?'); values.push(data.inventoryMultiplier); }
+    if (data.displayOrder !== undefined) { fields.push('display_order = ?'); values.push(data.displayOrder); }
+    if (data.isActive !== undefined) { fields.push('is_active = ?'); values.push(data.isActive); }
+
+    if (fields.length === 0) return null;
+    values.push(variantId);
+
+    await pool.query(`UPDATE variants SET ${fields.join(', ')} WHERE id = ?`, values);
+
+    const [rows] = await pool.query('SELECT * FROM variants WHERE id = ?', [variantId]);
+    if (rows[0]) {
+      const item = await this.getById(rows[0].item_id);
+      if (item) await this.invalidateCache(item.outlet_id);
+    }
+    return rows[0] || null;
+  },
+
+  async deleteVariant(variantId) {
+    const pool = getPool();
+    const [rows] = await pool.query('SELECT item_id FROM variants WHERE id = ?', [variantId]);
+    if (!rows[0]) return false;
+
+    await pool.query('UPDATE variants SET is_active = 0 WHERE id = ?', [variantId]);
+
+    const item = await this.getById(rows[0].item_id);
+    if (item) await this.invalidateCache(item.outlet_id);
+    return true;
+  },
+
+  // ========================
+  // VISIBILITY & PRICING
+  // ========================
+
+  async getVisibleItems(outletId, context = {}) {
+    const { categoryId, floorId, sectionId, timeSlotId } = context;
+    const pool = getPool();
+
+    let query = `
+      SELECT DISTINCT i.*, c.name as category_name, tg.name as tax_group_name, tg.total_rate as tax_rate
+      FROM items i
+      JOIN categories c ON i.category_id = c.id
+      LEFT JOIN tax_groups tg ON i.tax_group_id = tg.id
+      WHERE i.outlet_id = ? AND i.is_active = 1 AND i.is_available = 1 AND i.deleted_at IS NULL
+    `;
+    const params = [outletId];
+
+    if (categoryId) {
+      query += ' AND i.category_id = ?';
+      params.push(categoryId);
+    }
+
+    // Floor filter
+    if (floorId) {
+      query += `
+        AND (
+          NOT EXISTS (SELECT 1 FROM item_floors if_ WHERE if_.item_id = i.id)
+          OR EXISTS (SELECT 1 FROM item_floors if_ WHERE if_.item_id = i.id AND if_.floor_id = ? AND if_.is_available = 1)
+        )
+      `;
+      params.push(floorId);
+    }
+
+    // Section filter
+    if (sectionId) {
+      query += `
+        AND (
+          NOT EXISTS (SELECT 1 FROM item_sections is_ WHERE is_.item_id = i.id)
+          OR EXISTS (SELECT 1 FROM item_sections is_ WHERE is_.item_id = i.id AND is_.section_id = ? AND is_.is_available = 1)
+        )
+      `;
+      params.push(sectionId);
+    }
+
+    // Time slot filter
+    if (timeSlotId) {
+      query += `
+        AND (
+          NOT EXISTS (SELECT 1 FROM item_time_slots its WHERE its.item_id = i.id)
+          OR EXISTS (SELECT 1 FROM item_time_slots its WHERE its.item_id = i.id AND its.time_slot_id = ? AND its.is_available = 1)
+        )
+      `;
+      params.push(timeSlotId);
+    }
+
+    query += ' ORDER BY c.display_order, i.display_order, i.name';
+
+    const [items] = await pool.query(query, params);
+    return items;
+  },
+
+  /**
+   * Get effective price for an item considering floor/section/time overrides
+   */
+  async getEffectivePrice(itemId, variantId = null, context = {}) {
+    const { floorId, sectionId, timeSlotId } = context;
+    const pool = getPool();
+
+    // Get base price
+    let price;
+    if (variantId) {
+      const [variants] = await pool.query('SELECT price FROM variants WHERE id = ?', [variantId]);
+      price = variants[0]?.price;
+    } else {
+      const [items] = await pool.query('SELECT base_price FROM items WHERE id = ?', [itemId]);
+      price = items[0]?.base_price;
+    }
+
+    if (!price) return null;
+
+    // Check for floor price override
+    if (floorId) {
+      const [floorOverride] = await pool.query(
+        `SELECT price_override FROM item_floors WHERE item_id = ? AND floor_id = ? AND price_override IS NOT NULL`,
+        [itemId, floorId]
+      );
+      if (floorOverride[0]?.price_override) {
+        price = floorOverride[0].price_override;
+      }
+    }
+
+    // Check for section price override
+    if (sectionId) {
+      const [sectionOverride] = await pool.query(
+        `SELECT price_override FROM item_sections WHERE item_id = ? AND section_id = ? AND price_override IS NOT NULL`,
+        [itemId, sectionId]
+      );
+      if (sectionOverride[0]?.price_override) {
+        price = sectionOverride[0].price_override;
+      }
+    }
+
+    // Check for time slot price override
+    if (timeSlotId) {
+      const [timeOverride] = await pool.query(
+        `SELECT price_override FROM item_time_slots WHERE item_id = ? AND time_slot_id = ? AND price_override IS NOT NULL`,
+        [itemId, timeSlotId]
+      );
+      if (timeOverride[0]?.price_override) {
+        price = timeOverride[0].price_override;
+      }
+    }
+
+    return parseFloat(price);
+  },
+
+  async invalidateCache(outletId) {
+    await cache.del(`items:${outletId}`);
+    await cache.del(`menu:${outletId}`);
+  }
+};
+
+module.exports = itemService;

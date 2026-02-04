@@ -10,12 +10,18 @@ router.get('/health', (req, res) => {
   });
 });
 
-// API Routes will be added here as modules are developed
-// Example:
-// router.use('/auth', require('./auth.routes'));
-// router.use('/outlets', require('./outlet.routes'));
-// router.use('/floors', require('./floor.routes'));
-// router.use('/tables', require('./table.routes'));
+// API Routes
+router.use('/auth', require('./auth.routes'));
+router.use('/users', require('./user.routes'));
+router.use('/permissions', require('./permission.routes'));
+router.use('/outlets', require('./outlet.routes'));
+router.use('/tables', require('./table.routes'));
+router.use('/menu', require('./menu.routes'));
+router.use('/tax', require('./tax.routes'));
+router.use('/orders', require('./order.routes'));
+router.use('/printers', require('./printer.routes'));
+
+// Future routes (uncomment as modules are developed)
 // router.use('/categories', require('./category.routes'));
 // router.use('/items', require('./item.routes'));
 // router.use('/orders', require('./order.routes'));
@@ -23,7 +29,6 @@ router.get('/health', (req, res) => {
 // router.use('/payments', require('./payment.routes'));
 // router.use('/inventory', require('./inventory.routes'));
 // router.use('/reports', require('./report.routes'));
-// router.use('/users', require('./user.routes'));
 // router.use('/settings', require('./settings.routes'));
 
 module.exports = router;

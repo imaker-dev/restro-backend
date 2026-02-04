@@ -4,6 +4,7 @@ const logger = require('../utils/logger');
 
 let redisClient = null;
 let redisSubscriber = null;
+let redisAvailable = false;
 
 const createRedisClient = (options = {}) => {
   const client = new Redis({
@@ -38,80 +39,138 @@ const createRedisClient = (options = {}) => {
 };
 
 const initializeRedis = async () => {
-  redisClient = createRedisClient();
-  redisSubscriber = createRedisClient({ keyPrefix: '' });
+  try {
+    redisClient = createRedisClient();
+    redisSubscriber = createRedisClient({ keyPrefix: '' });
 
-  await redisClient.ping();
-  return { redisClient, redisSubscriber };
+    await redisClient.ping();
+    redisAvailable = true;
+    return { redisClient, redisSubscriber, available: true };
+  } catch (error) {
+    logger.warn('Redis not available - running without cache/pubsub features');
+    logger.warn('To enable Redis, run: docker-compose -f docker-compose.dev.yml up -d redis');
+    redisAvailable = false;
+    return { redisClient: null, redisSubscriber: null, available: false };
+  }
 };
 
+const isRedisAvailable = () => redisAvailable;
+
 const getRedisClient = () => {
-  if (!redisClient) {
-    throw new Error('Redis client not initialized');
+  if (!redisClient || !redisAvailable) {
+    return null;
   }
   return redisClient;
 };
 
 const getRedisSubscriber = () => {
-  if (!redisSubscriber) {
-    throw new Error('Redis subscriber not initialized');
+  if (!redisSubscriber || !redisAvailable) {
+    return null;
   }
   return redisSubscriber;
 };
 
-// Cache helpers
+// Cache helpers (gracefully handle when Redis is not available)
 const cache = {
   async get(key) {
-    const data = await redisClient.get(key);
-    return data ? JSON.parse(data) : null;
+    if (!redisAvailable || !redisClient) return null;
+    try {
+      const data = await redisClient.get(key);
+      return data ? JSON.parse(data) : null;
+    } catch (error) {
+      logger.warn('Cache get failed:', error.message);
+      return null;
+    }
   },
 
   async set(key, value, ttlSeconds = 3600) {
-    await redisClient.setex(key, ttlSeconds, JSON.stringify(value));
+    if (!redisAvailable || !redisClient) return;
+    try {
+      await redisClient.setex(key, ttlSeconds, JSON.stringify(value));
+    } catch (error) {
+      logger.warn('Cache set failed:', error.message);
+    }
   },
 
   async del(key) {
-    await redisClient.del(key);
+    if (!redisAvailable || !redisClient) return;
+    try {
+      await redisClient.del(key);
+    } catch (error) {
+      logger.warn('Cache del failed:', error.message);
+    }
   },
 
   async delPattern(pattern) {
-    const keys = await redisClient.keys(`${redisConfig.keyPrefix}${pattern}`);
-    if (keys.length > 0) {
-      const pipeline = redisClient.pipeline();
-      keys.forEach((key) => pipeline.del(key.replace(redisConfig.keyPrefix, '')));
-      await pipeline.exec();
+    if (!redisAvailable || !redisClient) return;
+    try {
+      const keys = await redisClient.keys(`${redisConfig.keyPrefix}${pattern}`);
+      if (keys.length > 0) {
+        const pipeline = redisClient.pipeline();
+        keys.forEach((key) => pipeline.del(key.replace(redisConfig.keyPrefix, '')));
+        await pipeline.exec();
+      }
+    } catch (error) {
+      logger.warn('Cache delPattern failed:', error.message);
     }
   },
 
   async flush() {
-    await redisClient.flushdb();
+    if (!redisAvailable || !redisClient) return;
+    try {
+      await redisClient.flushdb();
+    } catch (error) {
+      logger.warn('Cache flush failed:', error.message);
+    }
   },
 };
 
-// Pub/Sub helpers
+// Pub/Sub helpers (gracefully handle when Redis is not available)
 const pubsub = {
   async publish(channel, message) {
-    await redisClient.publish(channel, JSON.stringify(message));
+    if (!redisAvailable || !redisClient) return;
+    try {
+      await redisClient.publish(channel, JSON.stringify(message));
+    } catch (error) {
+      logger.warn('Pubsub publish failed:', error.message);
+    }
   },
 
   subscribe(channel, callback) {
-    redisSubscriber.subscribe(channel);
-    redisSubscriber.on('message', (ch, message) => {
-      if (ch === channel) {
-        callback(JSON.parse(message));
-      }
-    });
+    if (!redisAvailable || !redisSubscriber) return;
+    try {
+      redisSubscriber.subscribe(channel);
+      redisSubscriber.on('message', (ch, message) => {
+        if (ch === channel) {
+          callback(JSON.parse(message));
+        }
+      });
+    } catch (error) {
+      logger.warn('Pubsub subscribe failed:', error.message);
+    }
   },
 
   unsubscribe(channel) {
-    redisSubscriber.unsubscribe(channel);
+    if (!redisAvailable || !redisSubscriber) return;
+    try {
+      redisSubscriber.unsubscribe(channel);
+    } catch (error) {
+      logger.warn('Pubsub unsubscribe failed:', error.message);
+    }
   },
+};
+
+// Helper alias for services
+const publishMessage = async (channel, message) => {
+  return pubsub.publish(channel, message);
 };
 
 module.exports = {
   initializeRedis,
   getRedisClient,
   getRedisSubscriber,
+  isRedisAvailable,
   cache,
   pubsub,
+  publishMessage,
 };

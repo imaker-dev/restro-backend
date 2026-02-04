@@ -4,8 +4,6 @@
 # Usage: docker-compose -f docker-compose.dev.yml up -d
 # ============================================
 
-version: '3.8'
-
 services:
   # ==========================================
   # MySQL Database (Development)
@@ -15,10 +13,9 @@ services:
     container_name: restro-mysql-dev
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: restro_pos
-      MYSQL_USER: restro_user
-      MYSQL_PASSWORD: restro_password
+      MYSQL_ROOT_PASSWORD: 
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      MYSQL_DATABASE: restro
     ports:
       - "3306:3306"
     volumes:

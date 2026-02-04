@@ -1,5 +1,19 @@
 # Restro POS Backend
 
+  
+  # PRODUCT NAME: 	iMaker Restro POS and CRM
+
+  # AUTHER:		iMaker Technology Private Limited
+  
+  # EMAIL:		admin@imaker.technology
+ 
+  # COPYRIGHTS:		RESERVED BY iMaker Technology Private Limited
+
+  # WEBSITE:		http://www.imaker.technology
+  
+  # Architect and Design: iMaker Technology Private Limited 
+  
+
 Enterprise-grade Restaurant POS System - ERP + POS + Inventory + Menu Engine + Tax Engine + Realtime System
 
 ## 🏗️ Architecture Overview

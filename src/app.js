@@ -44,11 +44,9 @@ app.get('/health', (req, res) => {
   });
 });
 
-// API version prefix - Routes will be added here
-app.use('/api/v1', (req, res, next) => {
-  // Routes will be mounted here
-  next();
-});
+// API Routes
+const routes = require('./routes');
+app.use('/api/v1', routes);
 
 // 404 handler
 app.use((req, res) => {
@@ -97,9 +95,13 @@ const startServer = async () => {
     await initializeDatabase();
     logger.info('Database connected successfully');
 
-    // Initialize Redis
-    await initializeRedis();
-    logger.info('Redis connected successfully');
+    // Initialize Redis (optional - app works without it)
+    const redisResult = await initializeRedis();
+    if (redisResult.available) {
+      logger.info('Redis connected successfully');
+    } else {
+      logger.warn('Redis not available - caching and pub/sub disabled');
+    }
 
     // Initialize WebSocket
     initializeSocket(server);

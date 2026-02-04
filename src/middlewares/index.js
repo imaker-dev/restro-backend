@@ -1,9 +1,11 @@
 const errorHandler = require('./errorHandler');
-const validate = require('./validate');
+const validateModule = require('./validate');
 const rateLimiter = require('./rateLimiter');
+const authMiddleware = require('./auth.middleware');
 
 module.exports = {
   errorHandler,
-  validate,
+  ...validateModule,
   rateLimiter,
+  ...authMiddleware,
 };

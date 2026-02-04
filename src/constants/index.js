@@ -177,6 +177,7 @@ const NOTIFICATION_TYPE = {
   ALERT: 'alert',
   SYSTEM: 'system',
 };
+// waiter call
 
 const CACHE_KEYS = {
   MENU: 'menu',

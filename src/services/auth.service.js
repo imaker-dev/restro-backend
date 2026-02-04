@@ -1,0 +1,588 @@
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+const { getPool } = require('../database');
+const jwtConfig = require('../config/jwt.config');
+const logger = require('../utils/logger');
+const { cache } = require('../config/redis');
+const { CACHE_KEYS, CACHE_TTL } = require('../constants');
+
+const SALT_ROUNDS = 12;
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOCK_DURATION_MINUTES = 30;
+
+class AuthService {
+  /**
+   * Login with email and password
+   */
+  async loginWithEmail(email, password, deviceInfo = {}) {
+    const pool = getPool();
+    
+    // Get user with roles
+    const [users] = await pool.query(
+      `SELECT u.*, GROUP_CONCAT(DISTINCT r.slug) as role_slugs
+       FROM users u
+       LEFT JOIN user_roles ur ON u.id = ur.user_id AND ur.is_active = 1
+       LEFT JOIN roles r ON ur.role_id = r.id AND r.is_active = 1
+       WHERE u.email = ? AND u.deleted_at IS NULL
+       GROUP BY u.id`,
+      [email.toLowerCase()]
+    );
+
+    if (users.length === 0) {
+      await this.logAuthActivity(null, 'login_failed', deviceInfo, { reason: 'user_not_found', email });
+      throw new Error('Invalid email or password');
+    }
+
+    const user = users[0];
+
+    // Check if account is locked
+    if (user.locked_until && new Date(user.locked_until) > new Date()) {
+      const remainingMinutes = Math.ceil((new Date(user.locked_until) - new Date()) / 60000);
+      throw new Error(`Account is locked. Try again in ${remainingMinutes} minutes`);
+    }
+
+    // Check if user is active
+    if (!user.is_active) {
+      await this.logAuthActivity(user.id, 'login_failed', deviceInfo, { reason: 'account_inactive' });
+      throw new Error('Account is deactivated. Contact administrator');
+    }
+
+    // Verify password
+    if (!user.password_hash) {
+      throw new Error('Password not set. Use PIN login or contact administrator');
+    }
+
+    const isValidPassword = await bcrypt.compare(password, user.password_hash);
+    
+    if (!isValidPassword) {
+      await this.incrementLoginAttempts(user.id);
+      await this.logAuthActivity(user.id, 'login_failed', deviceInfo, { reason: 'invalid_password' });
+      
+      const attemptsLeft = MAX_LOGIN_ATTEMPTS - user.login_attempts - 1;
+      if (attemptsLeft <= 0) {
+        throw new Error(`Account locked due to too many failed attempts`);
+      }
+      throw new Error(`Invalid email or password. ${attemptsLeft} attempts remaining`);
+    }
+
+    // Reset login attempts and update last login
+    await this.resetLoginAttempts(user.id, deviceInfo.ip);
+
+    // Generate tokens
+    const tokens = await this.generateTokens(user, deviceInfo);
+
+    // Log successful login
+    await this.logAuthActivity(user.id, 'login', deviceInfo, { method: 'email' });
+
+    return {
+      user: this.sanitizeUser(user),
+      ...tokens,
+    };
+  }
+
+  /**
+   * Login with PIN (for staff quick access)
+   */
+  async loginWithPin(employeeCode, pin, outletId, deviceInfo = {}) {
+    const pool = getPool();
+    
+    // Get user by employee code
+    const [users] = await pool.query(
+      `SELECT u.*, GROUP_CONCAT(DISTINCT r.slug) as role_slugs
+       FROM users u
+       LEFT JOIN user_roles ur ON u.id = ur.user_id AND ur.is_active = 1 
+         AND (ur.outlet_id IS NULL OR ur.outlet_id = ?)
+       LEFT JOIN roles r ON ur.role_id = r.id AND r.is_active = 1
+       WHERE u.employee_code = ? AND u.deleted_at IS NULL
+       GROUP BY u.id`,
+      [outletId, employeeCode]
+    );
+
+    if (users.length === 0) {
+      await this.logAuthActivity(null, 'login_failed', deviceInfo, { reason: 'user_not_found', employeeCode });
+      throw new Error('Invalid employee code or PIN');
+    }
+
+    const user = users[0];
+
+    // Check if account is locked
+    if (user.locked_until && new Date(user.locked_until) > new Date()) {
+      const remainingMinutes = Math.ceil((new Date(user.locked_until) - new Date()) / 60000);
+      throw new Error(`Account is locked. Try again in ${remainingMinutes} minutes`);
+    }
+
+    // Check if user is active
+    if (!user.is_active) {
+      throw new Error('Account is deactivated. Contact administrator');
+    }
+
+    // Verify PIN
+    if (!user.pin_hash) {
+      throw new Error('PIN not set. Contact administrator');
+    }
+
+    const isValidPin = await bcrypt.compare(pin, user.pin_hash);
+    
+    if (!isValidPin) {
+      await this.incrementLoginAttempts(user.id);
+      await this.logAuthActivity(user.id, 'login_failed', deviceInfo, { reason: 'invalid_pin' });
+      throw new Error('Invalid employee code or PIN');
+    }
+
+    // Reset login attempts
+    await this.resetLoginAttempts(user.id, deviceInfo.ip);
+
+    // Generate tokens (shorter expiry for PIN login)
+    const tokens = await this.generateTokens(user, { ...deviceInfo, outletId }, true);
+
+    // Log successful login
+    await this.logAuthActivity(user.id, 'login', deviceInfo, { method: 'pin', outletId });
+
+    return {
+      user: this.sanitizeUser(user),
+      ...tokens,
+    };
+  }
+
+  /**
+   * Refresh access token using refresh token
+   */
+  async refreshToken(refreshToken, deviceInfo = {}) {
+    const pool = getPool();
+    
+    // Hash the refresh token to compare
+    const tokenHash = this.hashToken(refreshToken);
+
+    // Find valid session
+    const [sessions] = await pool.query(
+      `SELECT s.*, u.id as user_id, u.uuid, u.name, u.email, u.employee_code, 
+              u.is_active, u.avatar_url, GROUP_CONCAT(DISTINCT r.slug) as role_slugs
+       FROM user_sessions s
+       JOIN users u ON s.user_id = u.id
+       LEFT JOIN user_roles ur ON u.id = ur.user_id AND ur.is_active = 1
+       LEFT JOIN roles r ON ur.role_id = r.id AND r.is_active = 1
+       WHERE s.refresh_token_hash = ? 
+         AND s.is_revoked = 0 
+         AND s.expires_at > NOW()
+         AND u.deleted_at IS NULL
+         AND u.is_active = 1
+       GROUP BY s.id`,
+      [tokenHash]
+    );
+
+    if (sessions.length === 0) {
+      throw new Error('Invalid or expired refresh token');
+    }
+
+    const session = sessions[0];
+
+    // Update last activity
+    await pool.query(
+      'UPDATE user_sessions SET last_activity_at = NOW() WHERE id = ?',
+      [session.id]
+    );
+
+    // Generate new access token
+    const accessToken = this.generateAccessToken({
+      id: session.user_id,
+      uuid: session.uuid,
+      email: session.email,
+      role_slugs: session.role_slugs,
+    }, session.outlet_id);
+
+    await this.logAuthActivity(session.user_id, 'token_refresh', deviceInfo);
+
+    return {
+      accessToken,
+      user: {
+        id: session.user_id,
+        uuid: session.uuid,
+        name: session.name,
+        email: session.email,
+        employeeCode: session.employee_code,
+        avatarUrl: session.avatar_url,
+        roles: session.role_slugs ? session.role_slugs.split(',') : [],
+      },
+    };
+  }
+
+  /**
+   * Logout - revoke refresh token
+   */
+  async logout(userId, refreshToken, deviceInfo = {}) {
+    const pool = getPool();
+    
+    if (refreshToken) {
+      const tokenHash = this.hashToken(refreshToken);
+      await pool.query(
+        `UPDATE user_sessions 
+         SET is_revoked = 1, revoked_at = NOW(), revoked_reason = 'logout'
+         WHERE user_id = ? AND refresh_token_hash = ?`,
+        [userId, tokenHash]
+      );
+    }
+
+    // Clear user session cache
+    await cache.del(`${CACHE_KEYS.USER_SESSION}:${userId}`);
+
+    await this.logAuthActivity(userId, 'logout', deviceInfo);
+
+    return { message: 'Logged out successfully' };
+  }
+
+  /**
+   * Logout from all devices
+   */
+  async logoutAll(userId, deviceInfo = {}) {
+    const pool = getPool();
+    
+    await pool.query(
+      `UPDATE user_sessions 
+       SET is_revoked = 1, revoked_at = NOW(), revoked_reason = 'logout_all'
+       WHERE user_id = ? AND is_revoked = 0`,
+      [userId]
+    );
+
+    await cache.del(`${CACHE_KEYS.USER_SESSION}:${userId}`);
+    await this.logAuthActivity(userId, 'session_revoke', deviceInfo, { reason: 'logout_all' });
+
+    return { message: 'Logged out from all devices' };
+  }
+
+  /**
+   * Get current user with permissions
+   */
+  async getCurrentUser(userId) {
+    const pool = getPool();
+    
+    // Try cache first
+    const cached = await cache.get(`${CACHE_KEYS.USER_SESSION}:${userId}`);
+    if (cached) return cached;
+
+    const [users] = await pool.query(
+      `SELECT u.id, u.uuid, u.employee_code, u.name, u.email, u.phone, 
+              u.avatar_url, u.is_active, u.is_verified, u.last_login_at
+       FROM users u
+       WHERE u.id = ? AND u.deleted_at IS NULL`,
+      [userId]
+    );
+
+    if (users.length === 0) {
+      throw new Error('User not found');
+    }
+
+    const user = users[0];
+
+    // Get roles with outlet info
+    const [roles] = await pool.query(
+      `SELECT r.id, r.name, r.slug, ur.outlet_id, o.name as outlet_name
+       FROM user_roles ur
+       JOIN roles r ON ur.role_id = r.id
+       LEFT JOIN outlets o ON ur.outlet_id = o.id
+       WHERE ur.user_id = ? AND ur.is_active = 1 AND r.is_active = 1`,
+      [userId]
+    );
+
+    // Get permissions
+    const [permissions] = await pool.query(
+      `SELECT DISTINCT p.slug, p.module
+       FROM user_roles ur
+       JOIN role_permissions rp ON ur.role_id = rp.role_id
+       JOIN permissions p ON rp.permission_id = p.id
+       WHERE ur.user_id = ? AND ur.is_active = 1`,
+      [userId]
+    );
+
+    const result = {
+      ...this.sanitizeUser(user),
+      roles: roles.map(r => ({
+        id: r.id,
+        name: r.name,
+        slug: r.slug,
+        outletId: r.outlet_id,
+        outletName: r.outlet_name,
+      })),
+      permissions: permissions.map(p => p.slug),
+      permissionsByModule: permissions.reduce((acc, p) => {
+        if (!acc[p.module]) acc[p.module] = [];
+        acc[p.module].push(p.slug);
+        return acc;
+      }, {}),
+    };
+
+    // Cache for 5 minutes
+    await cache.set(`${CACHE_KEYS.USER_SESSION}:${userId}`, result, CACHE_TTL.SHORT);
+
+    return result;
+  }
+
+  /**
+   * Change password
+   */
+  async changePassword(userId, currentPassword, newPassword, deviceInfo = {}) {
+    const pool = getPool();
+    
+    const [users] = await pool.query(
+      'SELECT id, password_hash FROM users WHERE id = ? AND deleted_at IS NULL',
+      [userId]
+    );
+
+    if (users.length === 0) {
+      throw new Error('User not found');
+    }
+
+    const user = users[0];
+
+    // Verify current password
+    if (user.password_hash) {
+      const isValid = await bcrypt.compare(currentPassword, user.password_hash);
+      if (!isValid) {
+        throw new Error('Current password is incorrect');
+      }
+    }
+
+    // Hash new password
+    const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+
+    await pool.query(
+      'UPDATE users SET password_hash = ?, updated_at = NOW() WHERE id = ?',
+      [passwordHash, userId]
+    );
+
+    // Revoke all sessions except current
+    await pool.query(
+      `UPDATE user_sessions 
+       SET is_revoked = 1, revoked_at = NOW(), revoked_reason = 'password_change'
+       WHERE user_id = ? AND is_revoked = 0`,
+      [userId]
+    );
+
+    await this.logAuthActivity(userId, 'password_change', deviceInfo);
+
+    return { message: 'Password changed successfully' };
+  }
+
+  /**
+   * Change PIN
+   */
+  async changePin(userId, currentPin, newPin, deviceInfo = {}) {
+    const pool = getPool();
+    
+    const [users] = await pool.query(
+      'SELECT id, pin_hash FROM users WHERE id = ? AND deleted_at IS NULL',
+      [userId]
+    );
+
+    if (users.length === 0) {
+      throw new Error('User not found');
+    }
+
+    const user = users[0];
+
+    // Verify current PIN if exists
+    if (user.pin_hash) {
+      const isValid = await bcrypt.compare(currentPin, user.pin_hash);
+      if (!isValid) {
+        throw new Error('Current PIN is incorrect');
+      }
+    }
+
+    // Hash new PIN
+    const pinHash = await bcrypt.hash(newPin, SALT_ROUNDS);
+
+    await pool.query(
+      'UPDATE users SET pin_hash = ?, updated_at = NOW() WHERE id = ?',
+      [pinHash, userId]
+    );
+
+    await this.logAuthActivity(userId, 'pin_change', deviceInfo);
+
+    return { message: 'PIN changed successfully' };
+  }
+
+  /**
+   * Get active sessions for user
+   */
+  async getActiveSessions(userId) {
+    const pool = getPool();
+    
+    const [sessions] = await pool.query(
+      `SELECT id, device_name, device_type, ip_address, last_activity_at, created_at
+       FROM user_sessions
+       WHERE user_id = ? AND is_revoked = 0 AND expires_at > NOW()
+       ORDER BY last_activity_at DESC`,
+      [userId]
+    );
+
+    return sessions;
+  }
+
+  /**
+   * Revoke specific session
+   */
+  async revokeSession(userId, sessionId, deviceInfo = {}) {
+    const pool = getPool();
+    
+    const [result] = await pool.query(
+      `UPDATE user_sessions 
+       SET is_revoked = 1, revoked_at = NOW(), revoked_reason = 'manual_revoke'
+       WHERE id = ? AND user_id = ?`,
+      [sessionId, userId]
+    );
+
+    if (result.affectedRows === 0) {
+      throw new Error('Session not found');
+    }
+
+    await this.logAuthActivity(userId, 'session_revoke', deviceInfo, { sessionId });
+
+    return { message: 'Session revoked successfully' };
+  }
+
+  // ==================== Helper Methods ====================
+
+  generateAccessToken(user, outletId = null) {
+    const payload = {
+      userId: user.id,
+      uuid: user.uuid,
+      email: user.email,
+      roles: user.role_slugs ? user.role_slugs.split(',') : [],
+      outletId,
+    };
+
+    return jwt.sign(payload, jwtConfig.secret, {
+      expiresIn: jwtConfig.accessExpiry,
+      algorithm: jwtConfig.algorithm,
+      issuer: jwtConfig.issuer,
+    });
+  }
+
+  generateRefreshToken() {
+    return crypto.randomBytes(64).toString('hex');
+  }
+
+  hashToken(token) {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  async generateTokens(user, deviceInfo = {}, isPinLogin = false) {
+    const pool = getPool();
+    
+    const accessToken = this.generateAccessToken(user, deviceInfo.outletId);
+    const refreshToken = this.generateRefreshToken();
+    const refreshTokenHash = this.hashToken(refreshToken);
+
+    // Calculate expiry (shorter for PIN login)
+    const expiryHours = isPinLogin ? 8 : 168; // 8 hours for PIN, 7 days for email
+    const expiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000);
+
+    // Store session
+    await pool.query(
+      `INSERT INTO user_sessions 
+       (user_id, outlet_id, refresh_token_hash, device_id, device_name, device_type, 
+        ip_address, user_agent, last_activity_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)`,
+      [
+        user.id,
+        deviceInfo.outletId || null,
+        refreshTokenHash,
+        deviceInfo.deviceId || null,
+        deviceInfo.deviceName || 'Unknown Device',
+        deviceInfo.deviceType || 'other',
+        deviceInfo.ip || null,
+        deviceInfo.userAgent || null,
+        expiresAt,
+      ]
+    );
+
+    return {
+      accessToken,
+      refreshToken,
+      expiresIn: jwtConfig.accessExpiry,
+      tokenType: 'Bearer',
+    };
+  }
+
+  async incrementLoginAttempts(userId) {
+    const pool = getPool();
+    
+    const [result] = await pool.query(
+      `UPDATE users 
+       SET login_attempts = login_attempts + 1,
+           locked_until = CASE 
+             WHEN login_attempts + 1 >= ? THEN DATE_ADD(NOW(), INTERVAL ? MINUTE)
+             ELSE locked_until
+           END
+       WHERE id = ?`,
+      [MAX_LOGIN_ATTEMPTS, LOCK_DURATION_MINUTES, userId]
+    );
+
+    return result;
+  }
+
+  async resetLoginAttempts(userId, ip) {
+    const pool = getPool();
+    
+    await pool.query(
+      `UPDATE users 
+       SET login_attempts = 0, locked_until = NULL, 
+           last_login_at = NOW(), last_login_ip = ?
+       WHERE id = ?`,
+      [ip, userId]
+    );
+  }
+
+  async logAuthActivity(userId, action, deviceInfo = {}, metadata = {}) {
+    const pool = getPool();
+    
+    try {
+      await pool.query(
+        `INSERT INTO auth_audit_logs (user_id, action, ip_address, user_agent, device_id, metadata)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          userId,
+          action,
+          deviceInfo.ip || null,
+          deviceInfo.userAgent || null,
+          deviceInfo.deviceId || null,
+          JSON.stringify(metadata),
+        ]
+      );
+    } catch (error) {
+      logger.error('Failed to log auth activity:', error);
+    }
+  }
+
+  sanitizeUser(user) {
+    return {
+      id: user.id,
+      uuid: user.uuid,
+      employeeCode: user.employee_code,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      avatarUrl: user.avatar_url,
+      isActive: user.is_active,
+      isVerified: user.is_verified,
+      lastLoginAt: user.last_login_at,
+      roles: user.role_slugs ? user.role_slugs.split(',') : [],
+    };
+  }
+
+  /**
+   * Hash password (for user creation)
+   */
+  async hashPassword(password) {
+    return bcrypt.hash(password, SALT_ROUNDS);
+  }
+
+  /**
+   * Hash PIN (for user creation)
+   */
+  async hashPin(pin) {
+    return bcrypt.hash(pin, SALT_ROUNDS);
+  }
+}
+
+module.exports = new AuthService();

@@ -1,0 +1,1218 @@
+2026-02-03 12:15:53 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:15:53 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:15:53 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:15:53 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:15:53 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:15:53 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:15:53 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:15:53 [ERROR]: Redis max retries reached
+2026-02-03 12:15:53 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:30 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:30 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:31 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:31 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:31 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:31 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:31 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:31 [ERROR]: Redis max retries reached
+2026-02-03 12:18:31 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:31 [ERROR]: Redis max retries reached
+2026-02-03 12:18:31 [ERROR]: Queue notification error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:31 [ERROR]: Queue print error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:31 [ERROR]: Queue report error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:31 [ERROR]: Queue email error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:31 [ERROR]: Queue whatsapp error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:31 [ERROR]: Queue inventory error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:32 [ERROR]: Queue inventory error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:32 [ERROR]: Queue whatsapp error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:32 [ERROR]: Queue email error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:32 [ERROR]: Queue report error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:32 [ERROR]: Queue notification error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:32 [ERROR]: Queue print error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:33 [ERROR]: Queue whatsapp error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:33 [ERROR]: Queue inventory error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:33 [ERROR]: Queue print error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:33 [ERROR]: Queue notification error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:33 [ERROR]: Queue report error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:33 [ERROR]: Queue email error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:34 [ERROR]: Queue inventory error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:34 [ERROR]: Queue whatsapp error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:34 [ERROR]: Queue email error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:34 [ERROR]: Queue report error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:34 [ERROR]: Queue notification error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:34 [ERROR]: Queue print error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:35 [ERROR]: Queue whatsapp error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:35 [ERROR]: Queue inventory error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:35 [ERROR]: Queue print error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:35 [ERROR]: Queue notification error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:35 [ERROR]: Queue report error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:35 [ERROR]: Queue email error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:36 [ERROR]: Queue inventory error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:36 [ERROR]: Queue whatsapp error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:36 [ERROR]: Queue email error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:36 [ERROR]: Queue report error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:36 [ERROR]: Queue print error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:36 [ERROR]: Queue notification error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:37 [ERROR]: Queue whatsapp error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:37 [ERROR]: Queue inventory error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:37 [ERROR]: Queue notification error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:37 [ERROR]: Queue print error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:37 [ERROR]: Queue email error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:37 [ERROR]: Queue report error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:38 [ERROR]: Queue whatsapp error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:38 [ERROR]: Queue print error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:38 [ERROR]: Queue inventory error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:38 [ERROR]: Queue notification error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:38 [ERROR]: Queue report error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:38 [ERROR]: Queue email error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:41 [ERROR]: Queue print error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:41 [ERROR]: Queue whatsapp error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:41 [ERROR]: Queue email error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:41 [ERROR]: Queue report error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:41 [ERROR]: Queue notification error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:41 [ERROR]: Queue inventory error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:44 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:44 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:44 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:44 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:45 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:45 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:45 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:45 [ERROR]: Redis max retries reached
+2026-02-03 12:18:45 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:45 [ERROR]: Redis max retries reached
+2026-02-03 12:18:45 [ERROR]: Queue print error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:45 [ERROR]: Queue notification error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:45 [ERROR]: Queue email error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:45 [ERROR]: Queue report error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:45 [ERROR]: Queue whatsapp error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:45 [ERROR]: Queue inventory error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:46 [ERROR]: Queue inventory error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:46 [ERROR]: Queue whatsapp error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:46 [ERROR]: Queue report error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:46 [ERROR]: Queue email error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:46 [ERROR]: Queue notification error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:46 [ERROR]: Queue print error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:47 [ERROR]: Queue whatsapp error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:47 [ERROR]: Queue inventory error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:47 [ERROR]: Queue print error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:47 [ERROR]: Queue notification error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:47 [ERROR]: Queue email error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:47 [ERROR]: Queue report error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:48 [ERROR]: Queue email error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:48 [ERROR]: Queue whatsapp error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:48 [ERROR]: Queue notification error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:48 [ERROR]: Queue print error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:48 [ERROR]: Queue inventory error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:48 [ERROR]: Queue report error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:49 [ERROR]: Queue email error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:49 [ERROR]: Queue print error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:49 [ERROR]: Queue whatsapp error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:49 [ERROR]: Queue notification error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:49 [ERROR]: Queue report error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:49 [ERROR]: Queue inventory error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:50 [ERROR]: Queue email error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:50 [ERROR]: Queue print error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:50 [ERROR]: Queue inventory error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:50 [ERROR]: Queue report error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:50 [ERROR]: Queue notification error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:50 [ERROR]: Queue whatsapp error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:51 [ERROR]: Queue print error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:51 [ERROR]: Queue email error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:51 [ERROR]: Queue whatsapp error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:51 [ERROR]: Queue notification error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:51 [ERROR]: Queue report error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:51 [ERROR]: Queue inventory error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:52 [ERROR]: Queue print error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:52 [ERROR]: Queue notification error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:52 [ERROR]: Queue whatsapp error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:52 [ERROR]: Queue email error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:52 [ERROR]: Queue inventory error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:52 [ERROR]: Queue report error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:55 [ERROR]: Queue notification error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:55 [ERROR]: Queue print error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:55 [ERROR]: Queue whatsapp error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:55 [ERROR]: Queue email error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:55 [ERROR]: Queue report error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:18:55 [ERROR]: Queue inventory error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:03 [ERROR]: Queue print error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:03 [ERROR]: Queue notification error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:03 [ERROR]: Queue inventory error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:03 [ERROR]: Queue report error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:03 [ERROR]: Queue email error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:03 [ERROR]: Queue whatsapp error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:11 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:11 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:11 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:11 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:11 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:11 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:11 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:11 [ERROR]: Redis max retries reached
+2026-02-03 12:19:11 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:11 [ERROR]: Redis max retries reached
+2026-02-03 12:19:19 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:19 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:19 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:19 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:20 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:20 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:20 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:20 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:20 [ERROR]: Redis max retries reached
+2026-02-03 12:19:20 [ERROR]: Redis max retries reached
+2026-02-03 12:19:28 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:28 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:28 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:28 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:28 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:28 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:29 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:29 [ERROR]: Redis max retries reached
+2026-02-03 12:19:29 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:19:29 [ERROR]: Redis max retries reached
+2026-02-03 12:20:21 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:20:21 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:20:22 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:20:22 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:20:22 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:20:22 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:20:22 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:20:22 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:20:22 [ERROR]: Redis max retries reached
+2026-02-03 12:20:22 [ERROR]: Redis max retries reached
+2026-02-03 12:23:40 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:23:40 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:23:40 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:23:40 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:23:41 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:23:41 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:23:41 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:23:41 [ERROR]: Redis max retries reached
+2026-02-03 12:23:41 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:23:41 [ERROR]: Redis max retries reached
+2026-02-03 12:38:45 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:38:45 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:38:45 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:38:45 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:38:45 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:38:45 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:38:46 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:38:46 [ERROR]: Redis max retries reached
+2026-02-03 12:38:46 [ERROR]: Redis error: {"code":"ECONNREFUSED"}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-03 12:38:46 [ERROR]: Redis max retries reached
+2026-02-03 13:11:31 [ERROR]: Unhandled error: cache.delete is not a function
+TypeError: cache.delete is not a function
+    at Object.invalidateCache (E:\restro-backend\src\services\table.service.js:879:23)
+    at Object.startSession (E:\restro-backend\src\services\table.service.js:387:18)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async startSession (E:\restro-backend\src\controllers\table.controller.js:140:22)
+2026-02-03 13:11:59 [ERROR]: Unhandled error: Table is currently occupied
+Error: Table is currently occupied
+    at Object.startSession (E:\restro-backend\src\services\table.service.js:350:15)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async startSession (E:\restro-backend\src\controllers\table.controller.js:140:22)
+2026-02-03 13:34:20 [ERROR]: Get tax groups error: FUNCTION restro.JSON_ARRAYAGG does not exist {"code":"ER_SP_DOES_NOT_EXIST","errno":1305,"sql":"\n      SELECT tg.*,\n        (SELECT JSON_ARRAYAGG(JSON_OBJECT(\n          'id', tc.id,\n          'name', tc.name,\n          'code', tc.code,\n          'rate', tc.rate\n        ))\n        FROM tax_group_components tgc\n        JOIN tax_components tc ON tgc.tax_component_id = tc.id\n        WHERE tgc.tax_group_id = tg.id AND tgc.is_active = 1\n        ) as components\n      FROM tax_groups tg\n      WHERE tg.is_active = 1\n     ORDER BY tg.is_default DESC, tg.name","sqlState":"42000","sqlMessage":"FUNCTION restro.JSON_ARRAYAGG does not exist"}
+Error: FUNCTION restro.JSON_ARRAYAGG does not exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getTaxGroups (E:\restro-backend\src\services\tax.service.js:238:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getTaxGroups (E:\restro-backend\src\controllers\tax.controller.js:105:22)
+2026-02-03 15:07:16 [ERROR]: Create order error: Column 'created_by' cannot be null {"code":"ER_BAD_NULL_ERROR","errno":1048,"sql":"INSERT INTO orders (\n          uuid, outlet_id, order_number, order_type,\n          table_id, table_session_id, floor_id, section_id,\n          customer_id, customer_name, customer_phone, guest_count,\n          status, payment_status, special_instructions, created_by\n        ) VALUES ('83cac48f-ed7e-42e0-8852-687359a4828e', 4, 'ORD2602030009', 'dine_in', 7, 3, NULL, NULL, NULL, 'Test Customer', '9876543210', 1, 'pending', 'pending', 'Test order for lifecycle verification', NULL)","sqlState":"23000","sqlMessage":"Column 'created_by' cannot be null"}
+Error: Column 'created_by' cannot be null
+    at PromisePoolConnection.query (E:\restro-backend\node_modules\mysql2\lib\promise\connection.js:29:22)
+    at Object.createOrder (E:\restro-backend\src\services\order.service.js:98:41)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async createOrder (E:\restro-backend\src\controllers\order.controller.js:20:21)
+2026-02-03 15:07:16 [ERROR]: Add items error: Unknown column 'u.full_name' in 'field list' {"code":"ER_BAD_FIELD_ERROR","errno":1054,"sql":"SELECT o.*, t.table_number, t.name as table_name,\n        f.name as floor_name, s.name as section_name,\n        u.full_name as created_by_name\n       FROM orders o\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON o.floor_id = f.id\n       LEFT JOIN sections s ON o.section_id = s.id\n       LEFT JOIN users u ON o.created_by = u.id\n       WHERE o.id = 'null'","sqlState":"42S22","sqlMessage":"Unknown column 'u.full_name' in 'field list'"}
+Error: Unknown column 'u.full_name' in 'field list'
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getById (E:\restro-backend\src\services\order.service.js:316:31)
+    at Object.addItems (E:\restro-backend\src\services\order.service.js:144:32)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async addItems (E:\restro-backend\src\controllers\order.controller.js:73:22)
+2026-02-03 15:07:17 [ERROR]: Generate bill error: Unknown column 'u.full_name' in 'field list' {"code":"ER_BAD_FIELD_ERROR","errno":1054,"sql":"SELECT o.*, t.table_number, t.name as table_name,\n        f.name as floor_name, s.name as section_name,\n        u.full_name as created_by_name\n       FROM orders o\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON o.floor_id = f.id\n       LEFT JOIN sections s ON o.section_id = s.id\n       LEFT JOIN users u ON o.created_by = u.id\n       WHERE o.id = 'null'","sqlState":"42S22","sqlMessage":"Unknown column 'u.full_name' in 'field list'"}
+Error: Unknown column 'u.full_name' in 'field list'
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getById (E:\restro-backend\src\services\order.service.js:316:31)
+    at Object.getOrderWithItems (E:\restro-backend\src\services\order.service.js:338:30)
+    at Object.generateBill (E:\restro-backend\src\services\billing.service.js:51:40)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async generateBill (E:\restro-backend\src\controllers\order.controller.js:293:23)
+2026-02-03 15:07:17 [ERROR]: Get order error: Unknown column 'u.full_name' in 'field list' {"code":"ER_BAD_FIELD_ERROR","errno":1054,"sql":"SELECT o.*, t.table_number, t.name as table_name,\n        f.name as floor_name, s.name as section_name,\n        u.full_name as created_by_name\n       FROM orders o\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON o.floor_id = f.id\n       LEFT JOIN sections s ON o.section_id = s.id\n       LEFT JOIN users u ON o.created_by = u.id\n       WHERE o.id = 'null'","sqlState":"42S22","sqlMessage":"Unknown column 'u.full_name' in 'field list'"}
+Error: Unknown column 'u.full_name' in 'field list'
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getById (E:\restro-backend\src\services\order.service.js:316:31)
+    at Object.getOrderWithItems (E:\restro-backend\src\services\order.service.js:338:30)
+    at getOrder (E:\restro-backend\src\controllers\order.controller.js:33:40)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (E:\restro-backend\node_modules\express\lib\router\route.js:149:13)
+    at Route.dispatch (E:\restro-backend\node_modules\express\lib\router\route.js:119:3)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at E:\restro-backend\node_modules\express\lib\router\index.js:284:15
+    at param (E:\restro-backend\node_modules\express\lib\router\index.js:365:14)
+2026-02-03 15:09:25 [ERROR]: Create order error: Column 'created_by' cannot be null {"code":"ER_BAD_NULL_ERROR","errno":1048,"sql":"INSERT INTO orders (\n          uuid, outlet_id, order_number, order_type,\n          table_id, table_session_id, floor_id, section_id,\n          customer_id, customer_name, customer_phone, guest_count,\n          status, payment_status, special_instructions, created_by\n        ) VALUES ('8a632d3a-e7eb-4d45-b5d4-d9aba04715fd', 4, 'ORD2602030009', 'dine_in', 8, 4, NULL, NULL, NULL, 'Test Customer', '9876543210', 2, 'pending', 'pending', 'Test order for lifecycle verification', NULL)","sqlState":"23000","sqlMessage":"Column 'created_by' cannot be null"}
+Error: Column 'created_by' cannot be null
+    at PromisePoolConnection.query (E:\restro-backend\node_modules\mysql2\lib\promise\connection.js:29:22)
+    at Object.createOrder (E:\restro-backend\src\services\order.service.js:98:41)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async createOrder (E:\restro-backend\src\controllers\order.controller.js:20:21)
+2026-02-03 15:09:25 [ERROR]: Add items error: Order not found
+Error: Order not found
+    at Object.addItems (E:\restro-backend\src\services\order.service.js:145:25)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async addItems (E:\restro-backend\src\controllers\order.controller.js:73:22)
+2026-02-03 15:09:25 [ERROR]: Generate bill error: Order not found
+Error: Order not found
+    at Object.generateBill (E:\restro-backend\src\services\billing.service.js:52:25)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async generateBill (E:\restro-backend\src\controllers\order.controller.js:293:23)
+2026-02-03 15:10:05 [ERROR]: Failed to emit order update: publishMessage is not a function
+TypeError: publishMessage is not a function
+    at Object.emitOrderUpdate (E:\restro-backend\src\services\order.service.js:741:13)
+    at Object.createOrder (E:\restro-backend\src\services\order.service.js:118:18)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async createOrder (E:\restro-backend\src\controllers\order.controller.js:20:21)
+2026-02-03 15:10:05 [ERROR]: Failed to emit order update: publishMessage is not a function
+TypeError: publishMessage is not a function
+    at Object.emitOrderUpdate (E:\restro-backend\src\services\order.service.js:741:13)
+    at Object.addItems (E:\restro-backend\src\services\order.service.js:263:18)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async addItems (E:\restro-backend\src\controllers\order.controller.js:73:22)
+2026-02-03 15:10:05 [ERROR]: Failed to emit order update: publishMessage is not a function
+TypeError: publishMessage is not a function
+    at Object.emitOrderUpdate (E:\restro-backend\src\services\order.service.js:741:13)
+    at Object.addItems (E:\restro-backend\src\services\order.service.js:263:18)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async addItems (E:\restro-backend\src\controllers\order.controller.js:73:22)
+2026-02-03 15:10:05 [ERROR]: Generate bill error: Cannot read properties of undefined (reading 'includes')
+TypeError: Cannot read properties of undefined (reading 'includes')
+    at Object.calculateBillDetails (E:\restro-backend\src\services\billing.service.js:224:25)
+    at Object.generateBill (E:\restro-backend\src\services\billing.service.js:77:38)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async generateBill (E:\restro-backend\src\controllers\order.controller.js:293:23)
+2026-02-03 15:10:49 [ERROR]: Failed to emit order update: publishMessage is not a function
+TypeError: publishMessage is not a function
+    at Object.emitOrderUpdate (E:\restro-backend\src\services\order.service.js:741:13)
+    at Object.createOrder (E:\restro-backend\src\services\order.service.js:118:18)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async createOrder (E:\restro-backend\src\controllers\order.controller.js:20:21)
+2026-02-03 15:10:49 [ERROR]: Failed to emit order update: publishMessage is not a function
+TypeError: publishMessage is not a function
+    at Object.emitOrderUpdate (E:\restro-backend\src\services\order.service.js:741:13)
+    at Object.addItems (E:\restro-backend\src\services\order.service.js:263:18)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async addItems (E:\restro-backend\src\controllers\order.controller.js:73:22)
+2026-02-03 15:10:49 [ERROR]: Failed to emit KOT update: publishMessage is not a function
+TypeError: publishMessage is not a function
+    at Object.emitKotUpdate (E:\restro-backend\src\services\kot.service.js:679:13)
+    at Object.sendKot (E:\restro-backend\src\services\kot.service.js:170:20)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async sendKot (E:\restro-backend\src\controllers\order.controller.js:173:22)
+2026-02-03 15:10:49 [ERROR]: Failed to emit KOT update: publishMessage is not a function
+TypeError: publishMessage is not a function
+    at Object.emitKotUpdate (E:\restro-backend\src\services\kot.service.js:679:13)
+    at Object.sendKot (E:\restro-backend\src\services\kot.service.js:170:20)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async sendKot (E:\restro-backend\src\controllers\order.controller.js:173:22)
+2026-02-03 15:10:49 [ERROR]: Send KOT error: publishMessage is not a function
+TypeError: publishMessage is not a function
+    at Object.sendKot (E:\restro-backend\src\services\kot.service.js:196:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async sendKot (E:\restro-backend\src\controllers\order.controller.js:173:22)
+2026-02-03 15:10:49 [ERROR]: Failed to emit order update: publishMessage is not a function
+TypeError: publishMessage is not a function
+    at Object.emitOrderUpdate (E:\restro-backend\src\services\order.service.js:741:13)
+    at Object.addItems (E:\restro-backend\src\services\order.service.js:263:18)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async addItems (E:\restro-backend\src\controllers\order.controller.js:73:22)
+2026-02-03 15:10:49 [ERROR]: Failed to emit KOT update: publishMessage is not a function
+TypeError: publishMessage is not a function
+    at Object.emitKotUpdate (E:\restro-backend\src\services\kot.service.js:679:13)
+    at Object.sendKot (E:\restro-backend\src\services\kot.service.js:170:20)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async sendKot (E:\restro-backend\src\controllers\order.controller.js:173:22)
+2026-02-03 15:10:49 [ERROR]: Send KOT error: publishMessage is not a function
+TypeError: publishMessage is not a function
+    at Object.sendKot (E:\restro-backend\src\services\kot.service.js:196:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async sendKot (E:\restro-backend\src\controllers\order.controller.js:173:22)
+2026-02-03 15:10:49 [ERROR]: Failed to emit KOT update: publishMessage is not a function
+TypeError: publishMessage is not a function
+    at Object.emitKotUpdate (E:\restro-backend\src\services\kot.service.js:679:13)
+    at Object.acceptKot (E:\restro-backend\src\services\kot.service.js:274:16)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async acceptKot (E:\restro-backend\src\controllers\order.controller.js:218:19)
+2026-02-03 15:10:49 [ERROR]: Failed to emit KOT update: publishMessage is not a function
+TypeError: publishMessage is not a function
+    at Object.emitKotUpdate (E:\restro-backend\src\services\kot.service.js:679:13)
+    at Object.markKotServed (E:\restro-backend\src\services\kot.service.js:487:18)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async markKotServed (E:\restro-backend\src\controllers\order.controller.js:258:19)
+2026-02-03 15:10:49 [ERROR]: Failed to emit KOT update: publishMessage is not a function
+TypeError: publishMessage is not a function
+    at Object.emitKotUpdate (E:\restro-backend\src\services\kot.service.js:679:13)
+    at Object.markKotServed (E:\restro-backend\src\services\kot.service.js:487:18)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async markKotServed (E:\restro-backend\src\controllers\order.controller.js:258:19)
+2026-02-03 15:10:49 [ERROR]: Failed to emit KOT update: publishMessage is not a function
+TypeError: publishMessage is not a function
+    at Object.emitKotUpdate (E:\restro-backend\src\services\kot.service.js:679:13)
+    at Object.markKotServed (E:\restro-backend\src\services\kot.service.js:487:18)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async markKotServed (E:\restro-backend\src\controllers\order.controller.js:258:19)
+2026-02-03 15:10:49 [ERROR]: Mark KOT served error: publishMessage is not a function
+TypeError: publishMessage is not a function
+    at Object.checkOrderServedStatus (E:\restro-backend\src\services\kot.service.js:548:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.markKotServed (E:\restro-backend\src\services\kot.service.js:490:7)
+    at async markKotServed (E:\restro-backend\src\controllers\order.controller.js:258:19)
+2026-02-03 15:10:49 [ERROR]: Generate bill error: Cannot read properties of undefined (reading 'includes')
+TypeError: Cannot read properties of undefined (reading 'includes')
+    at Object.calculateBillDetails (E:\restro-backend\src\services\billing.service.js:224:25)
+    at Object.generateBill (E:\restro-backend\src\services\billing.service.js:77:38)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async generateBill (E:\restro-backend\src\controllers\order.controller.js:293:23)
+2026-02-03 15:11:38 [ERROR]: Generate bill error: Cannot read properties of undefined (reading 'includes')
+TypeError: Cannot read properties of undefined (reading 'includes')
+    at Object.calculateBillDetails (E:\restro-backend\src\services\billing.service.js:224:25)
+    at Object.generateBill (E:\restro-backend\src\services\billing.service.js:77:38)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async generateBill (E:\restro-backend\src\controllers\order.controller.js:293:23)
+2026-02-03 15:25:35 [ERROR]: Failed to create print job for invoice INV/2526/000003: object is not iterable (cannot read property Symbol(Symbol.iterator))
+TypeError: object is not iterable (cannot read property Symbol(Symbol.iterator))
+    at Object.formatBillContent (E:\restro-backend\src\services\printer.service.js:432:32)
+    at Object.printBill (E:\restro-backend\src\services\printer.service.js:541:26)
+    at Object.generateBill (E:\restro-backend\src\services\billing.service.js:141:30)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async generateBill (E:\restro-backend\src\controllers\order.controller.js:293:23)
+2026-02-03 15:27:24 [ERROR]: Failed to create print job for invoice INV/2526/000004: object is not iterable (cannot read property Symbol(Symbol.iterator))
+TypeError: object is not iterable (cannot read property Symbol(Symbol.iterator))
+    at Object.formatBillContent (E:\restro-backend\src\services\printer.service.js:432:32)
+    at Object.printBill (E:\restro-backend\src\services\printer.service.js:541:26)
+    at Object.generateBill (E:\restro-backend\src\services\billing.service.js:141:30)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async generateBill (E:\restro-backend\src\controllers\order.controller.js:293:23)
+2026-02-03 15:28:39 [ERROR]: Failed to create print job for invoice INV/2526/000005: object is not iterable (cannot read property Symbol(Symbol.iterator))
+TypeError: object is not iterable (cannot read property Symbol(Symbol.iterator))
+    at Object.formatBillContent (E:\restro-backend\src\services\printer.service.js:432:32)
+    at Object.printBill (E:\restro-backend\src\services\printer.service.js:541:26)
+    at Object.generateBill (E:\restro-backend\src\services\billing.service.js:141:30)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async generateBill (E:\restro-backend\src\controllers\order.controller.js:293:23)
+2026-02-03 15:29:07 [ERROR]: Failed to create print job for invoice INV/2526/000006: object is not iterable (cannot read property Symbol(Symbol.iterator))
+TypeError: object is not iterable (cannot read property Symbol(Symbol.iterator))
+    at Object.formatBillContent (E:\restro-backend\src\services\printer.service.js:432:32)
+    at Object.printBill (E:\restro-backend\src\services\printer.service.js:541:26)
+    at Object.generateBill (E:\restro-backend\src\services\billing.service.js:141:30)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async generateBill (E:\restro-backend\src\controllers\order.controller.js:293:23)
+2026-02-03 15:29:07 [ERROR]: Process payment error: Column 'outlet_id' cannot be null {"code":"ER_BAD_NULL_ERROR","errno":1048,"sql":"INSERT INTO payments (\n          uuid, outlet_id, order_id, invoice_id, payment_number,\n          payment_mode, amount, tip_amount, total_amount, status,\n          transaction_id, reference_number,\n          card_last_four, card_type, upi_id, wallet_name, bank_name,\n          notes, received_by\n        ) VALUES ('1fae1d48-c051-4cc2-af35-54b897b728bd', NULL, 15, 6, 'PAY2602030001', 'cash', 2541, 0, 2541, 'completed', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 1)","sqlState":"23000","sqlMessage":"Column 'outlet_id' cannot be null"}
+Error: Column 'outlet_id' cannot be null
+    at PromisePoolConnection.query (E:\restro-backend\node_modules\mysql2\lib\promise\connection.js:29:22)
+    at Object.processPayment (E:\restro-backend\src\services\payment.service.js:90:41)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async processPayment (E:\restro-backend\src\controllers\order.controller.js:392:23)
+2026-02-03 15:29:38 [ERROR]: Failed to create print job for invoice INV/2526/000007: object is not iterable (cannot read property Symbol(Symbol.iterator))
+TypeError: object is not iterable (cannot read property Symbol(Symbol.iterator))
+    at Object.formatBillContent (E:\restro-backend\src\services\printer.service.js:432:32)
+    at Object.printBill (E:\restro-backend\src\services\printer.service.js:541:26)
+    at Object.generateBill (E:\restro-backend\src\services\billing.service.js:141:30)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async generateBill (E:\restro-backend\src\controllers\order.controller.js:293:23)
+2026-02-03 15:29:38 [ERROR]: Process payment error: Column 'outlet_id' cannot be null {"code":"ER_BAD_NULL_ERROR","errno":1048,"sql":"INSERT INTO payments (\n          uuid, outlet_id, order_id, invoice_id, payment_number,\n          payment_mode, amount, tip_amount, total_amount, status,\n          transaction_id, reference_number,\n          card_last_four, card_type, upi_id, wallet_name, bank_name,\n          notes, received_by\n        ) VALUES ('a70eabce-0dd5-4e4e-8c9d-6091be489a69', NULL, 16, 7, 'PAY2602030001', 'cash', 2541, 0, 2541, 'completed', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 1)","sqlState":"23000","sqlMessage":"Column 'outlet_id' cannot be null"}
+Error: Column 'outlet_id' cannot be null
+    at PromisePoolConnection.query (E:\restro-backend\node_modules\mysql2\lib\promise\connection.js:29:22)
+    at Object.processPayment (E:\restro-backend\src\services\payment.service.js:90:41)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async processPayment (E:\restro-backend\src\controllers\order.controller.js:392:23)
+2026-02-03 18:01:29 [ERROR]: Create user failed: Managers can only create staff users (captain, waiter, bartender, kitchen, cashier)
+Error: Managers can only create staff users (captain, waiter, bartender, kitchen, cashier)
+    at UserService.createUser (E:\restro-backend\src\services\user.service.js:211:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async createUser (E:\restro-backend\src\controllers\user.controller.js:52:18)
+2026-02-03 18:01:29 [ERROR]: Unhandled error: Managers can only create staff users (captain, waiter, bartender, kitchen, cashier)
+Error: Managers can only create staff users (captain, waiter, bartender, kitchen, cashier)
+    at UserService.createUser (E:\restro-backend\src\services\user.service.js:211:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async createUser (E:\restro-backend\src\controllers\user.controller.js:52:18)
+2026-02-03 18:01:29 [ERROR]: Update user failed: Managers cannot update admin or manager users
+Error: Managers cannot update admin or manager users
+    at UserService.updateUser (E:\restro-backend\src\services\user.service.js:308:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async updateUser (E:\restro-backend\src\controllers\user.controller.js:77:18)
+2026-02-03 18:01:29 [ERROR]: Unhandled error: Managers cannot update admin or manager users
+Error: Managers cannot update admin or manager users
+    at UserService.updateUser (E:\restro-backend\src\services\user.service.js:308:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async updateUser (E:\restro-backend\src\controllers\user.controller.js:77:18)
+2026-02-03 18:26:50 [ERROR]: Get my permissions failed: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:90:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getMyPermissions (E:\restro-backend\src\controllers\permission.controller.js:34:25)
+2026-02-03 18:26:50 [ERROR]: Unhandled error: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:90:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getMyPermissions (E:\restro-backend\src\controllers\permission.controller.js:34:25)
+2026-02-03 18:26:50 [ERROR]: Check permission failed: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:90:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async checkPermission (E:\restro-backend\src\controllers\permission.controller.js:288:25)
+2026-02-03 18:26:50 [ERROR]: Unhandled error: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:90:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async checkPermission (E:\restro-backend\src\controllers\permission.controller.js:288:25)
+2026-02-03 18:26:50 [ERROR]: Get grantable permissions failed: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:90:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async PermissionService.getGrantablePermissions (E:\restro-backend\src\services\permission.service.js:566:26)
+    at async getGrantablePermissions (E:\restro-backend\src\controllers\permission.controller.js:53:25)
+2026-02-03 18:26:50 [ERROR]: Unhandled error: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:90:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async PermissionService.getGrantablePermissions (E:\restro-backend\src\services\permission.service.js:566:26)
+    at async getGrantablePermissions (E:\restro-backend\src\controllers\permission.controller.js:53:25)
+2026-02-03 18:26:51 [ERROR]: Get user permissions failed: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:157:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getUserPermissions (E:\restro-backend\src\controllers\permission.controller.js:74:25)
+2026-02-03 18:26:51 [ERROR]: Unhandled error: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:157:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getUserPermissions (E:\restro-backend\src\controllers\permission.controller.js:74:25)
+2026-02-03 18:26:51 [ERROR]: Grant permissions failed: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:90:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async PermissionService.grantPermissions (E:\restro-backend\src\services\permission.service.js:195:26)
+    at async grantPermissions (E:\restro-backend\src\controllers\permission.controller.js:147:20)
+2026-02-03 18:26:51 [ERROR]: Unhandled error: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:90:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async PermissionService.grantPermissions (E:\restro-backend\src\services\permission.service.js:195:26)
+    at async grantPermissions (E:\restro-backend\src\controllers\permission.controller.js:147:20)
+2026-02-03 18:26:51 [ERROR]: Get user permissions failed: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:157:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getUserPermissions (E:\restro-backend\src\controllers\permission.controller.js:74:25)
+2026-02-03 18:26:51 [ERROR]: Unhandled error: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:157:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getUserPermissions (E:\restro-backend\src\controllers\permission.controller.js:74:25)
+2026-02-03 18:26:51 [ERROR]: Get my permissions failed: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:157:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getMyPermissions (E:\restro-backend\src\controllers\permission.controller.js:34:25)
+2026-02-03 18:26:51 [ERROR]: Unhandled error: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:157:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getMyPermissions (E:\restro-backend\src\controllers\permission.controller.js:34:25)
+2026-02-03 18:26:52 [ERROR]: Get user permissions failed: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:157:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getUserPermissions (E:\restro-backend\src\controllers\permission.controller.js:74:25)
+2026-02-03 18:26:52 [ERROR]: Unhandled error: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:157:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getUserPermissions (E:\restro-backend\src\controllers\permission.controller.js:74:25)
+2026-02-03 18:26:52 [ERROR]: Grant permissions failed: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:90:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async PermissionService.grantPermissions (E:\restro-backend\src\services\permission.service.js:195:26)
+    at async grantPermissions (E:\restro-backend\src\controllers\permission.controller.js:147:20)
+2026-02-03 18:26:52 [ERROR]: Unhandled error: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:90:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async PermissionService.grantPermissions (E:\restro-backend\src\services\permission.service.js:195:26)
+    at async grantPermissions (E:\restro-backend\src\controllers\permission.controller.js:147:20)
+2026-02-03 18:26:52 [ERROR]: Revoke permissions failed: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:90:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async PermissionService.revokePermissions (E:\restro-backend\src\services\permission.service.js:289:26)
+    at async revokePermissions (E:\restro-backend\src\controllers\permission.controller.js:192:20)
+2026-02-03 18:26:52 [ERROR]: Unhandled error: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:90:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async PermissionService.revokePermissions (E:\restro-backend\src\services\permission.service.js:289:26)
+    at async revokePermissions (E:\restro-backend\src\controllers\permission.controller.js:192:20)
+2026-02-03 18:26:52 [ERROR]: Get user permissions failed: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:157:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getUserPermissions (E:\restro-backend\src\controllers\permission.controller.js:74:25)
+2026-02-03 18:26:52 [ERROR]: Unhandled error: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:157:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getUserPermissions (E:\restro-backend\src\controllers\permission.controller.js:74:25)
+2026-02-03 18:26:52 [ERROR]: Grant permissions failed: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:157:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async PermissionService.grantPermissions (E:\restro-backend\src\services\permission.service.js:195:26)
+    at async grantPermissions (E:\restro-backend\src\controllers\permission.controller.js:147:20)
+2026-02-03 18:26:52 [ERROR]: Unhandled error: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:157:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async PermissionService.grantPermissions (E:\restro-backend\src\services\permission.service.js:195:26)
+    at async grantPermissions (E:\restro-backend\src\controllers\permission.controller.js:147:20)
+2026-02-03 18:26:52 [ERROR]: Get grantable permissions failed: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:157:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async PermissionService.getGrantablePermissions (E:\restro-backend\src\services\permission.service.js:566:26)
+    at async getGrantablePermissions (E:\restro-backend\src\controllers\permission.controller.js:53:25)
+2026-02-03 18:26:52 [ERROR]: Unhandled error: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:157:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async PermissionService.getGrantablePermissions (E:\restro-backend\src\services\permission.service.js:566:26)
+    at async getGrantablePermissions (E:\restro-backend\src\controllers\permission.controller.js:53:25)
+2026-02-03 18:26:52 [ERROR]: Grant permissions failed: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:157:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async PermissionService.grantPermissions (E:\restro-backend\src\services\permission.service.js:195:26)
+    at async grantPermissions (E:\restro-backend\src\controllers\permission.controller.js:147:20)
+2026-02-03 18:26:52 [ERROR]: Unhandled error: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:157:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async PermissionService.grantPermissions (E:\restro-backend\src\services\permission.service.js:195:26)
+    at async grantPermissions (E:\restro-backend\src\controllers\permission.controller.js:147:20)
+2026-02-03 18:26:52 [ERROR]: Grant permissions failed: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:157:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async PermissionService.grantPermissions (E:\restro-backend\src\services\permission.service.js:195:26)
+    at async grantPermissions (E:\restro-backend\src\controllers\permission.controller.js:147:20)
+2026-02-03 18:26:52 [ERROR]: Unhandled error: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:157:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async PermissionService.grantPermissions (E:\restro-backend\src\services\permission.service.js:195:26)
+    at async grantPermissions (E:\restro-backend\src\controllers\permission.controller.js:147:20)
+2026-02-03 18:26:52 [ERROR]: Grant permissions failed: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:157:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async PermissionService.grantPermissions (E:\restro-backend\src\services\permission.service.js:195:26)
+    at async grantPermissions (E:\restro-backend\src\controllers\permission.controller.js:147:20)
+2026-02-03 18:26:52 [ERROR]: Unhandled error: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:157:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async PermissionService.grantPermissions (E:\restro-backend\src\services\permission.service.js:195:26)
+    at async grantPermissions (E:\restro-backend\src\controllers\permission.controller.js:147:20)
+2026-02-03 18:26:52 [ERROR]: Set user permissions failed: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:90:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async PermissionService.setUserPermissions (E:\restro-backend\src\services\permission.service.js:369:25)
+    at async setUserPermissions (E:\restro-backend\src\controllers\permission.controller.js:102:20)
+2026-02-03 18:26:52 [ERROR]: Unhandled error: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:90:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async PermissionService.setUserPermissions (E:\restro-backend\src\services\permission.service.js:369:25)
+    at async setUserPermissions (E:\restro-backend\src\controllers\permission.controller.js:102:20)
+2026-02-03 18:26:52 [ERROR]: Get user permissions failed: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:157:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getUserPermissions (E:\restro-backend\src\controllers\permission.controller.js:74:25)
+2026-02-03 18:26:52 [ERROR]: Unhandled error: cache.setex is not a function
+TypeError: cache.setex is not a function
+    at PermissionService.getUserPermissions (E:\restro-backend\src\services\permission.service.js:157:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getUserPermissions (E:\restro-backend\src\controllers\permission.controller.js:74:25)
+2026-02-03 18:48:00 [ERROR]: Unhandled error: Validation failed {"statusCode":422,"isOperational":true,"status":"fail","errors":[{"field":"pin","message":"PIN is required for all staff"}]}
+Error: Validation failed
+    at E:\restro-backend\src\middlewares\validate.js:24:19
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (E:\restro-backend\node_modules\express\lib\router\route.js:149:13)
+    at E:\restro-backend\src\middlewares\auth.middleware.js:119:14
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (E:\restro-backend\node_modules\express\lib\router\route.js:149:13)
+    at Route.dispatch (E:\restro-backend\node_modules\express\lib\router\route.js:119:3)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at E:\restro-backend\node_modules\express\lib\router\index.js:284:15
+    at Function.process_params (E:\restro-backend\node_modules\express\lib\router\index.js:346:12)

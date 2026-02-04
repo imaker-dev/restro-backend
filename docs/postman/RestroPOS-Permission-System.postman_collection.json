@@ -1,0 +1,174 @@
+{
+  "info": {
+    "name": "RestroPOS Permission System",
+    "description": "Feature-based permission system with inheritance rules.\n\n**Hierarchy:**\n- Admin: Full access (superuser)\n- Manager: Can manage captains, grant only permissions they have\n- Captain: Operational permissions only\n\n**Rules:**\n- Admin can grant ANY permission\n- Manager can ONLY grant permissions they have\n- Manager cannot modify admin/manager permissions",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {"key": "baseUrl", "value": "http://localhost:3000/api/v1"},
+    {"key": "adminToken", "value": ""},
+    {"key": "managerToken", "value": ""},
+    {"key": "captainToken", "value": ""},
+    {"key": "outletId", "value": "1"},
+    {"key": "createdManagerId", "value": ""},
+    {"key": "createdCaptainId", "value": ""},
+    {"key": "managerRoleId", "value": "3"},
+    {"key": "captainRoleId", "value": "4"}
+  ],
+  "item": [
+    {
+      "name": "1. Setup - Login",
+      "item": [
+        {
+          "name": "1.1 Admin Login",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "if (jsonData.success) {", "  pm.collectionVariables.set('adminToken', jsonData.data.accessToken);", "  pm.test('Admin logged in', () => pm.expect(jsonData.success).to.be.true);", "}"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"email\": \"admin@restropos.com\",\n  \"password\": \"admin123\"\n}"}, "url": "{{baseUrl}}/auth/login"}
+        }
+      ]
+    },
+    {
+      "name": "2. Permission Discovery",
+      "description": "Get all available permissions",
+      "item": [
+        {
+          "name": "2.1 Get All Permissions (Grouped)",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Permissions retrieved', () => pm.expect(jsonData.success).to.be.true);", "pm.test('Has grouped permissions', () => pm.expect(jsonData.data.grouped).to.be.an('object'));"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/permissions"}
+        },
+        {
+          "name": "2.2 Get My Permissions",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('My permissions retrieved', () => pm.expect(jsonData.success).to.be.true);", "pm.test('Admin is superuser', () => pm.expect(jsonData.data.isSuperuser).to.be.true);"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/permissions/my"}
+        },
+        {
+          "name": "2.3 Get Grantable Permissions",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Grantable permissions retrieved', () => pm.expect(jsonData.success).to.be.true);"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/permissions/grantable"}
+        },
+        {
+          "name": "2.4 Check Specific Permissions",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Permission check successful', () => pm.expect(jsonData.success).to.be.true);", "pm.test('STAFF_PERMISSIONS granted', () => pm.expect(jsonData.data.permissions.STAFF_PERMISSIONS).to.be.true);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"permissions\": [\"STAFF_PERMISSIONS\", \"BILL_GENERATE\", \"ORDER_CANCEL\", \"INVENTORY_EDIT\"]\n}"}, "url": "{{baseUrl}}/permissions/check"}
+        },
+        {
+          "name": "2.5 Get Role Default Permissions",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Role permissions retrieved', () => pm.expect(jsonData.success).to.be.true);"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/permissions/roles/{{captainRoleId}}"}
+        }
+      ]
+    },
+    {
+      "name": "3. Admin Creates Manager",
+      "description": "Admin creates manager and assigns permissions",
+      "item": [
+        {
+          "name": "3.1 Create Manager",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "if (jsonData.success) {", "  pm.collectionVariables.set('createdManagerId', jsonData.data.id.toString());", "  pm.test('Manager created', () => pm.expect(jsonData.success).to.be.true);", "}"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Permission Test Manager\",\n  \"email\": \"perm.manager.{{$timestamp}}@test.com\",\n  \"employeeCode\": \"PMGR{{$timestamp}}\",\n  \"password\": \"Manager@123\",\n  \"pin\": \"1234\",\n  \"isActive\": true,\n  \"roles\": [{\"roleId\": {{managerRoleId}}, \"outletId\": {{outletId}}}]\n}"}, "url": "{{baseUrl}}/users"}
+        },
+        {
+          "name": "3.2 Get Manager Permissions",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Manager permissions retrieved', () => pm.expect(jsonData.success).to.be.true);", "pm.test('Has STAFF_PERMISSIONS', () => pm.expect(jsonData.data.permissions).to.include('STAFF_PERMISSIONS'));"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/users/{{createdManagerId}}/permissions"}
+        },
+        {
+          "name": "3.3 Admin Grants Additional Permissions",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Permissions granted', () => pm.expect(jsonData.success).to.be.true);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"permissions\": [\"OUTLET_CREATE\", \"OUTLET_EDIT\"],\n  \"outletId\": {{outletId}},\n  \"reason\": \"Granting outlet management permissions\"\n}"}, "url": "{{baseUrl}}/users/{{createdManagerId}}/permissions/grant"}
+        },
+        {
+          "name": "3.4 Admin Revokes Permission",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Permission revoked', () => pm.expect(jsonData.success).to.be.true);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"permissions\": [\"INVENTORY_TRANSFER\"],\n  \"reason\": \"Revoking inventory transfer access\"\n}"}, "url": "{{baseUrl}}/users/{{createdManagerId}}/permissions/revoke"}
+        }
+      ]
+    },
+    {
+      "name": "4. Admin Creates Captain",
+      "description": "Admin creates captain with specific permissions",
+      "item": [
+        {
+          "name": "4.1 Create Captain",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "if (jsonData.success) {", "  pm.collectionVariables.set('createdCaptainId', jsonData.data.id.toString());", "  pm.test('Captain created', () => pm.expect(jsonData.success).to.be.true);", "}"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Permission Test Captain\",\n  \"employeeCode\": \"PCAP{{$timestamp}}\",\n  \"pin\": \"5678\",\n  \"isActive\": true,\n  \"roles\": [{\"roleId\": {{captainRoleId}}, \"outletId\": {{outletId}}}]\n}"}, "url": "{{baseUrl}}/users"}
+        },
+        {
+          "name": "4.2 Get Captain Permissions",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Captain permissions retrieved', () => pm.expect(jsonData.success).to.be.true);", "pm.test('Has ORDER_CREATE', () => pm.expect(jsonData.data.permissions).to.include('ORDER_CREATE'));"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/users/{{createdCaptainId}}/permissions"}
+        },
+        {
+          "name": "4.3 Admin Grants DISCOUNT_CUSTOM to Captain",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Discount permission granted', () => pm.expect(jsonData.success).to.be.true);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"permissions\": [\"DISCOUNT_CUSTOM\"],\n  \"reason\": \"Captain can apply custom discounts\"\n}"}, "url": "{{baseUrl}}/users/{{createdCaptainId}}/permissions/grant"}
+        },
+        {
+          "name": "4.4 Admin Sets Exact Permissions",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Permissions set', () => pm.expect(jsonData.success).to.be.true);"], "type": "text/javascript"}}],
+          "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"permissions\": [\n    \"TABLE_VIEW\",\n    \"ORDER_VIEW\",\n    \"ORDER_CREATE\",\n    \"ORDER_MODIFY\",\n    \"KOT_SEND\",\n    \"BILL_VIEW\",\n    \"BILL_GENERATE\",\n    \"PAYMENT_COLLECT\",\n    \"DISCOUNT_APPLY\"\n  ],\n  \"reason\": \"Setting captain to basic operations only\"\n}"}, "url": "{{baseUrl}}/users/{{createdCaptainId}}/permissions"}
+        }
+      ]
+    },
+    {
+      "name": "5. Manager Permission Inheritance",
+      "description": "Manager can only grant permissions they have",
+      "item": [
+        {
+          "name": "5.1 Login as Manager",
+          "event": [{"listen": "prerequest", "script": {"exec": ["// Get manager email from creation step or use default"], "type": "text/javascript"}}, {"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "if (jsonData.success) {", "  pm.collectionVariables.set('managerToken', jsonData.data.accessToken);", "  pm.test('Manager logged in', () => pm.expect(jsonData.success).to.be.true);", "}"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"email\": \"perm.manager.test@test.com\",\n  \"password\": \"Manager@123\"\n}"}, "url": "{{baseUrl}}/auth/login"}
+        },
+        {
+          "name": "5.2 Manager Gets Own Permissions",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Manager permissions retrieved', () => pm.expect(jsonData.success).to.be.true);", "pm.test('Not a superuser', () => pm.expect(jsonData.data.isSuperuser).to.be.false);"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{managerToken}}"}], "url": "{{baseUrl}}/permissions/my"}
+        },
+        {
+          "name": "5.3 Manager Gets Grantable Permissions",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Grantable limited to manager permissions', () => pm.expect(jsonData.success).to.be.true);"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{managerToken}}"}], "url": "{{baseUrl}}/permissions/grantable"}
+        },
+        {
+          "name": "5.4 Manager Grants Valid Permission",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Permission granted by manager', () => pm.expect(jsonData.success).to.be.true);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{managerToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"permissions\": [\"ORDER_CANCEL\", \"BILL_CANCEL\"],\n  \"reason\": \"Manager granting valid permissions to captain\"\n}"}, "url": "{{baseUrl}}/users/{{createdCaptainId}}/permissions/grant"}
+        },
+        {
+          "name": "5.5 Manager BLOCKED - Grant Unauthorized (OUTLET_SETTINGS)",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Manager blocked from granting unauthorized', () => pm.expect(jsonData.success).to.be.false);", "pm.test('Error mentions permissions', () => pm.expect(jsonData.message).to.include('permissions'));"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{managerToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"permissions\": [\"OUTLET_SETTINGS\"],\n  \"reason\": \"This should fail - manager doesn't have OUTLET_SETTINGS\"\n}"}, "url": "{{baseUrl}}/users/{{createdCaptainId}}/permissions/grant"}
+        },
+        {
+          "name": "5.6 Manager BLOCKED - Modify Another Manager",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('Manager blocked from modifying manager', () => pm.expect(jsonData.success).to.be.false);", "pm.test('Error mentions admin/manager', () => pm.expect(jsonData.message).to.include('manager'));"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{managerToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"permissions\": [\"ORDER_CREATE\"],\n  \"reason\": \"This should fail - cannot modify another manager\"\n}"}, "url": "{{baseUrl}}/users/{{createdManagerId}}/permissions/grant"}
+        }
+      ]
+    },
+    {
+      "name": "6. Audit Logging",
+      "description": "Permission changes are logged for compliance",
+      "item": [
+        {
+          "name": "6.1 Get Permission History",
+          "event": [{"listen": "test", "script": {"exec": ["var jsonData = pm.response.json();", "pm.test('History retrieved', () => pm.expect(jsonData.success).to.be.true);", "pm.test('Has audit entries', () => pm.expect(jsonData.data).to.be.an('array'));"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/users/{{createdCaptainId}}/permissions/history"}
+        }
+      ]
+    },
+    {
+      "name": "7. Cleanup",
+      "description": "Delete test users",
+      "item": [
+        {
+          "name": "7.1 Delete Test Captain",
+          "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/users/{{createdCaptainId}}"}
+        },
+        {
+          "name": "7.2 Delete Test Manager",
+          "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/users/{{createdManagerId}}"}
+        }
+      ]
+    }
+  ]
+}
