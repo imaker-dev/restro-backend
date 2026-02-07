@@ -398,11 +398,22 @@ const menuController = {
   async getCaptainMenu(req, res) {
     try {
       const { outletId } = req.params;
+      const { floorId, sectionId, timeSlotId, tableId, filter } = req.query;
+      
+      // Validate filter if provided
+      if (filter && !['veg', 'non_veg', 'nonveg', 'liquor'].includes(filter.toLowerCase())) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Invalid filter. Use: veg, non_veg, or liquor' 
+        });
+      }
+      
       const context = {
-        floorId: req.query.floorId ? parseInt(req.query.floorId) : null,
-        sectionId: req.query.sectionId ? parseInt(req.query.sectionId) : null,
-        timeSlotId: req.query.timeSlotId ? parseInt(req.query.timeSlotId) : null,
-        tableId: req.query.tableId ? parseInt(req.query.tableId) : null
+        floorId: floorId ? parseInt(floorId) : null,
+        sectionId: sectionId ? parseInt(sectionId) : null,
+        timeSlotId: timeSlotId ? parseInt(timeSlotId) : null,
+        tableId: tableId ? parseInt(tableId) : null,
+        filter: filter || null
       };
       const menu = await menuEngineService.getCaptainMenu(outletId, context);
       res.json({ success: true, data: menu });
@@ -476,12 +487,32 @@ const menuController = {
   async searchItems(req, res) {
     try {
       const { outletId } = req.params;
-      const { query, floorId, sectionId, timeSlotId, limit } = req.query;
-      const items = await menuEngineService.searchItems(outletId, query, {
+      const { q, query, floorId, sectionId, timeSlotId, limit, filter } = req.query;
+      
+      // Support both ?q= and ?query= parameters
+      const searchTerm = q || query;
+      
+      if (!searchTerm || searchTerm.trim() === '') {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Search query is required. Use ?q=<search_term> or ?query=<search_term>' 
+        });
+      }
+      
+      // Validate filter if provided
+      if (filter && !['veg', 'non_veg', 'nonveg', 'liquor'].includes(filter.toLowerCase())) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Invalid filter. Use: veg, non_veg, or liquor' 
+        });
+      }
+      
+      const items = await menuEngineService.searchItems(outletId, searchTerm.trim(), {
         floorId: floorId ? parseInt(floorId) : null,
         sectionId: sectionId ? parseInt(sectionId) : null,
         timeSlotId: timeSlotId ? parseInt(timeSlotId) : null,
-        limit: limit ? parseInt(limit) : 20
+        limit: limit ? parseInt(limit) : 50,
+        filter: filter || null
       });
       res.json({ success: true, data: items });
     } catch (error) {

@@ -29,7 +29,7 @@ const itemService = {
         isCustomizable = false, hasVariants = false, hasAddons = false,
         allowSpecialNotes = true, minQuantity = 1, maxQuantity, stepQuantity = 1,
         isAvailable = true, isRecommended = false, isBestseller = false, isNew = false,
-        displayOrder = 0, isActive = true,
+        displayOrder = 0, isActive = true, isGlobal = false,
         kitchenStationId, counterId,
         // Visibility rules
         floorIds = [], sectionIds = [], timeSlotIds = [],
@@ -50,8 +50,8 @@ const itemService = {
           is_customizable, has_variants, has_addons, allow_special_notes,
           min_quantity, max_quantity, step_quantity,
           is_available, is_recommended, is_bestseller, is_new,
-          display_order, is_active, kitchen_station_id, counter_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          display_order, is_active, is_global, kitchen_station_id, counter_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           outletId, categoryId, itemSku, name, shortName, itemSlug, description,
           itemType, basePrice, costPrice, taxGroupId,
@@ -59,7 +59,7 @@ const itemService = {
           isCustomizable, hasVariants, hasAddons, allowSpecialNotes,
           minQuantity, maxQuantity, stepQuantity,
           isAvailable, isRecommended, isBestseller, isNew,
-          displayOrder, isActive, kitchenStationId, counterId
+          displayOrder, isActive, isGlobal, kitchenStationId, counterId
         ]
       );
 
@@ -319,7 +319,7 @@ const itemService = {
         maxQuantity: 'max_quantity', stepQuantity: 'step_quantity',
         isAvailable: 'is_available', isRecommended: 'is_recommended',
         isBestseller: 'is_bestseller', isNew: 'is_new',
-        displayOrder: 'display_order', isActive: 'is_active',
+        displayOrder: 'display_order', isActive: 'is_active', isGlobal: 'is_global',
         kitchenStationId: 'kitchen_station_id', counterId: 'counter_id'
       };
 
@@ -505,33 +505,36 @@ const itemService = {
       params.push(categoryId);
     }
 
-    // Floor filter
+    // Floor filter - skip if item is global
     if (floorId) {
       query += `
         AND (
-          NOT EXISTS (SELECT 1 FROM item_floors if_ WHERE if_.item_id = i.id)
+          i.is_global = 1
+          OR NOT EXISTS (SELECT 1 FROM item_floors if_ WHERE if_.item_id = i.id)
           OR EXISTS (SELECT 1 FROM item_floors if_ WHERE if_.item_id = i.id AND if_.floor_id = ? AND if_.is_available = 1)
         )
       `;
       params.push(floorId);
     }
 
-    // Section filter
+    // Section filter - skip if item is global
     if (sectionId) {
       query += `
         AND (
-          NOT EXISTS (SELECT 1 FROM item_sections is_ WHERE is_.item_id = i.id)
+          i.is_global = 1
+          OR NOT EXISTS (SELECT 1 FROM item_sections is_ WHERE is_.item_id = i.id)
           OR EXISTS (SELECT 1 FROM item_sections is_ WHERE is_.item_id = i.id AND is_.section_id = ? AND is_.is_available = 1)
         )
       `;
       params.push(sectionId);
     }
 
-    // Time slot filter
+    // Time slot filter - skip if item is global
     if (timeSlotId) {
       query += `
         AND (
-          NOT EXISTS (SELECT 1 FROM item_time_slots its WHERE its.item_id = i.id)
+          i.is_global = 1
+          OR NOT EXISTS (SELECT 1 FROM item_time_slots its WHERE its.item_id = i.id)
           OR EXISTS (SELECT 1 FROM item_time_slots its WHERE its.item_id = i.id AND its.time_slot_id = ? AND its.is_available = 1)
         )
       `;

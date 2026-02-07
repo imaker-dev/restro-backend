@@ -67,7 +67,7 @@ const paymentService = {
       await connection.beginTransaction();
 
       const {
-        outletId, orderId, invoiceId,
+        outletId: requestOutletId, orderId, invoiceId,
         paymentMode, amount, tipAmount = 0,
         transactionId, referenceNumber,
         cardLastFour, cardType, upiId, walletName, bankName,
@@ -77,6 +77,10 @@ const paymentService = {
       // Validate order/invoice
       const order = await orderService.getById(orderId);
       if (!order) throw new Error('Order not found');
+
+      // Use request outletId or fallback to order's outlet_id
+      const outletId = requestOutletId || order.outlet_id;
+      if (!outletId) throw new Error('Outlet ID is required');
 
       if (order.status === 'paid') {
         throw new Error('Order already paid');
@@ -155,20 +159,19 @@ const paymentService = {
         });
       }
 
-      // Release table if fully paid
+      // Release table if fully paid - auto end session and make available
       if (paymentStatus === 'completed' && order.table_id) {
         await connection.query(
-          `UPDATE tables SET status = 'cleaning' WHERE id = ?`,
+          `UPDATE tables SET status = 'available' WHERE id = ?`,
           [order.table_id]
         );
         
         if (order.table_session_id) {
           await connection.query(
             `UPDATE table_sessions SET 
-              status = 'completed', end_time = NOW(), 
-              total_amount = ?, payment_status = 'paid'
+              status = 'completed', ended_at = NOW()
              WHERE id = ?`,
-            [paidAmount, order.table_session_id]
+            [order.table_session_id]
           );
         }
       }
@@ -187,12 +190,24 @@ const paymentService = {
         timestamp: new Date().toISOString()
       });
 
-      // Emit table update if released
+      // Emit bill status for Captain real-time tracking
+      await publishMessage('bill:status', {
+        outletId,
+        orderId,
+        tableId: order.table_id,
+        invoiceId,
+        billStatus: paymentStatus === 'completed' ? 'paid' : 'partial',
+        amountPaid: totalAmount,
+        timestamp: new Date().toISOString()
+      });
+
+      // Emit table update if released - table now available
       if (paymentStatus === 'completed' && order.table_id) {
         await publishMessage('table:update', {
           outletId,
           tableId: order.table_id,
-          status: 'cleaning',
+          status: 'available',
+          event: 'session_ended',
           timestamp: new Date().toISOString()
         });
       }
@@ -280,12 +295,21 @@ const paymentService = {
         );
       }
 
-      // Release table
+      // Release table - set to available and end session
       if (order.table_id) {
         await connection.query(
-          `UPDATE tables SET status = 'cleaning' WHERE id = ?`,
+          `UPDATE tables SET status = 'available' WHERE id = ?`,
           [order.table_id]
         );
+        
+        if (order.table_session_id) {
+          await connection.query(
+            `UPDATE table_sessions SET 
+              status = 'completed', ended_at = NOW()
+             WHERE id = ?`,
+            [order.table_session_id]
+          );
+        }
       }
 
       await connection.commit();

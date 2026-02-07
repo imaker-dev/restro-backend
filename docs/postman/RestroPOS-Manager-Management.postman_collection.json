@@ -1,0 +1,623 @@
+{
+  "info": {
+    "name": "RestroPOS - Manager Management",
+    "description": "## Manager Management API\n\nComplete CRUD operations for managers with both login methods.\n\n### Login Methods\n- **Email + Password**: `POST /auth/login`\n- **Employee Code + PIN**: `POST /auth/login/pin`\n\n### Manager Default Permissions\nManagers get **58 permissions** automatically on creation.\n\n### Manager Restrictions\n- Can create: captain, waiter, kitchen, bartender, cashier\n- Cannot create: admin, manager\n- Can only grant permissions they have",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {"key": "baseUrl", "value": "http://localhost:3000/api/v1"},
+    {"key": "adminToken", "value": ""},
+    {"key": "managerToken", "value": ""},
+    {"key": "refreshToken", "value": ""},
+    {"key": "outletId", "value": "1"},
+    {"key": "managerId", "value": ""},
+    {"key": "managerRoleId", "value": "3"},
+    {"key": "captainRoleId", "value": "4"},
+    {"key": "managerEmployeeCode", "value": ""},
+    {"key": "captainId", "value": ""}
+  ],
+  "item": [
+    {
+      "name": "1. Setup - Admin Login",
+      "description": "Login as admin to manage managers",
+      "item": [
+        {
+          "name": "1.1 Admin Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.success) {",
+                  "  pm.collectionVariables.set('adminToken', res.data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', res.data.refreshToken);",
+                  "}",
+                  "pm.test('Admin login successful', () => pm.expect(res.success).to.be.true);",
+                  "pm.test('Has access token', () => pm.expect(res.data.accessToken).to.be.a('string'));",
+                  "pm.test('Has refresh token', () => pm.expect(res.data.refreshToken).to.be.a('string'));",
+                  "pm.test('Has user info', () => {",
+                  "  pm.expect(res.data.user.name).to.be.a('string');",
+                  "  pm.expect(res.data.user.roles).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@restropos.com\",\n  \"password\": \"admin123\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login",
+            "description": "Login as admin with email and password"
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Login successful\",\n  \"data\": {\n    \"accessToken\": \"eyJhbGciOiJIUzI1NiIs...\",\n    \"refreshToken\": \"eyJhbGciOiJIUzI1NiIs...\",\n    \"expiresIn\": 900,\n    \"tokenType\": \"Bearer\",\n    \"user\": {\n      \"id\": 1,\n      \"uuid\": \"abc-123\",\n      \"name\": \"Admin User\",\n      \"email\": \"admin@restropos.com\",\n      \"roles\": [\"admin\"]\n    }\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "1.2 Get Roles",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Roles retrieved', () => pm.expect(res.success).to.be.true);",
+                  "if (res.success) {",
+                  "  const roles = res.data;",
+                  "  const manager = roles.find(r => r.slug === 'manager');",
+                  "  const captain = roles.find(r => r.slug === 'captain');",
+                  "  if (manager) pm.collectionVariables.set('managerRoleId', manager.id);",
+                  "  if (captain) pm.collectionVariables.set('captainRoleId', captain.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}],
+            "url": "{{baseUrl}}/users/roles",
+            "description": "Get all available roles"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Manager CRUD",
+      "description": "Create, Read, Update, Delete managers",
+      "item": [
+        {
+          "name": "2.1 Create Manager",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Manager created', () => pm.expect(res.success).to.be.true);",
+                  "if (res.success) {",
+                  "  pm.collectionVariables.set('managerId', res.data.id);",
+                  "  pm.collectionVariables.set('managerEmployeeCode', res.data.employeeCode);",
+                  "}",
+                  "pm.test('Has 58 permissions', () => pm.expect(res.data.permissionCount).to.equal(58));",
+                  "pm.test('Has employee code', () => pm.expect(res.data.employeeCode).to.be.a('string'));",
+                  "pm.test('Has roles', () => pm.expect(res.data.roles).to.be.an('array'));",
+                  "pm.test('Has permissions array', () => pm.expect(res.data.permissions).to.be.an('array'));"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const timestamp = Date.now();",
+                  "pm.collectionVariables.set('testTimestamp', timestamp);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{adminToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"John Manager\",\n  \"email\": \"john.manager.{{$timestamp}}@restaurant.com\",\n  \"employeeCode\": \"MGR{{$timestamp}}\",\n  \"password\": \"Manager@123\",\n  \"pin\": \"1234\",\n  \"phone\": \"+91-9876543210\",\n  \"isActive\": true,\n  \"roles\": [\n    {\n      \"roleId\": {{managerRoleId}},\n      \"outletId\": {{outletId}}\n    }\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/users",
+            "description": "Create a new manager with email, password, and PIN.\n\n**Required Fields:**\n- name\n- pin (4 digits)\n- roles\n\n**Optional Fields:**\n- email\n- password\n- phone\n- employeeCode (auto-generated if not provided)"
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "Created",
+              "code": 201,
+              "body": "{\n  \"success\": true,\n  \"message\": \"User created successfully\",\n  \"data\": {\n    \"id\": 69,\n    \"uuid\": \"abc-123-def\",\n    \"employeeCode\": \"MGR001\",\n    \"name\": \"John Manager\",\n    \"email\": \"john.manager@restaurant.com\",\n    \"phone\": \"+91-9876543210\",\n    \"isActive\": true,\n    \"roles\": [\n      {\n        \"id\": 3,\n        \"name\": \"Manager\",\n        \"slug\": \"manager\",\n        \"outletId\": 1\n      }\n    ],\n    \"permissions\": [\"TABLE_VIEW\", \"TABLE_CREATE\", ...],\n    \"permissionCount\": 58\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "2.2 Get Manager Details",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Manager retrieved', () => pm.expect(res.success).to.be.true);",
+                  "pm.test('Has id', () => pm.expect(res.data.id).to.be.a('number'));",
+                  "pm.test('Has name', () => pm.expect(res.data.name).to.be.a('string'));",
+                  "pm.test('Has roles', () => pm.expect(res.data.roles).to.be.an('array'));",
+                  "pm.test('Has permissions', () => pm.expect(res.data.permissions).to.be.an('array'));",
+                  "pm.test('Has permissionCount', () => pm.expect(res.data.permissionCount).to.be.a('number'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}],
+            "url": "{{baseUrl}}/users/{{managerId}}",
+            "description": "Get manager details with roles and permissions"
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"id\": 69,\n    \"uuid\": \"abc-123\",\n    \"employeeCode\": \"MGR001\",\n    \"name\": \"John Manager\",\n    \"email\": \"john.manager@restaurant.com\",\n    \"phone\": \"+91-9876543210\",\n    \"isActive\": true,\n    \"roles\": [\n      {\n        \"id\": 3,\n        \"name\": \"Manager\",\n        \"slug\": \"manager\",\n        \"outletId\": 1,\n        \"outletName\": \"Downtown Restaurant\"\n      }\n    ],\n    \"permissions\": [\"TABLE_VIEW\", \"ORDER_CREATE\", ...],\n    \"permissionCount\": 58\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "2.3 Update Manager",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Manager updated', () => pm.expect(res.success).to.be.true);",
+                  "pm.test('Name updated', () => pm.expect(res.data.name).to.equal('John Manager Updated'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{adminToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"John Manager Updated\",\n  \"phone\": \"+91-1234567890\"\n}"
+            },
+            "url": "{{baseUrl}}/users/{{managerId}}",
+            "description": "Update manager details"
+          }
+        },
+        {
+          "name": "2.4 List Managers",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('List successful', () => pm.expect(res.success).to.be.true);",
+                  "pm.test('Has data array', () => pm.expect(res.data).to.be.an('array'));",
+                  "pm.test('Has pagination', () => pm.expect(res.pagination).to.be.an('object'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}],
+            "url": {
+              "raw": "{{baseUrl}}/users?roleId={{managerRoleId}}&page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["users"],
+              "query": [
+                {"key": "roleId", "value": "{{managerRoleId}}"},
+                {"key": "page", "value": "1"},
+                {"key": "limit", "value": "20"}
+              ]
+            },
+            "description": "List all managers with pagination"
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"data\": [\n    {\n      \"id\": 69,\n      \"name\": \"John Manager\",\n      \"email\": \"john@test.com\",\n      \"employeeCode\": \"MGR001\",\n      \"isActive\": true,\n      \"roles\": [\"manager\"]\n    }\n  ],\n  \"pagination\": {\n    \"page\": 1,\n    \"limit\": 20,\n    \"total\": 5,\n    \"totalPages\": 1\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "2.5 Delete Manager",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Manager deleted', () => pm.expect(res.success).to.be.true);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}],
+            "url": "{{baseUrl}}/users/{{managerId}}",
+            "description": "Soft delete manager (sets deleted_at)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Manager Login Methods",
+      "description": "Both login methods for managers",
+      "item": [
+        {
+          "name": "3.0 Create Fresh Manager",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.success) {",
+                  "  pm.collectionVariables.set('managerId', res.data.id);",
+                  "  pm.collectionVariables.set('managerEmployeeCode', res.data.employeeCode);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{adminToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Login Test Manager\",\n  \"email\": \"login.test.mgr.{{$timestamp}}@test.com\",\n  \"employeeCode\": \"LTM{{$timestamp}}\",\n  \"password\": \"Manager@123\",\n  \"pin\": \"4567\",\n  \"isActive\": true,\n  \"roles\": [{\"roleId\": {{managerRoleId}}, \"outletId\": {{outletId}}}]\n}"
+            },
+            "url": "{{baseUrl}}/users"
+          }
+        },
+        {
+          "name": "3.1 Manager Login - Email/Password",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Email login successful', () => pm.expect(res.success).to.be.true);",
+                  "pm.test('Has access token', () => pm.expect(res.data.accessToken).to.be.a('string'));",
+                  "pm.test('Has user with roles', () => pm.expect(res.data.user.roles).to.be.an('array'));",
+                  "if (res.success) {",
+                  "  pm.collectionVariables.set('managerToken', res.data.accessToken);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"login.test.mgr.{{$timestamp}}@test.com\",\n  \"password\": \"Manager@123\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login",
+            "description": "Manager login with email and password.\n\n**Use Case:** Admin panel, web dashboard"
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Login successful\",\n  \"data\": {\n    \"accessToken\": \"eyJhbGciOiJIUzI1NiIs...\",\n    \"refreshToken\": \"eyJhbGciOiJIUzI1NiIs...\",\n    \"expiresIn\": 900,\n    \"tokenType\": \"Bearer\",\n    \"user\": {\n      \"id\": 69,\n      \"name\": \"John Manager\",\n      \"email\": \"john@test.com\",\n      \"employeeCode\": \"MGR001\",\n      \"roles\": [\"manager\"]\n    }\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "3.2 Manager Login - PIN",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('PIN login successful', () => pm.expect(res.success).to.be.true);",
+                  "pm.test('Has access token', () => pm.expect(res.data.accessToken).to.be.a('string'));",
+                  "pm.test('Has user info', () => pm.expect(res.data.user.name).to.be.a('string'));",
+                  "if (res.success) {",
+                  "  pm.collectionVariables.set('managerToken', res.data.accessToken);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"employeeCode\": \"{{managerEmployeeCode}}\",\n  \"pin\": \"4567\",\n  \"outletId\": {{outletId}}\n}"
+            },
+            "url": "{{baseUrl}}/auth/login/pin",
+            "description": "Manager login with employee code and PIN.\n\n**Use Case:** Quick access on manager app, POS terminal"
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Login successful\",\n  \"data\": {\n    \"accessToken\": \"eyJhbGciOiJIUzI1NiIs...\",\n    \"refreshToken\": \"eyJhbGciOiJIUzI1NiIs...\",\n    \"expiresIn\": 900,\n    \"tokenType\": \"Bearer\",\n    \"user\": {\n      \"id\": 69,\n      \"name\": \"John Manager\",\n      \"employeeCode\": \"MGR001\",\n      \"roles\": [\"manager\"]\n    }\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "3.3 Manager Get Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Profile retrieved', () => pm.expect(res.success).to.be.true);",
+                  "pm.test('Has permissions', () => pm.expect(res.data.permissions).to.be.an('array'));",
+                  "pm.test('Has 58+ permissions', () => pm.expect(res.data.permissions.length).to.be.at.least(50));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{managerToken}}"}],
+            "url": "{{baseUrl}}/auth/me",
+            "description": "Get current manager profile with permissions"
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"id\": 69,\n    \"name\": \"John Manager\",\n    \"email\": \"john@test.com\",\n    \"employeeCode\": \"MGR001\",\n    \"roles\": [{\"id\": 3, \"name\": \"Manager\", \"slug\": \"manager\"}],\n    \"permissions\": [\"TABLE_VIEW\", \"TABLE_CREATE\", \"ORDER_VIEW\", ...],\n    \"permissionCount\": 58\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Manager Creates Staff",
+      "description": "Manager can create captains and staff",
+      "item": [
+        {
+          "name": "4.1 Manager Creates Captain",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Captain created', () => pm.expect(res.success).to.be.true);",
+                  "pm.test('Has 22 permissions', () => pm.expect(res.data.permissionCount).to.equal(22));",
+                  "if (res.success) {",
+                  "  pm.collectionVariables.set('captainId', res.data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{managerToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Captain By Manager\",\n  \"employeeCode\": \"CBM{{$timestamp}}\",\n  \"pin\": \"9999\",\n  \"isActive\": true,\n  \"roles\": [{\"roleId\": {{captainRoleId}}, \"outletId\": {{outletId}}}]\n}"
+            },
+            "url": "{{baseUrl}}/users",
+            "description": "Manager creates captain with PIN only (no email/password needed)"
+          }
+        },
+        {
+          "name": "4.2 Manager Creates Manager (BLOCKED)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Should fail', () => pm.expect(res.success).to.be.false);",
+                  "pm.test('Error message', () => pm.expect(res.message).to.include('staff'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{managerToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Illegal Manager\",\n  \"email\": \"illegal@test.com\",\n  \"employeeCode\": \"ILM{{$timestamp}}\",\n  \"pin\": \"1111\",\n  \"roles\": [{\"roleId\": {{managerRoleId}}, \"outletId\": {{outletId}}}]\n}"
+            },
+            "url": "{{baseUrl}}/users",
+            "description": "Manager CANNOT create another manager - this will fail"
+          },
+          "response": [
+            {
+              "name": "Error",
+              "status": "Forbidden",
+              "code": 403,
+              "body": "{\n  \"success\": false,\n  \"message\": \"Managers can only create staff users (captain, waiter, bartender, kitchen, cashier)\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Manager Permissions",
+      "description": "Permission inheritance rules",
+      "item": [
+        {
+          "name": "5.1 Manager Get My Permissions",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{managerToken}}"}],
+            "url": "{{baseUrl}}/permissions/my",
+            "description": "Get manager's own permissions"
+          }
+        },
+        {
+          "name": "5.2 Manager Get Grantable Permissions",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Has grantable permissions', () => pm.expect(res.data.permissions).to.be.an('array'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{managerToken}}"}],
+            "url": "{{baseUrl}}/permissions/grantable",
+            "description": "Get permissions that manager can grant to others"
+          }
+        },
+        {
+          "name": "5.3 Manager Grant Permission (SUCCESS)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "// May succeed or say already has it",
+                  "pm.test('Grant handled', () => pm.expect(res.success || res.message.includes('already')).to.be.true);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{managerToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"permissions\": [\"ORDER_CREATE\"],\n  \"reason\": \"Granting order permission\"\n}"
+            },
+            "url": "{{baseUrl}}/users/{{captainId}}/permissions/grant",
+            "description": "Manager grants permission they have"
+          }
+        },
+        {
+          "name": "5.4 Manager Grant Permission (BLOCKED)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Should be blocked', () => pm.expect(res.success).to.be.false);",
+                  "pm.test('Error mentions permission', () => pm.expect(res.message).to.include('OUTLET_SETTINGS'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{managerToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"permissions\": [\"OUTLET_SETTINGS\"],\n  \"reason\": \"This should fail\"\n}"
+            },
+            "url": "{{baseUrl}}/users/{{captainId}}/permissions/grant",
+            "description": "Manager CANNOT grant permissions they don't have"
+          },
+          "response": [
+            {
+              "name": "Error",
+              "status": "Forbidden",
+              "code": 403,
+              "body": "{\n  \"success\": false,\n  \"message\": \"You cannot grant permissions you don't have: OUTLET_SETTINGS\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. Cleanup",
+      "item": [
+        {
+          "name": "6.1 Delete Captain",
+          "request": {
+            "method": "DELETE",
+            "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}],
+            "url": "{{baseUrl}}/users/{{captainId}}"
+          }
+        },
+        {
+          "name": "6.2 Delete Manager",
+          "request": {
+            "method": "DELETE",
+            "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}],
+            "url": "{{baseUrl}}/users/{{managerId}}"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -23,7 +23,7 @@ const categoryService = {
 
       const {
         outletId, parentId, name, slug, description,
-        imageUrl, icon, colorCode, displayOrder = 0, isActive = true,
+        imageUrl, icon, colorCode, displayOrder = 0, isActive = true, isGlobal = false,
         // Visibility rules
         floorIds = [], sectionIds = [], timeSlotIds = []
       } = data;
@@ -31,9 +31,9 @@ const categoryService = {
       const categorySlug = slug || name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 
       const [result] = await connection.query(
-        `INSERT INTO categories (outlet_id, parent_id, name, slug, description, image_url, icon, color_code, display_order, is_active)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [outletId, parentId, name, categorySlug, description, imageUrl, icon, colorCode, displayOrder, isActive]
+        `INSERT INTO categories (outlet_id, parent_id, name, slug, description, image_url, icon, color_code, display_order, is_active, is_global)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [outletId, parentId, name, categorySlug, description, imageUrl, icon, colorCode, displayOrder, isActive, isGlobal]
       );
 
       const categoryId = result.insertId;
@@ -176,6 +176,7 @@ const categoryService = {
       if (data.colorCode !== undefined) { fields.push('color_code = ?'); values.push(data.colorCode); }
       if (data.displayOrder !== undefined) { fields.push('display_order = ?'); values.push(data.displayOrder); }
       if (data.isActive !== undefined) { fields.push('is_active = ?'); values.push(data.isActive); }
+      if (data.isGlobal !== undefined) { fields.push('is_global = ?'); values.push(data.isGlobal); }
 
       if (fields.length > 0) {
         values.push(id);
@@ -312,33 +313,36 @@ const categoryService = {
     `;
     const params = [outletId];
 
-    // Floor filter
+    // Floor filter - skip if category is global
     if (floorId) {
       query += `
         AND (
-          NOT EXISTS (SELECT 1 FROM category_floors cf WHERE cf.category_id = c.id)
+          c.is_global = 1
+          OR NOT EXISTS (SELECT 1 FROM category_floors cf WHERE cf.category_id = c.id)
           OR EXISTS (SELECT 1 FROM category_floors cf WHERE cf.category_id = c.id AND cf.floor_id = ? AND cf.is_available = 1)
         )
       `;
       params.push(floorId);
     }
 
-    // Section filter
+    // Section filter - skip if category is global
     if (sectionId) {
       query += `
         AND (
-          NOT EXISTS (SELECT 1 FROM category_sections cs WHERE cs.category_id = c.id)
+          c.is_global = 1
+          OR NOT EXISTS (SELECT 1 FROM category_sections cs WHERE cs.category_id = c.id)
           OR EXISTS (SELECT 1 FROM category_sections cs WHERE cs.category_id = c.id AND cs.section_id = ? AND cs.is_available = 1)
         )
       `;
       params.push(sectionId);
     }
 
-    // Time slot filter
+    // Time slot filter - skip if category is global
     if (timeSlotId) {
       query += `
         AND (
-          NOT EXISTS (SELECT 1 FROM category_time_slots cts WHERE cts.category_id = c.id)
+          c.is_global = 1
+          OR NOT EXISTS (SELECT 1 FROM category_time_slots cts WHERE cts.category_id = c.id)
           OR EXISTS (SELECT 1 FROM category_time_slots cts WHERE cts.category_id = c.id AND cts.time_slot_id = ? AND cts.is_available = 1)
         )
       `;

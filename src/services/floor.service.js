@@ -26,7 +26,7 @@ const floorService = {
       ]
     );
 
-    await cache.delete(`floors:outlet:${data.outletId}`);
+    await cache.del(`floors:outlet:${data.outletId}`);
     return this.getById(result.insertId);
   },
 
@@ -145,7 +145,7 @@ const floorService = {
     params.push(id);
     await pool.query(`UPDATE floors SET ${updates.join(', ')} WHERE id = ?`, params);
 
-    await cache.delete(`floors:outlet:${floor.outlet_id}`);
+    await cache.del(`floors:outlet:${floor.outlet_id}`);
     return this.getById(id);
   },
 
@@ -168,7 +168,7 @@ const floorService = {
     }
 
     await pool.query('DELETE FROM floors WHERE id = ?', [id]);
-    await cache.delete(`floors:outlet:${floor.outlet_id}`);
+    await cache.del(`floors:outlet:${floor.outlet_id}`);
     return true;
   },
 

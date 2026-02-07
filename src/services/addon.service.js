@@ -114,14 +114,14 @@ const addonService = {
   async createAddon(data) {
     const pool = getPool();
     const {
-      addonGroupId, name, price = 0, itemType = 'veg',
+      addonGroupId, name, price = 0, itemType = 'veg', imageUrl,
       isDefault = false, displayOrder = 0, isActive = true
     } = data;
 
     const [result] = await pool.query(
-      `INSERT INTO addons (addon_group_id, name, price, item_type, is_default, display_order, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [addonGroupId, name, price, itemType, isDefault, displayOrder, isActive]
+      `INSERT INTO addons (addon_group_id, name, price, item_type, image_url, is_default, display_order, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [addonGroupId, name, price, itemType, imageUrl, isDefault, displayOrder, isActive]
     );
 
     // Invalidate cache
@@ -154,6 +154,7 @@ const addonService = {
     if (data.name !== undefined) { fields.push('name = ?'); values.push(data.name); }
     if (data.price !== undefined) { fields.push('price = ?'); values.push(data.price); }
     if (data.itemType !== undefined) { fields.push('item_type = ?'); values.push(data.itemType); }
+    if (data.imageUrl !== undefined) { fields.push('image_url = ?'); values.push(data.imageUrl); }
     if (data.isDefault !== undefined) { fields.push('is_default = ?'); values.push(data.isDefault); }
     if (data.displayOrder !== undefined) { fields.push('display_order = ?'); values.push(data.displayOrder); }
     if (data.isActive !== undefined) { fields.push('is_active = ?'); values.push(data.isActive); }

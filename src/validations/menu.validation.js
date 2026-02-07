@@ -101,6 +101,7 @@ module.exports = {
     colorCode: Joi.string().pattern(/^#[0-9A-Fa-f]{6}$/).allow('', null),
     displayOrder: Joi.number().integer().min(0).default(0),
     isActive: Joi.boolean().default(true),
+    isGlobal: Joi.boolean().default(false),
     floorIds: Joi.array().items(Joi.number().integer().positive()).default([]),
     sectionIds: Joi.array().items(Joi.number().integer().positive()).default([]),
     timeSlotIds: Joi.array().items(Joi.number().integer().positive()).default([])
@@ -116,6 +117,7 @@ module.exports = {
     colorCode: Joi.string().pattern(/^#[0-9A-Fa-f]{6}$/).allow('', null),
     displayOrder: Joi.number().integer().min(0),
     isActive: Joi.boolean(),
+    isGlobal: Joi.boolean(),
     floorIds: Joi.array().items(Joi.number().integer().positive()),
     sectionIds: Joi.array().items(Joi.number().integer().positive()),
     timeSlotIds: Joi.array().items(Joi.number().integer().positive())
@@ -155,6 +157,7 @@ module.exports = {
     isNew: Joi.boolean().default(false),
     displayOrder: Joi.number().integer().min(0).default(0),
     isActive: Joi.boolean().default(true),
+    isGlobal: Joi.boolean().default(false),
     kitchenStationId: Joi.number().integer().positive().allow(null),
     counterId: Joi.number().integer().positive().allow(null),
     floorIds: Joi.array().items(Joi.number().integer().positive()).default([]),
@@ -202,6 +205,7 @@ module.exports = {
     isNew: Joi.boolean(),
     displayOrder: Joi.number().integer().min(0),
     isActive: Joi.boolean(),
+    isGlobal: Joi.boolean(),
     kitchenStationId: Joi.number().integer().positive().allow(null),
     counterId: Joi.number().integer().positive().allow(null),
     floorIds: Joi.array().items(Joi.number().integer().positive()),
@@ -253,6 +257,7 @@ module.exports = {
     name: Joi.string().max(100).required(),
     price: Joi.number().min(0).default(0),
     itemType: Joi.string().valid(...ITEM_TYPES).default('veg'),
+    imageUrl: Joi.string().uri().max(500).allow('', null),
     isDefault: Joi.boolean().default(false),
     displayOrder: Joi.number().integer().min(0).default(0),
     isActive: Joi.boolean().default(true)
@@ -262,6 +267,7 @@ module.exports = {
     name: Joi.string().max(100),
     price: Joi.number().min(0),
     itemType: Joi.string().valid(...ITEM_TYPES),
+    imageUrl: Joi.string().uri().max(500).allow('', null),
     isDefault: Joi.boolean(),
     displayOrder: Joi.number().integer().min(0),
     isActive: Joi.boolean()

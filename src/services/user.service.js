@@ -550,6 +550,25 @@ class UserService {
   }
 
   /**
+   * Get user's default outlet ID from their roles
+   * Returns the first outlet_id found in user's active roles
+   */
+  async getUserOutletId(userId) {
+    const pool = getPool();
+    
+    const [result] = await pool.query(
+      `SELECT ur.outlet_id 
+       FROM user_roles ur
+       WHERE ur.user_id = ? AND ur.is_active = 1 AND ur.outlet_id IS NOT NULL
+       ORDER BY ur.assigned_at DESC
+       LIMIT 1`,
+      [userId]
+    );
+    
+    return result.length > 0 ? result[0].outlet_id : null;
+  }
+
+  /**
    * Get all roles
    */
   async getRoles() {

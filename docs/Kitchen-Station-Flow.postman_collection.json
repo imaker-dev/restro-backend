@@ -1,0 +1,481 @@
+{
+  "info": {
+    "name": "Kitchen/Station KOT Flow",
+    "description": "Complete collection for Kitchen Display System (KDS) and station management from chef/bartender perspective",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000/api/v1" },
+    { "key": "outletId", "value": "4" },
+    { "key": "captainToken", "value": "" },
+    { "key": "kitchenToken", "value": "" },
+    { "key": "orderId", "value": "" },
+    { "key": "kotId", "value": "" },
+    { "key": "kotItemId", "value": "" },
+    { "key": "tableId", "value": "14" }
+  ],
+  "item": [
+    {
+      "name": "1. Authentication",
+      "item": [
+        {
+          "name": "Login - Captain",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.success && jsonData.data.accessToken) {",
+                  "    pm.collectionVariables.set('captainToken', jsonData.data.accessToken);",
+                  "    pm.test('Captain login successful', function() {",
+                  "        pm.expect(jsonData.success).to.be.true;",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@restropos.com\",\n  \"password\": \"admin123\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login"
+          }
+        },
+        {
+          "name": "Login - Kitchen Staff",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.success && jsonData.data.accessToken) {",
+                  "    pm.collectionVariables.set('kitchenToken', jsonData.data.accessToken);",
+                  "    pm.test('Kitchen login successful', function() {",
+                  "        pm.expect(jsonData.success).to.be.true;",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"kitchen@restropos.com\",\n  \"password\": \"Kitchen@123\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Captain - Order Setup",
+      "item": [
+        {
+          "name": "Start Table Session",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{captainToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"guestCount\": 4,\n  \"guestName\": \"Test Guest\"\n}"
+            },
+            "url": "{{baseUrl}}/tables/{{tableId}}/session"
+          }
+        },
+        {
+          "name": "Create Order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data.id) {",
+                  "    pm.collectionVariables.set('orderId', jsonData.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{captainToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"outletId\": {{outletId}},\n  \"tableId\": {{tableId}},\n  \"orderType\": \"dine_in\",\n  \"guestCount\": 4\n}"
+            },
+            "url": "{{baseUrl}}/orders"
+          }
+        },
+        {
+          "name": "Add Items",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{captainToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    { \"itemId\": 1, \"quantity\": 2, \"specialInstructions\": \"Extra spicy\" },\n    { \"itemId\": 2, \"quantity\": 1 },\n    { \"itemId\": 3, \"quantity\": 3, \"specialInstructions\": \"No onion\" }\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/orders/{{orderId}}/items"
+          }
+        },
+        {
+          "name": "Send KOT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('KOT sent', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});",
+                  "if (jsonData.data && jsonData.data.tickets && jsonData.data.tickets.length > 0) {",
+                  "    pm.collectionVariables.set('kotId', jsonData.data.tickets[0].id);",
+                  "    console.log('KOT ID: ' + jsonData.data.tickets[0].id);",
+                  "    console.log('KOT Number: ' + jsonData.data.tickets[0].kotNumber);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{captainToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/{{orderId}}/kot"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Kitchen - KOT Reception",
+      "item": [
+        {
+          "name": "Get Station Dashboard - Kitchen",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Dashboard retrieved', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.data.kots).to.be.an('array');",
+                  "    pm.expect(jsonData.data.stats).to.be.an('object');",
+                  "});",
+                  "console.log('Pending KOTs: ' + jsonData.data.stats.pending_count);",
+                  "console.log('Preparing: ' + jsonData.data.stats.preparing_count);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{kitchenToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/station/{{outletId}}/kitchen"
+          }
+        },
+        {
+          "name": "Get Station Dashboard - Bar",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{kitchenToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/station/{{outletId}}/bar"
+          }
+        },
+        {
+          "name": "Get Active KOTs - All Stations",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{kitchenToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/kot/active/{{outletId}}"
+          }
+        },
+        {
+          "name": "Get Active KOTs - Kitchen Only",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{kitchenToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/active/{{outletId}}?station=kitchen",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "active", "{{outletId}}"],
+              "query": [{ "key": "station", "value": "kitchen" }]
+            }
+          }
+        },
+        {
+          "name": "Get Active KOTs - Bar Only",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{kitchenToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/active/{{outletId}}?station=bar",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "active", "{{outletId}}"],
+              "query": [{ "key": "station", "value": "bar" }]
+            }
+          }
+        },
+        {
+          "name": "Get Single KOT Details",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data.items && jsonData.data.items.length > 0) {",
+                  "    pm.collectionVariables.set('kotItemId', jsonData.data.items[0].id);",
+                  "    console.log('KOT Item ID: ' + jsonData.data.items[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{kitchenToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/kot/{{kotId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Kitchen - Status Updates",
+      "item": [
+        {
+          "name": "Accept KOT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('KOT accepted', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.data.status).to.eql('accepted');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{kitchenToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/kot/{{kotId}}/accept"
+          }
+        },
+        {
+          "name": "Start Preparing",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Started preparing', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.data.status).to.eql('preparing');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{kitchenToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/kot/{{kotId}}/preparing"
+          }
+        },
+        {
+          "name": "Mark Single Item Ready",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Item marked ready', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{kitchenToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/kot/items/{{kotItemId}}/ready"
+          }
+        },
+        {
+          "name": "Mark Entire KOT Ready",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('KOT ready', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.data.status).to.eql('ready');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{kitchenToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/kot/{{kotId}}/ready"
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Captain - Pickup & Serve",
+      "item": [
+        {
+          "name": "Check Order Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{captainToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/{{orderId}}"
+          }
+        },
+        {
+          "name": "Get Order KOTs",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{captainToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/{{orderId}}/kots"
+          }
+        },
+        {
+          "name": "Mark KOT Served (Captain Pickup)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('KOT served', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.data.status).to.eql('served');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{captainToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/kot/{{kotId}}/served"
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Utility",
+      "item": [
+        {
+          "name": "Reprint KOT",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{kitchenToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/kot/{{kotId}}/reprint"
+          }
+        },
+        {
+          "name": "Get KOTs for Table",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{captainToken}}" }
+            ],
+            "url": "{{baseUrl}}/tables/{{tableId}}/kots"
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Cleanup",
+      "item": [
+        {
+          "name": "Cancel Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{captainToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Testing cleanup\"\n}"
+            },
+            "url": "{{baseUrl}}/orders/{{orderId}}/cancel"
+          }
+        },
+        {
+          "name": "End Table Session",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{captainToken}}" }
+            ],
+            "url": "{{baseUrl}}/tables/{{tableId}}/session"
+          }
+        }
+      ]
+    }
+  ]
+}

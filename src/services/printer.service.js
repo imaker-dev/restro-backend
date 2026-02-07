@@ -9,6 +9,7 @@ const { v4: uuidv4 } = require('uuid');
 const { pubsub } = require('../config/redis');
 const logger = require('../utils/logger');
 const crypto = require('crypto');
+const net = require('net');
 
 const printerService = {
   // ========================
@@ -374,9 +375,13 @@ const printerService = {
 
     // Items
     for (const item of kotData.items || []) {
-      lines.push(`${item.quantity} x ${item.itemName}`);
+      const typeTag = item.itemType ? ` [${item.itemType.toUpperCase()}]` : '';
+      lines.push(`${item.quantity} x ${item.itemName}${typeTag}`);
       if (item.variantName) {
         lines.push(`   (${item.variantName})`);
+      }
+      if (item.addonsText) {
+        lines.push(`   + ${item.addonsText}`);
       }
       if (item.instructions) {
         lines.push(`   >> ${item.instructions}`);
@@ -389,6 +394,72 @@ const printerService = {
     lines.push(''); // Empty line for paper feed
 
     return lines.join('\n');
+  },
+
+  formatCancelSlipContent(cancelData) {
+    const lines = [];
+    const width = 42;
+    const separator = '='.repeat(width);
+    const dash = '-'.repeat(width);
+
+    lines.push(separator);
+    lines.push(this.centerText('*** CANCEL ***', width));
+    lines.push(separator);
+
+    lines.push(`Order #: ${cancelData.orderNumber || 'N/A'}`);
+    lines.push(`Table: ${cancelData.tableNumber || 'Takeaway'}    Time: ${cancelData.time}`);
+    if (cancelData.kotNumber) {
+      lines.push(`KOT #: ${cancelData.kotNumber}`);
+    }
+    lines.push(dash);
+
+    for (const item of cancelData.items || []) {
+      const typeTag = item.itemType ? ` [${item.itemType.toUpperCase()}]` : '';
+      lines.push(`${item.quantity} x ${item.itemName}${typeTag}`);
+      if (item.variantName) {
+        lines.push(`   (${item.variantName})`);
+      }
+    }
+
+    lines.push(dash);
+    lines.push(`Reason: ${cancelData.reason || 'N/A'}`);
+    lines.push(`Cancelled by: ${cancelData.cancelledBy || 'Staff'}`);
+    lines.push(separator);
+    lines.push('');
+
+    return lines.join('\n');
+  },
+
+  async printCancelSlip(cancelData, userId) {
+    const content = this.formatCancelSlipContent(cancelData);
+    const station = cancelData.station || 'kitchen';
+
+    return this.createPrintJob({
+      outletId: cancelData.outletId,
+      jobType: 'cancel_slip',
+      station,
+      orderId: cancelData.orderId,
+      content: this.wrapWithEscPos(content, { beep: true }),
+      contentType: 'escpos',
+      referenceNumber: cancelData.orderNumber,
+      tableNumber: cancelData.tableNumber,
+      priority: 10,
+      createdBy: userId
+    });
+  },
+
+  async printCancelSlipDirect(cancelData, printerIp, printerPort = 9100) {
+    const content = this.formatCancelSlipContent(cancelData);
+    const escposData = this.wrapWithEscPos(content, { beep: true });
+
+    try {
+      const result = await this.printDirect(printerIp, printerPort, escposData);
+      logger.info(`Cancel slip printed directly to ${printerIp}:${printerPort}`);
+      return result;
+    } catch (error) {
+      logger.error(`Direct cancel slip print failed:`, error.message);
+      throw error;
+    }
   },
 
   formatBillContent(billData) {
@@ -599,6 +670,118 @@ const printerService = {
   // ========================
   // STATS & MONITORING
   // ========================
+
+  // ========================
+  // DIRECT NETWORK PRINTING
+  // ========================
+
+  /**
+   * Send data directly to a network printer via TCP
+   * @param {string} ipAddress - Printer IP address
+   * @param {number} port - Printer port (default 9100)
+   * @param {string|Buffer} data - ESC/POS data to print
+   * @param {number} timeout - Connection timeout in ms (default 5000)
+   */
+  async printDirect(ipAddress, port = 9100, data, timeout = 5000) {
+    return new Promise((resolve, reject) => {
+      const client = new net.Socket();
+      let connected = false;
+
+      const timeoutId = setTimeout(() => {
+        if (!connected) {
+          client.destroy();
+          reject(new Error(`Connection timeout to printer ${ipAddress}:${port}`));
+        }
+      }, timeout);
+
+      client.connect(port, ipAddress, () => {
+        connected = true;
+        clearTimeout(timeoutId);
+        logger.info(`Connected to printer ${ipAddress}:${port}`);
+        
+        client.write(data, (err) => {
+          if (err) {
+            client.destroy();
+            reject(err);
+          } else {
+            // Give printer time to process before closing
+            setTimeout(() => {
+              client.end();
+              resolve({ success: true, message: 'Print job sent successfully' });
+            }, 100);
+          }
+        });
+      });
+
+      client.on('error', (err) => {
+        clearTimeout(timeoutId);
+        logger.error(`Printer error ${ipAddress}:${port}:`, err.message);
+        reject(new Error(`Printer connection failed: ${err.message}`));
+      });
+
+      client.on('close', () => {
+        logger.info(`Disconnected from printer ${ipAddress}:${port}`);
+      });
+    });
+  },
+
+  /**
+   * Print KOT directly to network printer
+   */
+  async printKotDirect(kotData, printerIp, printerPort = 9100) {
+    const content = this.formatKotContent(kotData);
+    const escposData = this.wrapWithEscPos(content, { beep: true });
+    
+    try {
+      const result = await this.printDirect(printerIp, printerPort, escposData);
+      logger.info(`KOT ${kotData.kotNumber} printed directly to ${printerIp}:${printerPort}`);
+      return result;
+    } catch (error) {
+      logger.error(`Direct KOT print failed for ${kotData.kotNumber}:`, error.message);
+      throw error;
+    }
+  },
+
+  /**
+   * Print Bill directly to network printer
+   */
+  async printBillDirect(billData, printerIp, printerPort = 9100) {
+    const content = this.formatBillContent(billData);
+    const escposData = this.wrapWithEscPos(content, { openDrawer: billData.openDrawer });
+    
+    try {
+      const result = await this.printDirect(printerIp, printerPort, escposData);
+      logger.info(`Bill ${billData.invoiceNumber} printed directly to ${printerIp}:${printerPort}`);
+      return result;
+    } catch (error) {
+      logger.error(`Direct Bill print failed for ${billData.invoiceNumber}:`, error.message);
+      throw error;
+    }
+  },
+
+  /**
+   * Test printer connectivity
+   */
+  async testPrinterConnection(ipAddress, port = 9100) {
+    return new Promise((resolve) => {
+      const client = new net.Socket();
+      const timeout = setTimeout(() => {
+        client.destroy();
+        resolve({ success: false, message: 'Connection timeout' });
+      }, 3000);
+
+      client.connect(port, ipAddress, () => {
+        clearTimeout(timeout);
+        client.end();
+        resolve({ success: true, message: 'Printer is reachable' });
+      });
+
+      client.on('error', (err) => {
+        clearTimeout(timeout);
+        resolve({ success: false, message: err.message });
+      });
+    });
+  },
 
   async getJobStats(outletId, date = null) {
     const pool = getPool();

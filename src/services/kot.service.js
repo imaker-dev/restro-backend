@@ -77,10 +77,10 @@ const kotService = {
       if (!orders[0]) throw new Error('Order not found');
       const order = orders[0];
 
-      // Get pending items with station info
+      // Get pending items with station info and item_type
       const [pendingItems] = await connection.query(
         `SELECT oi.*, 
-          i.kitchen_station_id, i.counter_id,
+          i.kitchen_station_id, i.counter_id, i.item_type as menu_item_type,
           ks.station_type, ks.name as station_name,
           c.counter_type, c.name as counter_name
          FROM order_items oi
@@ -119,19 +119,23 @@ const kotService = {
 
         // Create KOT items
         for (const item of items) {
-          // Get addons text
+          // Get addons with full details
           const [addons] = await connection.query(
-            'SELECT addon_name FROM order_item_addons WHERE order_item_id = ?',
+            'SELECT addon_name, unit_price, quantity FROM order_item_addons WHERE order_item_id = ?',
             [item.id]
           );
           const addonsText = addons.map(a => a.addon_name).join(', ');
+          item._addons = addons;
+          item._addonsText = addonsText;
+
+          const itemType = item.item_type || item.menu_item_type || null;
 
           await connection.query(
             `INSERT INTO kot_items (
-              kot_id, order_item_id, item_name, variant_name,
+              kot_id, order_item_id, item_name, variant_name, item_type,
               quantity, addons_text, special_instructions, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
-            [kotId, item.id, item.item_name, item.variant_name, item.quantity, addonsText, item.special_instructions]
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+            [kotId, item.id, item.item_name, item.variant_name, itemType, item.quantity, addonsText, item.special_instructions]
           );
 
           // Update order item status and kot_id
@@ -145,12 +149,19 @@ const kotService = {
           id: kotId,
           kotNumber,
           station,
+          tableNumber: order.table_number,
+          orderNumber: order.order_number,
           itemCount: items.length,
+          createdAt: new Date().toISOString(),
           items: items.map(i => ({
             id: i.id,
             name: i.item_name,
             variant: i.variant_name,
-            quantity: i.quantity
+            quantity: i.quantity,
+            itemType: i.item_type || i.menu_item_type || null,
+            addons: (i._addons || []).map(a => ({ name: a.addon_name, price: a.unit_price, quantity: a.quantity })),
+            addonsText: i._addonsText || null,
+            specialInstructions: i.special_instructions || null
           }))
         });
       }
@@ -165,30 +176,49 @@ const kotService = {
 
       await connection.commit();
 
-      // Emit realtime events for each station and create print jobs
+      // Emit realtime events for each station and print KOT
       for (const ticket of createdTickets) {
         await this.emitKotUpdate(order.outlet_id, ticket, 'kot:created');
 
-        // Create print job for KOT/BOT
+        // Prepare KOT data for printing
+        const kotPrintData = {
+          outletId: order.outlet_id,
+          kotId: ticket.id,
+          orderId,
+          orderNumber: order.order_number,
+          kotNumber: ticket.kotNumber,
+          station: ticket.station,
+          tableNumber: order.table_number,
+          time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+          items: ticket.items.map(i => ({
+            itemName: i.name,
+            variantName: i.variant,
+            quantity: i.quantity,
+            itemType: i.itemType,
+            addonsText: i.addonsText,
+            instructions: i.specialInstructions
+          })),
+          captainName: order.created_by_name || 'Staff'
+        };
+
+        // Try direct printing first (to configured printer)
         try {
-          await printerService.printKot({
-            outletId: order.outlet_id,
-            kotId: ticket.id,
-            orderId,
-            kotNumber: ticket.kotNumber,
-            station: ticket.station,
-            tableNumber: order.table_number,
-            time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
-            items: ticket.items.map(i => ({
-              itemName: i.name,
-              variantName: i.variant,
-              quantity: i.quantity,
-              instructions: i.instructions
-            })),
-            captainName: order.created_by_name || 'Staff'
-          }, createdBy);
+          const printer = await this.getPrinterForStation(order.outlet_id, ticket.station);
+          if (printer && printer.ip_address) {
+            await printerService.printKotDirect(kotPrintData, printer.ip_address, printer.port || 9100);
+            logger.info(`KOT ${ticket.kotNumber} printed directly to ${printer.ip_address}`);
+          } else {
+            // Fallback: create print job for bridge polling
+            await printerService.printKot(kotPrintData, createdBy);
+          }
         } catch (printError) {
-          logger.error(`Failed to create print job for KOT ${ticket.kotNumber}:`, printError);
+          logger.error(`Failed to print KOT ${ticket.kotNumber}:`, printError.message);
+          // Fallback: create print job for bridge polling
+          try {
+            await printerService.printKot(kotPrintData, createdBy);
+          } catch (fallbackError) {
+            logger.error(`Fallback print job also failed for KOT ${ticket.kotNumber}:`, fallbackError);
+          }
         }
       }
 
@@ -239,7 +269,7 @@ const kotService = {
       } else if (station.includes('mocktail') || station.includes('beverage')) {
         station = 'mocktail';
       } else if (station.includes('dessert')) {
-        station = 'dessert';
+        station = 'kitchen'; // dessert items go to kitchen
       } else {
         station = 'kitchen';
       }
@@ -561,9 +591,10 @@ const kotService = {
   async getKotById(id) {
     const pool = getPool();
     const [rows] = await pool.query(
-      `SELECT kt.*, o.order_number
+      `SELECT kt.*, o.order_number, o.table_id, t.table_number
        FROM kot_tickets kt
        JOIN orders o ON kt.order_id = o.id
+       LEFT JOIN tables t ON o.table_id = t.id
        WHERE kt.id = ?`,
       [id]
     );
@@ -572,11 +603,21 @@ const kotService = {
 
     const kot = rows[0];
 
-    // Get items
+    // Get items with item_type
     const [items] = await pool.query(
       'SELECT * FROM kot_items WHERE kot_id = ? ORDER BY id',
       [id]
     );
+
+    // Enrich items with addons from order_item_addons
+    for (const item of items) {
+      const [addons] = await pool.query(
+        'SELECT addon_name, unit_price, quantity FROM order_item_addons WHERE order_item_id = ?',
+        [item.order_item_id]
+      );
+      item.addons = addons;
+    }
+
     kot.items = items;
 
     return kot;
@@ -584,36 +625,63 @@ const kotService = {
 
   /**
    * Get active KOTs for station
+   * @param {number} outletId - Outlet ID
+   * @param {string} station - Station filter (kitchen, bar, mocktail, dessert)
+   * @param {string|string[]} status - Status filter (pending, accepted, preparing, ready) or array of statuses
    */
-  async getActiveKots(outletId, station = null) {
+  async getActiveKots(outletId, station = null, status = null) {
     const pool = getPool();
     let query = `
       SELECT kt.*, o.order_number, o.table_id,
         t.table_number, t.name as table_name,
         (SELECT COUNT(*) FROM kot_items ki WHERE ki.kot_id = kt.id AND ki.status != 'cancelled') as item_count,
+        (SELECT COUNT(*) FROM kot_items ki WHERE ki.kot_id = kt.id) as total_item_count,
+        (SELECT COUNT(*) FROM kot_items ki WHERE ki.kot_id = kt.id AND ki.status = 'cancelled') as cancelled_item_count,
         (SELECT COUNT(*) FROM kot_items ki WHERE ki.kot_id = kt.id AND ki.status = 'ready') as ready_count
       FROM kot_tickets kt
       JOIN orders o ON kt.order_id = o.id
       LEFT JOIN tables t ON o.table_id = t.id
-      WHERE kt.outlet_id = ? AND kt.status NOT IN ('served', 'cancelled')
+      WHERE kt.outlet_id = ?
     `;
     const params = [outletId];
+
+    // Status filter - if provided, filter by specific status(es), otherwise exclude served/cancelled
+    if (status) {
+      const statuses = Array.isArray(status) ? status : [status];
+      const validStatuses = statuses.filter(s => ['pending', 'accepted', 'preparing', 'ready', 'served', 'cancelled'].includes(s));
+      if (validStatuses.length > 0) {
+        query += ` AND kt.status IN (${validStatuses.map(() => '?').join(',')})`;
+        params.push(...validStatuses);
+      }
+    } else {
+      query += " AND kt.status NOT IN ('served', 'cancelled')";
+    }
 
     if (station) {
       query += ' AND kt.station = ?';
       params.push(station);
     }
 
-    query += ' ORDER BY kt.priority DESC, kt.created_at ASC';
+    query += ' ORDER BY kt.priority DESC, kt.created_at DESC';
 
     const [kots] = await pool.query(query, params);
 
-    // Get items for each KOT
+    // Get items for each KOT with addons
     for (const kot of kots) {
       const [items] = await pool.query(
         'SELECT * FROM kot_items WHERE kot_id = ? ORDER BY id',
         [kot.id]
       );
+
+      // Enrich items with addons from order_item_addons
+      for (const item of items) {
+        const [addons] = await pool.query(
+          'SELECT addon_name, unit_price, quantity FROM order_item_addons WHERE order_item_id = ?',
+          [item.order_item_id]
+        );
+        item.addons = addons;
+      }
+
       kot.items = items;
     }
 
@@ -670,6 +738,36 @@ const kotService = {
     };
   },
 
+  /**
+   * Get KOT stats for outlet/station
+   */
+  async getKotStats(outletId, station = null) {
+    const pool = getPool();
+    
+    let query = `
+      SELECT 
+        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_count,
+        COUNT(CASE WHEN status = 'accepted' THEN 1 END) as accepted_count,
+        COUNT(CASE WHEN status = 'preparing' THEN 1 END) as preparing_count,
+        COUNT(CASE WHEN status = 'ready' THEN 1 END) as ready_count,
+        COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled_count,
+        COUNT(CASE WHEN status = 'served' THEN 1 END) as served_count,
+        COUNT(CASE WHEN status NOT IN ('served', 'cancelled') THEN 1 END) as active_count,
+        AVG(CASE WHEN status = 'ready' THEN TIMESTAMPDIFF(MINUTE, created_at, ready_at) END) as avg_prep_time
+       FROM kot_tickets
+       WHERE outlet_id = ? AND DATE(created_at) = CURDATE()
+    `;
+    const params = [outletId];
+    
+    if (station) {
+      query += ' AND station = ?';
+      params.push(station);
+    }
+    
+    const [stats] = await pool.query(query, params);
+    return stats[0];
+  },
+
   // ========================
   // REALTIME EVENTS
   // ========================
@@ -695,6 +793,11 @@ const kotService = {
   async reprintKot(kotId, userId) {
     const pool = getPool();
 
+    // Get KOT details
+    const kot = await this.getKotById(kotId);
+    if (!kot) throw new Error('KOT not found');
+
+    // Update reprint count
     await pool.query(
       `UPDATE kot_tickets SET 
         printed_count = printed_count + 1, last_printed_at = NOW()
@@ -702,7 +805,70 @@ const kotService = {
       [kotId]
     );
 
-    return this.getKotById(kotId);
+    // Get updated KOT with new printed_count
+    const updatedKot = await this.getKotById(kotId);
+
+    // Print the KOT with REPRINT label
+    try {
+      const printer = await this.getPrinterForStation(kot.outlet_id, kot.station);
+      if (printer) {
+        const printService = require('./print.service');
+        await printService.printKot(updatedKot, printer, { isReprint: true });
+        logger.info(`KOT ${kot.kot_number} reprinted to ${printer.name}`);
+      }
+    } catch (printError) {
+      logger.error(`Failed to print KOT reprint: ${printError.message}`);
+    }
+
+    // Emit reprint event to kitchen for real-time update
+    await this.emitKotUpdate(kot.outlet_id, {
+      ...updatedKot,
+      reprinted_by: userId,
+      reprint_count: updatedKot.printed_count
+    }, 'kot:reprinted');
+
+    return updatedKot;
+  },
+
+  // ========================
+  // PRINTER HELPERS
+  // ========================
+
+  /**
+   * Get printer configuration for a station
+   * Falls back to default kitchen/bar printer if station-specific not found
+   */
+  async getPrinterForStation(outletId, station) {
+    const pool = getPool();
+    
+    // Map station to printer station type
+    const stationMap = {
+      'kitchen': 'kot_kitchen',
+      'bar': 'kot_bar',
+      'dessert': 'kot_dessert',
+      'mocktail': 'kot_kitchen' // fallback
+    };
+    const printerStation = stationMap[station] || 'kot_kitchen';
+    
+    // First try to find station-specific printer
+    let [printers] = await pool.query(
+      `SELECT * FROM printers 
+       WHERE outlet_id = ? AND station = ? AND is_active = 1
+       LIMIT 1`,
+      [outletId, printerStation]
+    );
+
+    if (printers[0]) return printers[0];
+
+    // Fall back to default KOT kitchen printer for this outlet
+    [printers] = await pool.query(
+      `SELECT * FROM printers 
+       WHERE outlet_id = ? AND station LIKE 'kot_%' AND is_active = 1
+       ORDER BY is_default DESC, id LIMIT 1`,
+      [outletId]
+    );
+
+    return printers[0] || null;
   }
 };
 

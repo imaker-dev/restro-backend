@@ -3,7 +3,7 @@ const { cache, pubsub } = require('../config/redis');
 const { emit } = require('../config/socket');
 const logger = require('../utils/logger');
 
-const TABLE_STATUSES = ['available', 'occupied', 'reserved', 'billing', 'cleaning', 'blocked'];
+const TABLE_STATUSES = ['available', 'occupied', 'running', 'reserved', 'billing', 'blocked'];
 
 /**
  * Table Service - Comprehensive table management with real-time updates
@@ -88,6 +88,308 @@ const tableService = {
   },
 
   /**
+   * Get table by ID with comprehensive real-time details
+   * Returns all status-specific information including orders, items, captain, KOTs, etc.
+   */
+  async getFullDetails(id) {
+    const pool = getPool();
+    
+    // Get basic table info
+    const table = await this.getById(id);
+    if (!table) return null;
+
+    const result = {
+      // Basic table info
+      id: table.id,
+      tableNumber: table.table_number,
+      name: table.name,
+      status: table.status,
+      capacity: table.capacity,
+      minCapacity: table.min_capacity,
+      shape: table.shape,
+      isMergeable: !!table.is_mergeable,
+      isSplittable: !!table.is_splittable,
+      qrCode: table.qr_code,
+      
+      // Location info
+      location: {
+        outletId: table.outlet_id,
+        outletName: table.outlet_name,
+        floorId: table.floor_id,
+        floorName: table.floor_name,
+        sectionId: table.section_id,
+        sectionName: table.section_name,
+        sectionType: table.section_type
+      },
+      
+      // Layout position
+      position: table.position_x !== null ? {
+        x: table.position_x,
+        y: table.position_y,
+        width: table.width,
+        height: table.height,
+        rotation: table.rotation
+      } : null,
+
+      // Status-specific details (populated below)
+      session: null,
+      captain: null,
+      order: null,
+      items: [],
+      kots: [],
+      billing: null,
+      timeline: [],
+      mergedTables: []
+    };
+
+    // Get active session if table is occupied/running/billing/reserved
+    if (['occupied', 'running', 'billing', 'reserved'].includes(table.status)) {
+      const [sessions] = await pool.query(
+        `SELECT ts.*, 
+          u.id as captain_id, u.name as captain_name, u.employee_code as captain_code, u.phone as captain_phone
+         FROM table_sessions ts
+         LEFT JOIN users u ON ts.started_by = u.id
+         WHERE ts.table_id = ? AND ts.status IN ('active', 'billing')
+         ORDER BY ts.started_at DESC LIMIT 1`,
+        [id]
+      );
+
+      if (sessions[0]) {
+        const session = sessions[0];
+        result.session = {
+          id: session.id,
+          guestCount: session.guest_count,
+          guestName: session.guest_name,
+          guestPhone: session.guest_phone,
+          startedAt: session.started_at,
+          duration: Math.floor((new Date() - new Date(session.started_at)) / 1000 / 60), // minutes
+          notes: session.notes
+        };
+
+        result.captain = session.captain_id ? {
+          id: session.captain_id,
+          name: session.captain_name,
+          employeeCode: session.captain_code,
+          phone: session.captain_phone
+        } : null;
+
+        // Get order details if exists
+        if (session.order_id) {
+          const [orders] = await pool.query(
+            `SELECT o.*, 
+              inv.id as invoice_id, inv.invoice_number, inv.grand_total as invoice_total,
+              p.id as payment_id, p.payment_number, p.amount as paid_amount, p.payment_mode
+             FROM orders o
+             LEFT JOIN invoices inv ON o.id = inv.order_id
+             LEFT JOIN payments p ON o.id = p.order_id AND p.status = 'completed'
+             WHERE o.id = ?`,
+            [session.order_id]
+          );
+
+          if (orders[0]) {
+            const order = orders[0];
+            result.order = {
+              id: order.id,
+              orderNumber: order.order_number,
+              orderType: order.order_type,
+              status: order.status,
+              paymentStatus: order.payment_status,
+              subtotal: parseFloat(order.subtotal) || 0,
+              taxAmount: parseFloat(order.tax_amount) || 0,
+              discountAmount: parseFloat(order.discount_amount) || 0,
+              serviceCharge: parseFloat(order.service_charge) || 0,
+              totalAmount: parseFloat(order.total_amount) || 0,
+              customerName: order.customer_name,
+              customerPhone: order.customer_phone,
+              specialInstructions: order.special_instructions,
+              createdAt: order.created_at
+            };
+
+            // Add invoice info if exists
+            if (order.invoice_id) {
+              result.billing = {
+                invoiceId: order.invoice_id,
+                invoiceNumber: order.invoice_number,
+                grandTotal: parseFloat(order.invoice_total) || 0,
+                paymentId: order.payment_id,
+                paymentNumber: order.payment_number,
+                paidAmount: parseFloat(order.paid_amount) || 0,
+                paymentMode: order.payment_mode
+              };
+            }
+
+            // Get order items with variants and addons
+            const [items] = await pool.query(
+              `SELECT oi.*, 
+                i.name as item_name, i.short_name, i.image_url, i.item_type,
+                v.name as variant_name,
+                ks.name as kitchen_station_name, ks.station_type
+               FROM order_items oi
+               JOIN items i ON oi.item_id = i.id
+               LEFT JOIN variants v ON oi.variant_id = v.id
+               LEFT JOIN kitchen_stations ks ON i.kitchen_station_id = ks.id
+               WHERE oi.order_id = ?
+               ORDER BY oi.created_at`,
+              [order.id]
+            );
+
+            // Get addons for each item
+            for (const item of items) {
+              const [addons] = await pool.query(
+                'SELECT * FROM order_item_addons WHERE order_item_id = ?',
+                [item.id]
+              );
+              item.addons = addons;
+            }
+
+            result.items = items.map(item => ({
+              id: item.id,
+              itemId: item.item_id,
+              name: item.item_name,
+              shortName: item.short_name,
+              variantId: item.variant_id,
+              variantName: item.variant_name,
+              quantity: item.quantity,
+              unitPrice: parseFloat(item.unit_price),
+              totalPrice: parseFloat(item.total_price),
+              status: item.status,
+              kotStatus: item.kot_status,
+              itemType: item.item_type,
+              station: item.kitchen_station_name,
+              stationType: item.station_type,
+              specialInstructions: item.special_instructions,
+              isComplimentary: !!item.is_complimentary,
+              addons: item.addons.map(a => ({
+                id: a.addon_id,
+                name: a.addon_name,
+                groupName: a.addon_group_name,
+                price: parseFloat(a.unit_price),
+                quantity: a.quantity
+              }))
+            }));
+
+            // Get KOT tickets
+            const [kots] = await pool.query(
+              `SELECT kt.*, u.name as accepted_by_name,
+                (SELECT COUNT(*) FROM kot_items ki WHERE ki.kot_id = kt.id AND ki.status != 'cancelled') as item_count,
+                (SELECT COUNT(*) FROM kot_items ki WHERE ki.kot_id = kt.id) as total_item_count,
+                (SELECT COUNT(*) FROM kot_items ki WHERE ki.kot_id = kt.id AND ki.status = 'cancelled') as cancelled_item_count
+               FROM kot_tickets kt
+               LEFT JOIN users u ON kt.accepted_by = u.id
+               WHERE kt.order_id = ?
+               ORDER BY kt.created_at`,
+              [order.id]
+            );
+
+            result.kots = kots.map(kot => ({
+              id: kot.id,
+              kotNumber: kot.kot_number,
+              status: kot.status,
+              station: kot.station,
+              itemCount: Number(kot.item_count),
+              totalItemCount: Number(kot.total_item_count),
+              cancelledItemCount: Number(kot.cancelled_item_count),
+              priority: kot.priority,
+              acceptedBy: kot.accepted_by_name,
+              acceptedAt: kot.accepted_at,
+              readyAt: kot.ready_at,
+              servedAt: kot.served_at,
+              createdAt: kot.created_at
+            }));
+          }
+        }
+
+        // Get merged tables
+        const [merges] = await pool.query(
+          `SELECT tm.*, t.table_number, t.name as table_name, t.capacity
+           FROM table_merges tm
+           JOIN tables t ON tm.merged_table_id = t.id
+           WHERE tm.primary_table_id = ? AND tm.unmerged_at IS NULL`,
+          [id]
+        );
+        result.mergedTables = merges.map(m => ({
+          tableId: m.merged_table_id,
+          tableNumber: m.table_number,
+          tableName: m.table_name,
+          capacity: m.capacity,
+          mergedAt: m.merged_at
+        }));
+      }
+    }
+
+    // Get recent history/timeline
+    const [history] = await pool.query(
+      `SELECT * FROM table_history 
+       WHERE table_id = ? 
+       ORDER BY created_at DESC LIMIT 10`,
+      [id]
+    );
+    result.timeline = history.map(h => ({
+      action: h.action,
+      details: h.details ? JSON.parse(h.details) : null,
+      timestamp: h.created_at
+    }));
+
+    // Add status-specific summary
+    result.statusSummary = this.getStatusSummary(result);
+
+    return result;
+  },
+
+  /**
+   * Get human-readable status summary
+   */
+  getStatusSummary(tableData) {
+    const { status, session, order, items, kots } = tableData;
+    
+    switch (status) {
+      case 'available':
+        return { message: 'Table is available for seating', canSeat: true };
+      
+      case 'reserved':
+        return { 
+          message: session ? `Reserved for ${session.guestName || 'guest'}` : 'Table is reserved',
+          guestName: session?.guestName,
+          reservedSince: session?.startedAt
+        };
+      
+      case 'occupied':
+      case 'running':
+        const pendingKots = kots.filter(k => ['pending', 'preparing'].includes(k.status)).length;
+        const readyKots = kots.filter(k => k.status === 'ready').length;
+        const servedItems = items.filter(i => i.kotStatus === 'served').length;
+        return {
+          message: status === 'running' 
+            ? `Running - ${servedItems}/${items.length} items served` 
+            : `Occupied - ${items.length} items ordered`,
+          guestCount: session?.guestCount,
+          duration: session?.duration,
+          orderNumber: order?.orderNumber,
+          itemCount: items.length,
+          servedItems,
+          orderTotal: order?.totalAmount,
+          pendingKots,
+          readyKots,
+          orderStatus: order?.status
+        };
+      
+      case 'billing':
+        return {
+          message: 'Bill generated, awaiting payment',
+          orderNumber: order?.orderNumber,
+          grandTotal: tableData.billing?.grandTotal,
+          invoiceNumber: tableData.billing?.invoiceNumber
+        };
+      
+      case 'blocked':
+        return { message: 'Table is blocked/unavailable', canSeat: false };
+      
+      default:
+        return { message: `Status: ${status}` };
+    }
+  },
+
+  /**
    * Get all tables for an outlet
    */
   async getByOutlet(outletId, filters = {}) {
@@ -135,7 +437,7 @@ const tableService = {
   },
 
   /**
-   * Get tables by floor with real-time data
+   * Get tables by floor with real-time data including KOT summary
    */
   async getByFloor(floorId) {
     const pool = getPool();
@@ -145,8 +447,9 @@ const tableService = {
         s.name as section_name, s.section_type,
         tl.position_x, tl.position_y, tl.width, tl.height, tl.rotation,
         ts.id as session_id, ts.guest_count, ts.guest_name, ts.started_at, ts.started_by,
-        u.name as captain_name,
-        o.id as current_order_id, o.order_number, o.total_amount, o.status as order_status
+        u.name as captain_name, u.employee_code as captain_code,
+        o.id as current_order_id, o.order_number, o.subtotal, o.total_amount, o.status as order_status,
+        TIMESTAMPDIFF(MINUTE, ts.started_at, NOW()) as session_duration
        FROM tables t
        LEFT JOIN sections s ON t.section_id = s.id
        LEFT JOIN table_layouts tl ON t.id = tl.table_id
@@ -158,8 +461,32 @@ const tableService = {
       [floorId]
     );
 
-    // Get merged tables info
+    // Get KOT summary and merged tables for tables with active orders
     for (const table of tables) {
+      // Get KOT summary if order exists
+      if (table.current_order_id) {
+        const [kotSummary] = await pool.query(
+          `SELECT 
+            COUNT(*) as total_kots,
+            SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_kots,
+            SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END) as accepted_kots,
+            SUM(CASE WHEN status = 'preparing' THEN 1 ELSE 0 END) as preparing_kots,
+            SUM(CASE WHEN status = 'ready' THEN 1 ELSE 0 END) as ready_kots,
+            SUM(CASE WHEN status = 'served' THEN 1 ELSE 0 END) as served_kots
+           FROM kot_tickets WHERE order_id = ?`,
+          [table.current_order_id]
+        );
+        table.kotSummary = kotSummary[0];
+        
+        // Get item count
+        const [itemCount] = await pool.query(
+          `SELECT COUNT(*) as count FROM order_items WHERE order_id = ? AND status != 'cancelled'`,
+          [table.current_order_id]
+        );
+        table.item_count = itemCount[0].count;
+      }
+
+      // Get merged tables info
       if (table.session_id) {
         const [merges] = await pool.query(
           `SELECT tm.*, t.table_number as merged_table_number
@@ -430,9 +757,9 @@ const tableService = {
         [userId, tableId]
       );
 
-      // Update all merged tables to cleaning
+      // Update all merged tables to available (session ended)
       await connection.query(
-        `UPDATE tables SET status = 'cleaning' 
+        `UPDATE tables SET status = 'available' 
          WHERE id IN (
            SELECT merged_table_id FROM table_merges 
            WHERE primary_table_id = ? AND unmerged_at IS NOT NULL AND unmerged_at > DATE_SUB(NOW(), INTERVAL 1 MINUTE)
@@ -440,8 +767,8 @@ const tableService = {
         [tableId]
       );
 
-      // Update primary table to cleaning
-      await connection.query('UPDATE tables SET status = "cleaning" WHERE id = ?', [tableId]);
+      // Update primary table to available (session ended)
+      await connection.query('UPDATE tables SET status = "available" WHERE id = ?', [tableId]);
 
       await connection.commit();
 
@@ -470,7 +797,19 @@ const tableService = {
   },
 
   /**
-   * Get current session for table
+   * Get active session for table (simple version for internal use)
+   */
+  async getActiveSession(tableId) {
+    const pool = getPool();
+    const [sessions] = await pool.query(
+      `SELECT * FROM table_sessions WHERE table_id = ? AND status = 'active'`,
+      [tableId]
+    );
+    return sessions[0] || null;
+  },
+
+  /**
+   * Get current session for table (with full details)
    */
   async getCurrentSession(tableId) {
     const pool = getPool();
@@ -487,6 +826,95 @@ const tableService = {
       [tableId]
     );
     return sessions[0] || null;
+  },
+
+  /**
+   * Transfer table session to another captain (Manager/Admin only)
+   */
+  async transferSession(tableId, newCaptainId, transferredBy) {
+    const pool = getPool();
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      // Verify transferredBy is admin/manager
+      const [userRoles] = await connection.query(
+        `SELECT r.slug as role_name FROM user_roles ur 
+         JOIN roles r ON ur.role_id = r.id 
+         WHERE ur.user_id = ? AND ur.is_active = 1`,
+        [transferredBy]
+      );
+      const isAdminOrManager = userRoles.some(r => ['admin', 'manager', 'super_admin'].includes(r.role_name));
+      if (!isAdminOrManager) {
+        throw new Error('Only managers and admins can transfer tables');
+      }
+
+      // Get active session
+      const session = await this.getActiveSession(tableId);
+      if (!session) {
+        throw new Error('No active session found on this table');
+      }
+
+      const oldCaptainId = session.started_by;
+
+      // Verify new captain exists
+      const [newCaptain] = await connection.query(
+        `SELECT u.id, u.name FROM users u WHERE u.id = ? AND u.is_active = 1`,
+        [newCaptainId]
+      );
+      if (!newCaptain[0]) {
+        throw new Error('New captain not found or inactive');
+      }
+
+      // Update session owner
+      await connection.query(
+        'UPDATE table_sessions SET started_by = ? WHERE id = ?',
+        [newCaptainId, session.id]
+      );
+
+      // Log transfer
+      await connection.query(
+        `INSERT INTO table_history (table_id, action, details, performed_by) 
+         VALUES (?, 'session_transferred', ?, ?)`,
+        [
+          tableId,
+          JSON.stringify({
+            sessionId: session.id,
+            fromCaptain: oldCaptainId,
+            toCaptain: newCaptainId,
+            newCaptainName: newCaptain[0].name
+          }),
+          transferredBy
+        ]
+      );
+
+      await connection.commit();
+
+      const table = await this.getById(tableId);
+
+      // Broadcast update
+      this.broadcastTableUpdate(table.outlet_id, table.floor_id, {
+        tableId,
+        tableNumber: table.table_number,
+        event: 'session_transferred',
+        fromCaptain: oldCaptainId,
+        toCaptain: newCaptainId,
+        newCaptainName: newCaptain[0].name
+      });
+
+      return {
+        success: true,
+        sessionId: session.id,
+        newCaptainId,
+        newCaptainName: newCaptain[0].name
+      };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   },
 
   // ========================

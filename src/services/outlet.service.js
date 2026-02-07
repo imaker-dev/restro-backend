@@ -38,7 +38,7 @@ const outletService = {
       ]
     );
 
-    await cache.delete('outlets:all');
+    await cache.del('outlets:all');
     return this.getById(result.insertId);
   },
 
@@ -152,8 +152,8 @@ const outletService = {
       params
     );
 
-    await cache.delete('outlets:all');
-    await cache.delete(`outlet:${id}`);
+    await cache.del('outlets:all');
+    await cache.del(`outlet:${id}`);
     return this.getById(id);
   },
 
@@ -166,8 +166,8 @@ const outletService = {
       'UPDATE outlets SET deleted_at = NOW(), updated_by = ? WHERE id = ?',
       [userId, id]
     );
-    await cache.delete('outlets:all');
-    await cache.delete(`outlet:${id}`);
+    await cache.del('outlets:all');
+    await cache.del(`outlet:${id}`);
     return true;
   },
 

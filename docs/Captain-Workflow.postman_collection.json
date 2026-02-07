@@ -1,0 +1,1068 @@
+{
+  "info": {
+    "name": "Captain Workflow - RestroPOS",
+    "description": "Complete Captain App workflow from table seating to payment",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000/api/v1"
+    },
+    {
+      "key": "outletId",
+      "value": "4"
+    },
+    {
+      "key": "floorId",
+      "value": "1"
+    },
+    {
+      "key": "tableId",
+      "value": "1"
+    },
+    {
+      "key": "orderId",
+      "value": ""
+    },
+    {
+      "key": "kotId",
+      "value": ""
+    },
+    {
+      "key": "invoiceId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Authentication",
+      "item": [
+        {
+          "name": "Login as Captain",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const response = pm.response.json();",
+                  "if (response.success) {",
+                  "    pm.collectionVariables.set('accessToken', response.data.accessToken);",
+                  "    console.log('Token saved successfully');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@restropos.com\",\n  \"password\": \"admin123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. View Floor Tables",
+      "item": [
+        {
+          "name": "Get Floor Tables (Dashboard View)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has tables array', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.data).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('Each table has required fields', function () {",
+                  "    const response = pm.response.json();",
+                  "    response.data.forEach(table => {",
+                  "        pm.expect(table).to.have.property('id');",
+                  "        pm.expect(table).to.have.property('tableNumber');",
+                  "        pm.expect(table).to.have.property('status');",
+                  "        pm.expect(table).to.have.property('capacity');",
+                  "    });",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/tables/floor/{{floorId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["tables", "floor", "{{floorId}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Table Details",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has table details', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.data).to.have.property('id');",
+                  "    pm.expect(response.data).to.have.property('status');",
+                  "    pm.expect(response.data).to.have.property('statusSummary');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/tables/{{tableId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["tables", "{{tableId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Start Table Session",
+      "item": [
+        {
+          "name": "Start Session - Walk-in Guest",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200 or 201', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "",
+                  "pm.test('Session created', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.data).to.have.property('sessionId');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"guestCount\": 2,\n  \"notes\": \"Walk-in guests\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tables/{{tableId}}/session",
+              "host": ["{{baseUrl}}"],
+              "path": ["tables", "{{tableId}}", "session"]
+            }
+          }
+        },
+        {
+          "name": "Start Session - With Customer Details",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"guestCount\": 4,\n  \"guestName\": \"Mr. Sharma\",\n  \"guestPhone\": \"9876543210\",\n  \"notes\": \"Birthday celebration - need cake at 8 PM\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tables/{{tableId}}/session",
+              "host": ["{{baseUrl}}"],
+              "path": ["tables", "{{tableId}}", "session"]
+            }
+          }
+        },
+        {
+          "name": "Start Session - VIP Guest",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"guestCount\": 6,\n  \"guestName\": \"Mr. VIP Client\",\n  \"guestPhone\": \"9999999999\",\n  \"notes\": \"VIP - Extra attention needed. Prefers corner seating.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tables/{{tableId}}/session",
+              "host": ["{{baseUrl}}"],
+              "path": ["tables", "{{tableId}}", "session"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Get Menu",
+      "item": [
+        {
+          "name": "Get Captain Menu (with variants & addons)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has categories', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.data).to.have.property('categories');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/menu/captain/{{outletId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["menu", "captain", "{{outletId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Create Order",
+      "item": [
+        {
+          "name": "Create Order - Simple Items",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200 or 201', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "if (response.success && response.data.id) {",
+                  "    pm.collectionVariables.set('orderId', response.data.id);",
+                  "    console.log('Order ID saved:', response.data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"outletId\": 4,\n  \"tableId\": 1,\n  \"floorId\": 1,\n  \"sectionId\": 1,\n  \"orderType\": \"dine_in\",\n  \"guestCount\": 2,\n  \"items\": [\n    {\n      \"itemId\": 1,\n      \"quantity\": 2\n    },\n    {\n      \"itemId\": 3,\n      \"quantity\": 1\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders"]
+            }
+          }
+        },
+        {
+          "name": "Create Order - With Variants",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const response = pm.response.json();",
+                  "if (response.success && response.data.id) {",
+                  "    pm.collectionVariables.set('orderId', response.data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"outletId\": 4,\n  \"tableId\": 1,\n  \"floorId\": 1,\n  \"sectionId\": 1,\n  \"orderType\": \"dine_in\",\n  \"guestCount\": 2,\n  \"customerName\": \"Mr. Sharma\",\n  \"items\": [\n    {\n      \"itemId\": 1,\n      \"quantity\": 1,\n      \"variantId\": 1\n    },\n    {\n      \"itemId\": 5,\n      \"quantity\": 2,\n      \"variantId\": 3\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders"]
+            }
+          }
+        },
+        {
+          "name": "Create Order - With Addons",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const response = pm.response.json();",
+                  "if (response.success && response.data.id) {",
+                  "    pm.collectionVariables.set('orderId', response.data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"outletId\": 4,\n  \"tableId\": 1,\n  \"floorId\": 1,\n  \"sectionId\": 1,\n  \"orderType\": \"dine_in\",\n  \"guestCount\": 2,\n  \"items\": [\n    {\n      \"itemId\": 1,\n      \"quantity\": 1,\n      \"addons\": [1, 2]\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders"]
+            }
+          }
+        },
+        {
+          "name": "Create Order - Kitchen + Bar Items",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const response = pm.response.json();",
+                  "if (response.success && response.data.id) {",
+                  "    pm.collectionVariables.set('orderId', response.data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"outletId\": 4,\n  \"tableId\": 1,\n  \"floorId\": 1,\n  \"sectionId\": 1,\n  \"orderType\": \"dine_in\",\n  \"guestCount\": 4,\n  \"customerName\": \"Corporate Lunch\",\n  \"specialInstructions\": \"Less spicy for all items\",\n  \"items\": [\n    {\n      \"itemId\": 1,\n      \"quantity\": 2,\n      \"specialInstructions\": \"Extra crispy\"\n    },\n    {\n      \"itemId\": 3,\n      \"quantity\": 1\n    },\n    {\n      \"itemId\": 10,\n      \"quantity\": 2,\n      \"variantId\": 5\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders"]
+            }
+          }
+        },
+        {
+          "name": "Create Order - Full (Variant + Addon + Instructions)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const response = pm.response.json();",
+                  "if (response.success && response.data.id) {",
+                  "    pm.collectionVariables.set('orderId', response.data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"outletId\": 4,\n  \"tableId\": 1,\n  \"floorId\": 1,\n  \"sectionId\": 1,\n  \"orderType\": \"dine_in\",\n  \"guestCount\": 2,\n  \"customerName\": \"Mr. VIP\",\n  \"customerPhone\": \"9876543210\",\n  \"specialInstructions\": \"VIP table - priority service\",\n  \"items\": [\n    {\n      \"itemId\": 1,\n      \"quantity\": 1,\n      \"variantId\": 1,\n      \"addons\": [1, 2],\n      \"specialInstructions\": \"No onion, extra cheese\"\n    },\n    {\n      \"itemId\": 5,\n      \"quantity\": 2,\n      \"variantId\": 3,\n      \"specialInstructions\": \"Medium spicy\"\n    },\n    {\n      \"itemId\": 10,\n      \"quantity\": 1,\n      \"variantId\": 5\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Send KOT",
+      "item": [
+        {
+          "name": "Send KOT (Items to Kitchen/Bar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "if (response.success && response.data.tickets && response.data.tickets.length > 0) {",
+                  "    pm.collectionVariables.set('kotId', response.data.tickets[0].id);",
+                  "    console.log('KOT ID saved:', response.data.tickets[0].id);",
+                  "}",
+                  "",
+                  "pm.test('KOT tickets created', function () {",
+                  "    pm.expect(response.data.tickets).to.be.an('array');",
+                  "    pm.expect(response.data.tickets.length).to.be.greaterThan(0);",
+                  "});",
+                  "",
+                  "pm.test('Each ticket has station', function () {",
+                  "    response.data.tickets.forEach(ticket => {",
+                  "        pm.expect(ticket).to.have.property('station');",
+                  "        pm.expect(ticket).to.have.property('kotNumber');",
+                  "    });",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/kot",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "kot"]
+            }
+          }
+        },
+        {
+          "name": "Get KOTs for Order",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/kots",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "kots"]
+            }
+          }
+        },
+        {
+          "name": "Get Active KOTs for Outlet",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/active/{{outletId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "active", "{{outletId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Kitchen/Bar Operations",
+      "item": [
+        {
+          "name": "Accept KOT",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/{{kotId}}/accept",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "{{kotId}}", "accept"]
+            }
+          }
+        },
+        {
+          "name": "Start Preparing KOT",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/{{kotId}}/preparing",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "{{kotId}}", "preparing"]
+            }
+          }
+        },
+        {
+          "name": "Mark KOT Ready",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/{{kotId}}/ready",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "{{kotId}}", "ready"]
+            }
+          }
+        },
+        {
+          "name": "Get Station Dashboard (Kitchen)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/station/{{outletId}}/kitchen",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "station", "{{outletId}}", "kitchen"]
+            }
+          }
+        },
+        {
+          "name": "Get Station Dashboard (Bar)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/station/{{outletId}}/bar",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "station", "{{outletId}}", "bar"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Serve Items",
+      "item": [
+        {
+          "name": "Mark KOT Served",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('KOT marked served', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.data.status).to.equal('served');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/{{kotId}}/served",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "{{kotId}}", "served"]
+            }
+          }
+        },
+        {
+          "name": "Check Table Status After Serve",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/tables/{{tableId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["tables", "{{tableId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Add More Items",
+      "item": [
+        {
+          "name": "Add Items to Existing Order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Items added', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.data).to.have.property('addedItems');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"itemId\": 2,\n      \"quantity\": 1,\n      \"specialInstructions\": \"Extra crispy\"\n    },\n    {\n      \"itemId\": 10,\n      \"quantity\": 2\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/items",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "items"]
+            }
+          }
+        },
+        {
+          "name": "Send KOT for New Items Only",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const response = pm.response.json();",
+                  "if (response.success && response.data.tickets && response.data.tickets.length > 0) {",
+                  "    pm.collectionVariables.set('kotId', response.data.tickets[0].id);",
+                  "}",
+                  "",
+                  "pm.test('Only new items sent', function () {",
+                  "    pm.expect(response.data.tickets.length).to.be.greaterThan(0);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/kot",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "kot"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Captain - Generate Bill Request",
+      "description": "Captain ONLY generates bill request - NO discounts. Bill goes to Floor/Section Cashier.",
+      "item": [
+        {
+          "name": "Captain: Generate Bill Request (No Discount)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "if (response.success && response.data.id) {",
+                  "    pm.collectionVariables.set('invoiceId', response.data.id);",
+                  "}",
+                  "",
+                  "pm.test('Bill request created', function () {",
+                  "    pm.expect(response.data).to.have.property('id');",
+                  "});",
+                  "",
+                  "console.log('Bill sent to Cashier. Captain monitors bill status via WebSocket.');"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/bill",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "bill"]
+            }
+          }
+        },
+        {
+          "name": "Captain: Check Bill Status",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/invoice",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "invoice"]
+            }
+          }
+        },
+        {
+          "name": "Captain: Check Table Status (Billing)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/tables/{{tableId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["tables", "{{tableId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "10. Cashier - Process Payment",
+      "description": "Cashier at Floor/Section receives bill, applies discounts, processes payment. Table auto-available after payment.",
+      "item": [
+        {
+          "name": "Cashier: Get Pending Bills",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/bills/pending?floorId={{floorId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "bills", "pending"],
+              "query": [{"key": "floorId", "value": "{{floorId}}"}]
+            }
+          }
+        },
+        {
+          "name": "Cashier: Apply Discount (Optional)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"discountType\": \"percentage\",\n  \"discountValue\": 10,\n  \"discountReason\": \"Birthday discount\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/invoice/discount",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "invoice", "discount"]
+            }
+          }
+        },
+        {
+          "name": "Cashier: Payment - Cash (Auto Session End)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Payment processed', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.data).to.have.property('paymentId');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": {{orderId}},\n  \"invoiceId\": {{invoiceId}},\n  \"paymentMode\": \"cash\",\n  \"amount\": 2000\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/payment",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "payment"]
+            }
+          }
+        },
+        {
+          "name": "Payment - Card",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": {{orderId}},\n  \"invoiceId\": {{invoiceId}},\n  \"paymentMode\": \"card\",\n  \"amount\": 2000,\n  \"cardLastFour\": \"1234\",\n  \"transactionId\": \"TXN123456\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/payment",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "payment"]
+            }
+          }
+        },
+        {
+          "name": "Payment - UPI",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": {{orderId}},\n  \"invoiceId\": {{invoiceId}},\n  \"paymentMode\": \"upi\",\n  \"amount\": 2000,\n  \"transactionId\": \"UPI123456789\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/payment",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "payment"]
+            }
+          }
+        },
+        {
+          "name": "Payment - With Tip",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": {{orderId}},\n  \"invoiceId\": {{invoiceId}},\n  \"paymentMode\": \"cash\",\n  \"amount\": 2500,\n  \"tipAmount\": 200\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/payment",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "payment"]
+            }
+          }
+        },
+        {
+          "name": "Verify Table Auto-Available After Payment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Table is available (auto after payment)', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.data.status).to.equal('available');",
+                  "});",
+                  "",
+                  "console.log('Session auto-ended. No manual DELETE needed!');"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/tables/{{tableId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["tables", "{{tableId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Extras",
+      "item": [
+        {
+          "name": "Transfer Table",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newTableId\": 5,\n  \"reason\": \"Guest requested window seat\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/transfer",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "transfer"]
+            }
+          }
+        },
+        {
+          "name": "Cancel Order Item",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Guest changed mind\",\n  \"reasonCode\": \"guest_request\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/items/1/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "items", "1", "cancel"]
+            }
+          }
+        },
+        {
+          "name": "Cancel Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Guest left\",\n  \"reasonCode\": \"guest_left\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "cancel"]
+            }
+          }
+        },
+        {
+          "name": "Reprint KOT",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/{{kotId}}/reprint",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "{{kotId}}", "reprint"]
+            }
+          }
+        },
+        {
+          "name": "Print Duplicate Bill",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/orders/invoice/{{invoiceId}}/duplicate",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "invoice", "{{invoiceId}}", "duplicate"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

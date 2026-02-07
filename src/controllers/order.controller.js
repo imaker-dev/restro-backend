@@ -8,6 +8,7 @@ const kotService = require('../services/kot.service');
 const billingService = require('../services/billing.service');
 const paymentService = require('../services/payment.service');
 const reportsService = require('../services/reports.service');
+const userService = require('../services/user.service');
 const logger = require('../utils/logger');
 
 const orderController = {
@@ -178,11 +179,44 @@ const orderController = {
     }
   },
 
+  async getActiveKotsForUser(req, res) {
+    try {
+      // Get outletId from: 1) token, 2) query param, 3) user's roles in database
+      let outletId = req.user.outletId || req.query.outletId;
+      
+      if (!outletId) {
+        // Fetch from user's roles in database
+        outletId = await userService.getUserOutletId(req.user.userId);
+      }
+      
+      if (!outletId) {
+        return res.status(400).json({ success: false, message: 'User not assigned to any outlet' });
+      }
+      
+      const { station, status, includeStats } = req.query;
+      // Support comma-separated status: ?status=pending,cancelled
+      const statusFilter = status ? status.split(',').map(s => s.trim()) : null;
+      const kots = await kotService.getActiveKots(outletId, station, statusFilter);
+      
+      // Include stats if requested or if station filter is provided
+      if (includeStats === 'true' || station) {
+        const stats = await kotService.getKotStats(outletId, station);
+        res.json({ success: true, data: { kots, stats } });
+      } else {
+        res.json({ success: true, data: kots });
+      }
+    } catch (error) {
+      logger.error('Get active KOTs error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
   async getActiveKots(req, res) {
     try {
       const { outletId } = req.params;
-      const { station } = req.query;
-      const kots = await kotService.getActiveKots(outletId, station);
+      const { station, status } = req.query;
+      const statusFilter = status ? status.split(',').map(s => s.trim()) : null;
+      const kots = await kotService.getActiveKots(outletId, station, statusFilter);
       res.json({ success: true, data: kots });
     } catch (error) {
       logger.error('Get active KOTs error:', error);
@@ -259,6 +293,29 @@ const orderController = {
       res.json({ success: true, message: 'KOT served', data: kot });
     } catch (error) {
       logger.error('Mark KOT served error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  async getStationDashboardForUser(req, res) {
+    try {
+      // Get outletId from: 1) token, 2) query param, 3) user's roles in database
+      let outletId = req.user.outletId || req.query.outletId;
+      
+      if (!outletId) {
+        // Fetch from user's roles in database
+        outletId = await userService.getUserOutletId(req.user.userId);
+      }
+      
+      if (!outletId) {
+        return res.status(400).json({ success: false, message: 'User not assigned to any outlet' });
+      }
+      
+      const { station } = req.params;
+      const dashboard = await kotService.getStationDashboard(outletId, station);
+      res.json({ success: true, data: dashboard });
+    } catch (error) {
+      logger.error('Get station dashboard error:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   },
@@ -640,6 +697,77 @@ const orderController = {
       res.json({ success: true, message: 'Reports aggregated' });
     } catch (error) {
       logger.error('Aggregate daily sales error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  // ========================
+  // CAPTAIN ORDER HISTORY
+  // ========================
+
+  async getCaptainOrderHistory(req, res) {
+    try {
+      const { outletId } = req.params;
+      const filters = {
+        status: req.query.status,
+        search: req.query.search || req.query.q,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate,
+        page: req.query.page,
+        limit: req.query.limit,
+        sortBy: req.query.sortBy,
+        sortOrder: req.query.sortOrder
+      };
+      
+      const result = await orderService.getCaptainOrderHistory(
+        req.user.userId,
+        outletId,
+        filters
+      );
+      
+      res.json({ success: true, data: result });
+    } catch (error) {
+      logger.error('Get captain order history error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  async getCaptainOrderDetail(req, res) {
+    try {
+      const order = await orderService.getCaptainOrderDetail(
+        req.params.orderId,
+        req.user.userId
+      );
+      res.json({ success: true, data: order });
+    } catch (error) {
+      logger.error('Get captain order detail error:', error);
+      if (error.message === 'Order not found') {
+        return res.status(404).json({ success: false, message: error.message });
+      }
+      if (error.message === 'You can only view your own orders') {
+        return res.status(403).json({ success: false, message: error.message });
+      }
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  async getCaptainOrderStats(req, res) {
+    try {
+      const { outletId } = req.params;
+      const dateRange = {
+        startDate: req.query.startDate,
+        endDate: req.query.endDate
+      };
+      
+      const stats = await orderService.getCaptainOrderStats(
+        req.user.userId,
+        outletId,
+        dateRange
+      );
+      
+      res.json({ success: true, data: stats });
+    } catch (error) {
+      logger.error('Get captain order stats error:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   }

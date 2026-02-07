@@ -24,7 +24,6 @@ const TABLE_STATUS = {
   RUNNING: 'running',
   RESERVED: 'reserved',
   BILLING: 'billing',
-  CLEANING: 'cleaning',
   BLOCKED: 'blocked',
 };
 

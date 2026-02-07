@@ -27,7 +27,7 @@ const sectionService = {
       ]
     );
 
-    await cache.delete(`sections:outlet:${data.outletId}`);
+    await cache.del(`sections:outlet:${data.outletId}`);
     return this.getById(result.insertId);
   },
 
@@ -110,7 +110,7 @@ const sectionService = {
     params.push(id);
     await pool.query(`UPDATE sections SET ${updates.join(', ')} WHERE id = ?`, params);
 
-    await cache.delete(`sections:outlet:${section.outlet_id}`);
+    await cache.del(`sections:outlet:${section.outlet_id}`);
     return this.getById(id);
   },
 
@@ -133,7 +133,7 @@ const sectionService = {
     }
 
     await pool.query('DELETE FROM sections WHERE id = ?', [id]);
-    await cache.delete(`sections:outlet:${section.outlet_id}`);
+    await cache.del(`sections:outlet:${section.outlet_id}`);
     return true;
   }
 };

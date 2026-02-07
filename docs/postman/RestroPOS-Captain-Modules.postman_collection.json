@@ -1,0 +1,415 @@
+{
+  "info": {
+    "name": "RestroPOS - Captain Module APIs",
+    "description": "All APIs accessible to Captain role (22 permissions across 10 modules)\n\n## Captain Permissions\n- **Tables**: TABLE_VIEW, TABLE_MERGE, TABLE_TRANSFER\n- **Orders**: ORDER_VIEW, ORDER_CREATE, ORDER_MODIFY\n- **KOT**: KOT_SEND, KOT_MODIFY, KOT_REPRINT\n- **Billing**: BILL_VIEW, BILL_GENERATE, BILL_REPRINT\n- **Payment**: PAYMENT_COLLECT, PAYMENT_SPLIT\n- **Discounts**: DISCOUNT_APPLY, TIP_ADD\n- **Items**: ITEM_VIEW, ITEM_CANCEL\n- **Categories**: CATEGORY_VIEW\n- **Reports**: REPORT_VIEW\n- **Layout**: FLOOR_VIEW, SECTION_VIEW\n\n## Workflow\n1. Login (email/password or PIN)\n2. View floors/sections\n3. Select floor → view tables\n4. Take orders\n5. Send KOT\n6. Generate bill\n7. Collect payment\n\n## Socket Events\n- `join:captain` - Join captain room for updates\n- `join:floor` - Join floor room for table updates\n- `table:updated` - Real-time table status\n- `order:updated` - Order changes\n- `kot:updated` - KOT status changes\n- `item:ready` - Item ready notification",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {"key": "baseUrl", "value": "http://localhost:3000/api/v1"},
+    {"key": "socketUrl", "value": "http://localhost:3000"},
+    {"key": "captainToken", "value": ""},
+    {"key": "outletId", "value": ""},
+    {"key": "floorId", "value": ""},
+    {"key": "sectionId", "value": ""},
+    {"key": "tableId", "value": ""},
+    {"key": "categoryId", "value": ""},
+    {"key": "itemId", "value": ""},
+    {"key": "orderId", "value": ""},
+    {"key": "orderItemId", "value": ""},
+    {"key": "kotId", "value": ""},
+    {"key": "invoiceId", "value": ""},
+    {"key": "discountId", "value": ""}
+  ],
+  "item": [
+    {
+      "name": "1. Authentication",
+      "description": "Captain login - supports both email/password (no outletId needed) and PIN login",
+      "item": [
+        {
+          "name": "Login with Email (Recommended)",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "pm.test('Login success', () => pm.expect(res.success).to.be.true);", "if(res.success) {", "  pm.collectionVariables.set('captainToken', res.data.accessToken);", "  // Extract outlet from roles", "  if(res.data.user.roles && res.data.user.roles.length > 0) {", "    const captainRole = res.data.user.roles.find(r => r.slug === 'captain');", "    if(captainRole && captainRole.outletId) pm.collectionVariables.set('outletId', captainRole.outletId);", "  }", "}"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"email\": \"captain@test.com\",\n  \"password\": \"Captain@123\",\n  \"deviceType\": \"captain_app\"\n}"}, "url": "{{baseUrl}}/auth/login"},
+          "response": []
+        },
+        {
+          "name": "Login with PIN (Quick Access)",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "pm.test('PIN login success', () => pm.expect(res.success).to.be.true);", "if(res.success) pm.collectionVariables.set('captainToken', res.data.accessToken);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"employeeCode\": \"CAP001\",\n  \"pin\": \"1234\",\n  \"outletId\": {{outletId}},\n  \"deviceType\": \"captain_app\"\n}"}, "url": "{{baseUrl}}/auth/login/pin"},
+          "response": []
+        },
+        {
+          "name": "Get My Profile",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "pm.test('Profile loaded', () => pm.expect(res.success).to.be.true);", "if(res.data.roles) {", "  const captainRole = res.data.roles.find(r => r.slug === 'captain');", "  if(captainRole) pm.collectionVariables.set('outletId', captainRole.outletId);", "}"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/auth/me"},
+          "response": []
+        },
+        {
+          "name": "Get My Permissions",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "pm.test('Has 22 captain permissions', () => pm.expect(res.data.permissions.length).to.equal(22));"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/permissions/my"},
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. Layout (First View)",
+      "description": "After login, captain sees floors and sections to select their work area",
+      "item": [
+        {
+          "name": "Get All Floors",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "pm.test('Floors loaded', () => pm.expect(res.success).to.be.true);", "if(res.data && res.data.length > 0) pm.collectionVariables.set('floorId', res.data[0].id);"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/outlets/{{outletId}}/floors"},
+          "response": []
+        },
+        {
+          "name": "Get All Sections",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "pm.test('Sections loaded', () => pm.expect(res.success).to.be.true);", "if(res.data && res.data.length > 0) pm.collectionVariables.set('sectionId', res.data[0].id);"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/outlets/{{outletId}}/sections"},
+          "response": []
+        },
+        {
+          "name": "Get Floor Details with Tables",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/outlets/floors/{{floorId}}/details"},
+          "response": []
+        },
+        {
+          "name": "Get Section by ID",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/outlets/sections/{{sectionId}}"},
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. Tables",
+      "description": "View and manage tables - TABLE_VIEW, TABLE_MERGE, TABLE_TRANSFER permissions",
+      "item": [
+        {
+          "name": "Get Tables by Floor",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "pm.test('Tables loaded', () => pm.expect(res.success).to.be.true);", "if(res.data && res.data.length > 0) {", "  const available = res.data.find(t => t.status === 'available');", "  pm.collectionVariables.set('tableId', available ? available.id : res.data[0].id);", "}"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/tables/floor/{{floorId}}"},
+          "response": []
+        },
+        {
+          "name": "Get Tables by Outlet",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/tables/outlet/{{outletId}}"},
+          "response": []
+        },
+        {
+          "name": "Get Real-time Table Status",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/tables/realtime/{{outletId}}"},
+          "response": []
+        },
+        {
+          "name": "Get Table by ID",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/tables/{{tableId}}"},
+          "response": []
+        },
+        {
+          "name": "Start Table Session",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"guestCount\": 4,\n  \"customerName\": \"Guest\"\n}"}, "url": "{{baseUrl}}/tables/{{tableId}}/session"},
+          "response": []
+        },
+        {
+          "name": "Get Current Session",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/tables/{{tableId}}/session"},
+          "response": []
+        },
+        {
+          "name": "End Table Session",
+          "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/tables/{{tableId}}/session"},
+          "response": []
+        },
+        {
+          "name": "Merge Tables",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"tableIds\": [2, 3]\n}"}, "url": "{{baseUrl}}/tables/{{tableId}}/merge"},
+          "response": []
+        },
+        {
+          "name": "Get Merged Tables",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/tables/{{tableId}}/merged"},
+          "response": []
+        },
+        {
+          "name": "Unmerge Tables",
+          "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/tables/{{tableId}}/merge"},
+          "response": []
+        },
+        {
+          "name": "Get Running KOTs for Table",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/tables/{{tableId}}/kots"},
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "4. Categories",
+      "description": "View categories - CATEGORY_VIEW permission only",
+      "item": [
+        {
+          "name": "Get All Categories",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.data && res.data.length > 0) pm.collectionVariables.set('categoryId', res.data[0].id);"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/menu/categories/outlet/{{outletId}}"},
+          "response": []
+        },
+        {
+          "name": "Get Category Tree",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/menu/categories/outlet/{{outletId}}/tree"},
+          "response": []
+        },
+        {
+          "name": "Get Category by ID",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/menu/categories/{{categoryId}}"},
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "5. Items & Menu",
+      "description": "View items and menu - ITEM_VIEW, ITEM_CANCEL permissions",
+      "item": [
+        {
+          "name": "Get Captain Menu",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "pm.test('Menu loaded', () => pm.expect(res.success).to.be.true);"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/menu/{{outletId}}/captain"},
+          "response": []
+        },
+        {
+          "name": "Get All Items",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.data && res.data.length > 0) pm.collectionVariables.set('itemId', res.data[0].id);"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/menu/items/outlet/{{outletId}}"},
+          "response": []
+        },
+        {
+          "name": "Get Items by Category",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/menu/items/category/{{categoryId}}"},
+          "response": []
+        },
+        {
+          "name": "Get Item by ID",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/menu/items/{{itemId}}"},
+          "response": []
+        },
+        {
+          "name": "Get Item Details",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/menu/items/{{itemId}}/details"},
+          "response": []
+        },
+        {
+          "name": "Search Items",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": {"raw": "{{baseUrl}}/menu/{{outletId}}/search?q=beer", "host": ["{{baseUrl}}"], "path": ["menu", "{{outletId}}", "search"], "query": [{"key": "q", "value": "beer"}]}},
+          "response": []
+        },
+        {
+          "name": "Get Featured Items",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/menu/{{outletId}}/featured"},
+          "response": []
+        },
+        {
+          "name": "Calculate Item Total",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"itemId\": {{itemId}},\n  \"quantity\": 2,\n  \"variantId\": null,\n  \"addonIds\": []\n}"}, "url": "{{baseUrl}}/menu/calculate"},
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "6. Orders",
+      "description": "Manage orders - ORDER_VIEW, ORDER_CREATE, ORDER_MODIFY permissions",
+      "item": [
+        {
+          "name": "Get Active Orders",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.data && res.data.length > 0) pm.collectionVariables.set('orderId', res.data[0].id);"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/orders/active/{{outletId}}"},
+          "response": []
+        },
+        {
+          "name": "Get Orders by Table",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/orders/table/{{tableId}}"},
+          "response": []
+        },
+        {
+          "name": "Get Order by ID",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.data && res.data.items && res.data.items.length > 0) {", "  pm.collectionVariables.set('orderItemId', res.data.items[0].id);", "}"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/orders/{{orderId}}"},
+          "response": []
+        },
+        {
+          "name": "Create New Order",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.success && res.data) pm.collectionVariables.set('orderId', res.data.id);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"tableId\": {{tableId}},\n  \"outletId\": {{outletId}},\n  \"guestCount\": 2,\n  \"orderType\": \"dine_in\",\n  \"items\": [\n    {\n      \"itemId\": {{itemId}},\n      \"quantity\": 1,\n      \"notes\": \"No ice\"\n    }\n  ]\n}"}, "url": "{{baseUrl}}/orders"},
+          "response": []
+        },
+        {
+          "name": "Add Items to Order",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"items\": [\n    {\n      \"itemId\": {{itemId}},\n      \"quantity\": 2,\n      \"notes\": \"Extra spicy\"\n    }\n  ]\n}"}, "url": "{{baseUrl}}/orders/{{orderId}}/items"},
+          "response": []
+        },
+        {
+          "name": "Update Item Quantity",
+          "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"quantity\": 3\n}"}, "url": "{{baseUrl}}/orders/items/{{orderItemId}}/quantity"},
+          "response": []
+        },
+        {
+          "name": "Cancel Item (ITEM_CANCEL)",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"reason\": \"Customer changed mind\",\n  \"reasonCode\": \"CUSTOMER_REQUEST\"\n}"}, "url": "{{baseUrl}}/orders/items/{{orderItemId}}/cancel"},
+          "response": []
+        },
+        {
+          "name": "Get Cancel Reasons",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/orders/cancel-reasons/{{outletId}}"},
+          "response": []
+        },
+        {
+          "name": "Transfer Order (TABLE_TRANSFER)",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"toTableId\": 5\n}"}, "url": "{{baseUrl}}/orders/{{orderId}}/transfer"},
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "7. KOT",
+      "description": "Kitchen Order Ticket - KOT_SEND, KOT_MODIFY, KOT_REPRINT permissions",
+      "item": [
+        {
+          "name": "Send KOT",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.success && res.data) pm.collectionVariables.set('kotId', res.data.id);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/orders/{{orderId}}/kot"},
+          "response": []
+        },
+        {
+          "name": "Get Active KOTs",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.data && res.data.length > 0) pm.collectionVariables.set('kotId', res.data[0].id);"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/orders/kot/active/{{outletId}}"},
+          "response": []
+        },
+        {
+          "name": "Get KOTs by Order",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/orders/{{orderId}}/kots"},
+          "response": []
+        },
+        {
+          "name": "Get KOT by ID",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/orders/kot/{{kotId}}"},
+          "response": []
+        },
+        {
+          "name": "Reprint KOT",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/orders/kot/{{kotId}}/reprint"},
+          "response": []
+        },
+        {
+          "name": "Kitchen Dashboard",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/orders/station/{{outletId}}/kitchen"},
+          "response": []
+        },
+        {
+          "name": "Bar Dashboard",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/orders/station/{{outletId}}/bar"},
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "8. Billing",
+      "description": "Bill generation - BILL_VIEW, BILL_GENERATE, BILL_REPRINT permissions",
+      "item": [
+        {
+          "name": "Generate Bill",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.success && res.data) pm.collectionVariables.set('invoiceId', res.data.id);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}"}, "url": "{{baseUrl}}/orders/{{orderId}}/bill"},
+          "response": []
+        },
+        {
+          "name": "Get Invoice by Order",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.success && res.data) pm.collectionVariables.set('invoiceId', res.data.id);"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/orders/{{orderId}}/invoice"},
+          "response": []
+        },
+        {
+          "name": "Get Invoice by ID",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/orders/invoice/{{invoiceId}}"},
+          "response": []
+        },
+        {
+          "name": "Print Duplicate Bill",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/orders/invoice/{{invoiceId}}/duplicate"},
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "9. Payment",
+      "description": "Payment collection - PAYMENT_COLLECT, PAYMENT_SPLIT permissions",
+      "item": [
+        {
+          "name": "Get Payments by Order",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/orders/{{orderId}}/payments"},
+          "response": []
+        },
+        {
+          "name": "Process Payment",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"invoiceId\": {{invoiceId}},\n  \"paymentMode\": \"cash\",\n  \"amount\": 500,\n  \"receivedAmount\": 600\n}"}, "url": "{{baseUrl}}/orders/payment"},
+          "response": []
+        },
+        {
+          "name": "Split Payment",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"invoiceId\": {{invoiceId}},\n  \"payments\": [\n    {\"paymentMode\": \"cash\", \"amount\": 300},\n    {\"paymentMode\": \"card\", \"amount\": 200}\n  ]\n}"}, "url": "{{baseUrl}}/orders/payment/split"},
+          "response": []
+        },
+        {
+          "name": "Get Cash Drawer Status",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/orders/cash-drawer/{{outletId}}/status"},
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "10. Discounts",
+      "description": "Apply discounts - DISCOUNT_APPLY, TIP_ADD permissions",
+      "item": [
+        {
+          "name": "Get Available Discounts",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.data && res.data.length > 0) pm.collectionVariables.set('discountId', res.data[0].id);"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/tax/discounts/{{outletId}}"},
+          "response": []
+        },
+        {
+          "name": "Validate Discount Code",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"code\": \"HAPPY20\",\n  \"orderTotal\": 1000\n}"}, "url": "{{baseUrl}}/tax/discounts/{{outletId}}/validate"},
+          "response": []
+        },
+        {
+          "name": "Apply Discount to Order",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"discountId\": {{discountId}},\n  \"reason\": \"Regular customer\"\n}"}, "url": "{{baseUrl}}/orders/{{orderId}}/discount"},
+          "response": []
+        },
+        {
+          "name": "Get Service Charges",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/tax/service-charges/{{outletId}}"},
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "11. Reports",
+      "description": "View reports - REPORT_VIEW permission (limited access)",
+      "item": [
+        {
+          "name": "Live Dashboard",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{captainToken}}"}], "url": "{{baseUrl}}/orders/reports/{{outletId}}/dashboard"},
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "12. Socket Events (Reference)",
+      "description": "Real-time socket events for captain app. Connect to socket.io server and join rooms.",
+      "item": [
+        {
+          "name": "Socket Connection Info",
+          "request": {"method": "GET", "header": [], "url": {"raw": "{{socketUrl}}/socket.io/?EIO=4&transport=polling", "host": ["{{socketUrl}}"], "path": ["socket.io", ""], "query": [{"key": "EIO", "value": "4"}, {"key": "transport", "value": "polling"}]}},
+          "response": []
+        }
+      ]
+    }
+  ]
+}

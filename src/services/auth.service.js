@@ -303,6 +303,16 @@ class AuthService {
         outletId: r.outlet_id,
         outletName: r.outlet_name,
       })),
+      object_role: roles.reduce((acc, r) => {
+        acc[r.slug] = {
+          id: r.id,
+          name: r.name,
+          slug: r.slug,
+          outletId: r.outlet_id,
+          outletName: r.outlet_name,
+        };
+        return acc;
+      }, {}),
       permissions: permissions.map(p => p.slug),
       permissionsByModule: permissions.reduce((acc, p) => {
         if (!acc[p.module]) acc[p.module] = [];

@@ -16,23 +16,75 @@ const taxService = require('./tax.service');
 
 const CACHE_TTL = 900; // 15 minutes
 
+// Liquor category keywords for filtering
+const LIQUOR_KEYWORDS = ['whiskey', 'vodka', 'wine', 'beer', 'cocktail', 'rum', 'gin', 'brandy', 'liquor', 'alcohol', 'spirits', 'scotch', 'bourbon', 'tequila', 'champagne'];
+
+/**
+ * Check if a category is a liquor category based on name
+ */
+function isLiquorCategory(categoryName) {
+  if (!categoryName) return false;
+  const lowerName = categoryName.toLowerCase();
+  return LIQUOR_KEYWORDS.some(keyword => lowerName.includes(keyword));
+}
+
+/**
+ * Build SQL filter clause for item type filtering
+ * @param {string} filter - 'veg', 'non_veg', or 'liquor'
+ * @param {string} itemAlias - Table alias for items (default 'i')
+ * @param {string} categoryAlias - Table alias for categories (default 'c')
+ * @returns {object} { sql: string, params: array }
+ */
+function buildItemTypeFilter(filter, itemAlias = 'i', categoryAlias = 'c') {
+  if (!filter) return { sql: '', params: [] };
+  
+  const filterLower = filter.toLowerCase();
+  
+  if (filterLower === 'veg') {
+    // Veg items but NOT in liquor categories
+    const liquorPattern = LIQUOR_KEYWORDS.map(() => `${categoryAlias}.name NOT LIKE ?`).join(' AND ');
+    return {
+      sql: ` AND ${itemAlias}.item_type IN ('veg', 'vegan') AND (${liquorPattern})`,
+      params: LIQUOR_KEYWORDS.map(k => `%${k}%`)
+    };
+  } else if (filterLower === 'non_veg' || filterLower === 'nonveg') {
+    // Non-veg items (including egg)
+    return {
+      sql: ` AND ${itemAlias}.item_type IN ('non_veg', 'egg')`,
+      params: []
+    };
+  } else if (filterLower === 'liquor') {
+    // Items in liquor categories
+    const liquorPattern = LIQUOR_KEYWORDS.map(() => `${categoryAlias}.name LIKE ?`).join(' OR ');
+    return {
+      sql: ` AND (${liquorPattern})`,
+      params: LIQUOR_KEYWORDS.map(k => `%${k}%`)
+    };
+  }
+  
+  return { sql: '', params: [] };
+}
+
 const menuEngineService = {
   /**
    * Build complete menu for captain view
    * Returns categories with items, variants, addons, and calculated prices
    */
   async buildMenu(outletId, context = {}) {
-    const { floorId, sectionId, tableId, time, includeDetails = true } = context;
+    const { floorId, sectionId, tableId, time, includeDetails = true, skipTimeSlotFilter = false } = context;
     const pool = getPool();
 
-    // Get current time slot
-    let timeSlotId = context.timeSlotId;
-    if (!timeSlotId) {
-      const currentSlot = await timeSlotService.getCurrentSlot(outletId);
-      timeSlotId = currentSlot?.id;
+    // Get current time slot (skip if skipTimeSlotFilter is true)
+    let timeSlotId = null;
+    if (!skipTimeSlotFilter) {
+      timeSlotId = context.timeSlotId;
+      if (!timeSlotId) {
+        const currentSlot = await timeSlotService.getCurrentSlot(outletId);
+        timeSlotId = currentSlot?.id;
+      }
     }
 
-    const menuContext = { floorId, sectionId, timeSlotId, time };
+    const menuContext = { floorId, sectionId, timeSlotId, time, skipTimeSlotFilter };
 
     // Get visible categories
     const categories = await categoryService.getVisibleCategories(outletId, menuContext);
@@ -144,49 +196,132 @@ const menuEngineService = {
   },
 
   /**
-   * Get simplified menu for captain (no complexity, just essentials)
+   * Get simplified menu for captain (clean, easy to use)
+   * Structure: categories[] → items[] → variants[], addons[]
+   * No time slot filtering - shows ALL items
    */
   async getCaptainMenu(outletId, context = {}) {
-    const menu = await this.buildMenu(outletId, { ...context, includeDetails: true });
+    const { filter } = context;
+    
+    // Skip time slot filtering for captain - show all items
+    const menu = await this.buildMenu(outletId, { 
+      ...context, 
+      includeDetails: true,
+      skipTimeSlotFilter: true 
+    });
 
-    // Simplify for captain view - hide pricing rules, tax details
+    // Apply filter if specified
+    let filteredCategories = menu.categories;
+    
+    if (filter) {
+      const filterLower = filter.toLowerCase();
+      
+      if (filterLower === 'liquor') {
+        // Only liquor categories
+        filteredCategories = menu.categories.filter(cat => isLiquorCategory(cat.name));
+      } else if (filterLower === 'veg') {
+        // Exclude liquor categories, then filter items to veg only
+        filteredCategories = menu.categories
+          .filter(cat => !isLiquorCategory(cat.name))
+          .map(cat => ({
+            ...cat,
+            items: cat.items.filter(item => ['veg', 'vegan'].includes(item.itemType))
+          }))
+          .filter(cat => cat.items.length > 0);
+      } else if (filterLower === 'non_veg' || filterLower === 'nonveg') {
+        // Filter items to non-veg only
+        filteredCategories = menu.categories
+          .map(cat => ({
+            ...cat,
+            items: cat.items.filter(item => ['non_veg', 'egg'].includes(item.itemType))
+          }))
+          .filter(cat => cat.items.length > 0);
+      }
+    }
+
+    // Recalculate totals
+    const totalItems = filteredCategories.reduce((sum, cat) => sum + cat.items.length, 0);
+
+    // Clean, flat structure for captain - easy to read and use
     return {
-      ...menu,
-      categories: menu.categories.map(cat => ({
+      outletId: menu.outletId,
+      generatedAt: menu.generatedAt,
+      filter: filter || null,
+      summary: {
+        categories: filteredCategories.length,
+        items: totalItems
+      },
+      menu: filteredCategories.map(cat => ({
         id: cat.id,
         name: cat.name,
+        description: cat.description || null,
         icon: cat.icon,
-        colorCode: cat.colorCode,
-        items: cat.items.map(item => ({
-          id: item.id,
-          name: item.name,
-          shortName: item.shortName,
-          price: item.price,
-          itemType: item.itemType,
-          hasVariants: item.hasVariants,
-          hasAddons: item.hasAddons,
-          isRecommended: item.isRecommended,
-          isBestseller: item.isBestseller,
-          variants: item.variants?.map(v => ({
-            id: v.id,
-            name: v.name,
-            price: v.price,
-            isDefault: v.isDefault
-          })),
-          addonGroups: item.addonGroups?.map(g => ({
-            id: g.id,
-            name: g.name,
-            isRequired: g.is_required || g.item_required,
-            minSelection: g.min_selection,
-            maxSelection: g.max_selection,
-            addons: g.addons?.map(a => ({
-              id: a.id,
-              name: a.name,
-              price: a.price,
-              itemType: a.item_type
-            }))
-          }))
-        }))
+        color: cat.colorCode,
+        img: cat.imageUrl || null,
+        count: cat.items.length,
+        items: cat.items.map(item => {
+          const captainItem = {
+            id: item.id,
+            name: item.name,
+            short: item.shortName || item.name.substring(0, 15),
+            description: item.description || null,
+            price: item.price,
+            basePrice: item.basePrice,
+            type: item.itemType,
+            img: item.imageUrl,
+            spiceLevel: item.spiceLevel || null,
+            prepTime: item.preparationTime || null,
+            taxGroupId: item.taxGroupId || null,
+            taxRate: item.taxRate || null,
+            taxInclusive: item.taxInclusive || false
+          };
+
+          // Add badges
+          if (item.isBestseller) captainItem.bestseller = true;
+          if (item.isRecommended) captainItem.recommended = true;
+          if (item.isNew) captainItem.isNew = true;
+          if (item.hasDiscount) captainItem.hasDiscount = true;
+
+          // Quantity constraints
+          if (item.minQuantity > 1) captainItem.minQty = item.minQuantity;
+          if (item.maxQuantity) captainItem.maxQty = item.maxQuantity;
+          if (item.stepQuantity > 1) captainItem.stepQty = item.stepQuantity;
+          if (item.allowSpecialNotes) captainItem.allowNotes = true;
+
+          // Variants (always include if has variants)
+          if (item.hasVariants && item.variants?.length) {
+            captainItem.variants = item.variants.map(v => ({
+              id: v.id,
+              name: v.name,
+              price: v.price,
+              basePrice: v.basePrice,
+              isDefault: v.isDefault ? true : false,
+              hasDiscount: v.hasDiscount || false,
+              taxGroupId: v.taxGroupId || null,
+              taxRate: v.taxRate || null
+            }));
+          }
+
+          // Addons (always include if has addons)
+          if (item.hasAddons && item.addonGroups?.length) {
+            captainItem.addons = item.addonGroups.map(g => ({
+              id: g.id,
+              name: g.name,
+              required: g.is_required || g.item_required || false,
+              min: g.min_selection || 0,
+              max: g.max_selection || 10,
+              options: g.addons?.map(a => ({
+                id: a.id,
+                name: a.name,
+                price: parseFloat(a.price) || 0,
+                type: a.item_type || 'veg',
+                img: a.image_url || null
+              })) || []
+            }));
+          }
+
+          return captainItem;
+        })
       }))
     };
   },
@@ -351,57 +486,291 @@ const menuEngineService = {
   },
 
   /**
-   * Search menu items
+   * Search menu items - Global search across category, item, variant names
+   * Returns matching items with full details (variants, addons)
+   * Also returns matching categories with all their items
    */
   async searchItems(outletId, query, context = {}) {
     const pool = getPool();
-    const { floorId, sectionId, timeSlotId, limit = 20 } = context;
+    const { floorId, sectionId, timeSlotId, limit = 50, filter } = context;
+    const searchTerm = `%${query}%`;
+    
+    // Build item type filter
+    const typeFilter = buildItemTypeFilter(filter, 'i', 'c');
 
-    let sql = `
-      SELECT i.*, c.name as category_name
+    // 1. Search for matching categories (apply liquor filter if needed)
+    let catSql = `SELECT DISTINCT c.id, c.name, c.description, c.image_url, c.icon, c.color_code
+       FROM categories c
+       WHERE c.outlet_id = ? AND c.is_active = 1 AND c.deleted_at IS NULL
+       AND c.name LIKE ?`;
+    let catParams = [outletId, searchTerm];
+    
+    // Apply category filter for liquor/veg
+    if (filter) {
+      const filterLower = filter.toLowerCase();
+      if (filterLower === 'liquor') {
+        const liquorPattern = LIQUOR_KEYWORDS.map(() => 'c.name LIKE ?').join(' OR ');
+        catSql += ` AND (${liquorPattern})`;
+        catParams.push(...LIQUOR_KEYWORDS.map(k => `%${k}%`));
+      } else if (filterLower === 'veg') {
+        // Exclude liquor categories for veg filter
+        const liquorPattern = LIQUOR_KEYWORDS.map(() => 'c.name NOT LIKE ?').join(' AND ');
+        catSql += ` AND (${liquorPattern})`;
+        catParams.push(...LIQUOR_KEYWORDS.map(k => `%${k}%`));
+      }
+      // non_veg doesn't filter categories, only items
+    }
+    
+    const [matchingCategories] = await pool.query(catSql, catParams);
+
+    // 2. Search for matching items (by name, short_name, sku, tags)
+    let itemSql = `
+      SELECT DISTINCT i.id, i.name, i.short_name, i.description, i.base_price,
+        i.image_url, i.item_type, i.has_variants, i.has_addons,
+        i.is_bestseller, i.is_recommended, i.is_new, i.spice_level,
+        i.preparation_time_mins, i.category_id, i.tax_group_id,
+        c.name as category_name, c.id as cat_id
       FROM items i
       JOIN categories c ON i.category_id = c.id
       WHERE i.outlet_id = ? AND i.is_active = 1 AND i.is_available = 1 AND i.deleted_at IS NULL
       AND (i.name LIKE ? OR i.short_name LIKE ? OR i.sku LIKE ? OR i.tags LIKE ?)
     `;
-    const params = [outletId, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`];
+    let itemParams = [outletId, searchTerm, searchTerm, searchTerm, searchTerm];
+
+    // Apply item type filter (veg/non_veg/liquor)
+    if (typeFilter.sql) {
+      itemSql += typeFilter.sql;
+      itemParams.push(...typeFilter.params);
+    }
+
+    // 3. Search for matching variants and get their parent items
+    const [variantMatches] = await pool.query(
+      `SELECT DISTINCT i.id
+       FROM items i
+       JOIN variants v ON v.item_id = i.id
+       WHERE i.outlet_id = ? AND i.is_active = 1 AND i.deleted_at IS NULL
+       AND v.name LIKE ?`,
+      [outletId, searchTerm]
+    );
+    const variantItemIds = variantMatches.map(v => v.id);
+
+    // Add variant matches to query
+    if (variantItemIds.length > 0) {
+      itemSql += ` OR i.id IN (${variantItemIds.map(() => '?').join(',')})`;
+      itemParams.push(...variantItemIds);
+    }
 
     // Apply visibility filters
     if (floorId) {
-      sql += `
+      itemSql += `
         AND (
           NOT EXISTS (SELECT 1 FROM item_floors if_ WHERE if_.item_id = i.id)
           OR EXISTS (SELECT 1 FROM item_floors if_ WHERE if_.item_id = i.id AND if_.floor_id = ? AND if_.is_available = 1)
         )
       `;
-      params.push(floorId);
+      itemParams.push(floorId);
     }
 
     if (sectionId) {
-      sql += `
+      itemSql += `
         AND (
           NOT EXISTS (SELECT 1 FROM item_sections is_ WHERE is_.item_id = i.id)
           OR EXISTS (SELECT 1 FROM item_sections is_ WHERE is_.item_id = i.id AND is_.section_id = ? AND is_.is_available = 1)
         )
       `;
-      params.push(sectionId);
+      itemParams.push(sectionId);
     }
 
     if (timeSlotId) {
-      sql += `
+      itemSql += `
         AND (
           NOT EXISTS (SELECT 1 FROM item_time_slots its WHERE its.item_id = i.id)
           OR EXISTS (SELECT 1 FROM item_time_slots its WHERE its.item_id = i.id AND its.time_slot_id = ? AND its.is_available = 1)
         )
       `;
-      params.push(timeSlotId);
+      itemParams.push(timeSlotId);
     }
 
-    sql += ' ORDER BY i.is_bestseller DESC, i.name LIMIT ?';
-    params.push(limit);
+    itemSql += ' ORDER BY i.is_bestseller DESC, i.name LIMIT ?';
+    itemParams.push(limit);
 
-    const [items] = await pool.query(sql, params);
-    return items;
+    const [matchingItems] = await pool.query(itemSql, itemParams);
+
+    // 4. Get full details for matching items (variants, addons)
+    const itemsWithDetails = await Promise.all(matchingItems.map(async (item) => {
+      const result = {
+        id: item.id,
+        name: item.name,
+        short: item.short_name,
+        description: item.description,
+        price: parseFloat(item.base_price),
+        type: item.item_type,
+        img: item.image_url,
+        categoryId: item.category_id,
+        categoryName: item.category_name,
+        taxGroupId: item.tax_group_id
+      };
+
+      // Add badges
+      if (item.is_bestseller) result.bestseller = true;
+      if (item.is_recommended) result.recommended = true;
+      if (item.is_new) result.isNew = true;
+      if (item.spice_level) result.spiceLevel = item.spice_level;
+      if (item.preparation_time_mins) result.prepTime = item.preparation_time_mins;
+
+      // Get variants if has_variants
+      if (item.has_variants) {
+        const [variants] = await pool.query(
+          'SELECT id, name, price, is_default, tax_group_id FROM variants WHERE item_id = ? AND is_active = 1',
+          [item.id]
+        );
+        if (variants.length > 0) {
+          result.variants = variants.map(v => ({
+            id: v.id,
+            name: v.name,
+            price: parseFloat(v.price),
+            isDefault: v.is_default ? true : false,
+            taxGroupId: v.tax_group_id
+          }));
+        }
+      }
+
+      // Get addons if has_addons
+      if (item.has_addons) {
+        const addonGroups = await addonService.getItemAddonGroups(item.id);
+        if (addonGroups && addonGroups.length > 0) {
+          result.addons = addonGroups.map(g => ({
+            id: g.id,
+            name: g.name,
+            required: g.is_required || g.item_required || false,
+            min: g.min_selection || 0,
+            max: g.max_selection || 10,
+            options: g.addons?.map(a => ({
+              id: a.id,
+              name: a.name,
+              price: parseFloat(a.price) || 0,
+              type: a.item_type || 'veg'
+            })) || []
+          }));
+        }
+      }
+
+      return result;
+    }));
+
+    // 5. Get full category details for matching categories
+    const categoriesWithItems = await Promise.all(matchingCategories.map(async (cat) => {
+      // Get all items in this category
+      let catItemSql = `
+        SELECT i.id, i.name, i.short_name, i.description, i.base_price,
+          i.image_url, i.item_type, i.has_variants, i.has_addons,
+          i.is_bestseller, i.is_recommended, i.is_new, i.spice_level,
+          i.preparation_time_mins, i.tax_group_id
+        FROM items i
+        WHERE i.category_id = ? AND i.is_active = 1 AND i.is_available = 1 AND i.deleted_at IS NULL
+      `;
+      const catItemParams = [cat.id];
+
+      // Apply same visibility filters
+      if (floorId) {
+        catItemSql += `
+          AND (
+            NOT EXISTS (SELECT 1 FROM item_floors if_ WHERE if_.item_id = i.id)
+            OR EXISTS (SELECT 1 FROM item_floors if_ WHERE if_.item_id = i.id AND if_.floor_id = ? AND if_.is_available = 1)
+          )
+        `;
+        catItemParams.push(floorId);
+      }
+      if (sectionId) {
+        catItemSql += `
+          AND (
+            NOT EXISTS (SELECT 1 FROM item_sections is_ WHERE is_.item_id = i.id)
+            OR EXISTS (SELECT 1 FROM item_sections is_ WHERE is_.item_id = i.id AND is_.section_id = ? AND is_.is_available = 1)
+          )
+        `;
+        catItemParams.push(sectionId);
+      }
+
+      catItemSql += ' ORDER BY i.display_order, i.name';
+      const [catItems] = await pool.query(catItemSql, catItemParams);
+
+      // Get full details for category items
+      const itemsDetail = await Promise.all(catItems.map(async (item) => {
+        const result = {
+          id: item.id,
+          name: item.name,
+          short: item.short_name,
+          description: item.description,
+          price: parseFloat(item.base_price),
+          type: item.item_type,
+          img: item.image_url,
+          taxGroupId: item.tax_group_id
+        };
+
+        if (item.is_bestseller) result.bestseller = true;
+        if (item.is_recommended) result.recommended = true;
+        if (item.is_new) result.isNew = true;
+        if (item.spice_level) result.spiceLevel = item.spice_level;
+        if (item.preparation_time_mins) result.prepTime = item.preparation_time_mins;
+
+        // Get variants
+        if (item.has_variants) {
+          const [variants] = await pool.query(
+            'SELECT id, name, price, is_default, tax_group_id FROM variants WHERE item_id = ? AND is_active = 1',
+            [item.id]
+          );
+          if (variants.length > 0) {
+            result.variants = variants.map(v => ({
+              id: v.id,
+              name: v.name,
+              price: parseFloat(v.price),
+              isDefault: v.is_default ? true : false
+            }));
+          }
+        }
+
+        // Get addons
+        if (item.has_addons) {
+          const addonGroups = await addonService.getItemAddonGroups(item.id);
+          if (addonGroups && addonGroups.length > 0) {
+            result.addons = addonGroups.map(g => ({
+              id: g.id,
+              name: g.name,
+              required: g.is_required || false,
+              min: g.min_selection || 0,
+              max: g.max_selection || 10,
+              options: g.addons?.map(a => ({
+                id: a.id,
+                name: a.name,
+                price: parseFloat(a.price) || 0
+              })) || []
+            }));
+          }
+        }
+
+        return result;
+      }));
+
+      return {
+        id: cat.id,
+        name: cat.name,
+        description: cat.description,
+        icon: cat.icon,
+        color: cat.color_code,
+        img: cat.image_url,
+        matchType: 'category',
+        itemCount: itemsDetail.length,
+        items: itemsDetail
+      };
+    }));
+
+    return {
+      query,
+      matchingCategories: categoriesWithItems,
+      matchingItems: itemsWithDetails,
+      totalCategories: categoriesWithItems.length,
+      totalItems: itemsWithDetails.length
+    };
   },
 
   /**

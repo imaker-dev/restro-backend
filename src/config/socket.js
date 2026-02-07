@@ -127,6 +127,18 @@ const setupRedisPubSub = () => {
     if (data.type === 'kot:item_ready' || data.type === 'kot:ready') {
       io.to(`captain:${data.outletId}`).emit('item:ready', data);
     }
+
+    // Notify captain when KOT or item is cancelled (so captain app updates in real-time)
+    if (data.type === 'kot:cancelled' || data.type === 'kot:item_cancelled') {
+      io.to(`captain:${data.outletId}`).emit('kot:updated', data);
+    }
+  });
+
+  // Bill status updates - send to captain and cashier
+  pubsub.subscribe('bill:status', (data) => {
+    io.to(`captain:${data.outletId}`).emit('bill:status', data);
+    io.to(`cashier:${data.outletId}`).emit('bill:status', data);
+    io.to(`outlet:${data.outletId}`).emit('bill:status', data);
   });
 
   // Payment updates - send to cashier and outlet

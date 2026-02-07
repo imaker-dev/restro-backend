@@ -1,0 +1,651 @@
+{
+  "info": {
+    "name": "KOT Flow & Captain History",
+    "description": "Complete collection for KOT/BOT flow and Captain Order History APIs",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000/api/v1" },
+    { "key": "outletId", "value": "4" },
+    { "key": "accessToken", "value": "" },
+    { "key": "orderId", "value": "" },
+    { "key": "kotId", "value": "" },
+    { "key": "kotItemId", "value": "" },
+    { "key": "tableId", "value": "14" }
+  ],
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Login Captain",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.success && jsonData.data.accessToken) {",
+                  "    pm.collectionVariables.set('accessToken', jsonData.data.accessToken);",
+                  "    pm.test('Login successful', function() {",
+                  "        pm.expect(jsonData.success).to.be.true;",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@restropos.com\",\n  \"password\": \"admin123\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login"
+          }
+        }
+      ]
+    },
+    {
+      "name": "KOT Flow",
+      "item": [
+        {
+          "name": "1. Start Table Session",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Session started', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});",
+                  "if (jsonData.data && jsonData.data.sessionId) {",
+                  "    pm.collectionVariables.set('sessionId', jsonData.data.sessionId);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"guestCount\": 4,\n  \"guestName\": \"Test Guest\"\n}"
+            },
+            "url": "{{baseUrl}}/tables/{{tableId}}/session"
+          }
+        },
+        {
+          "name": "2. Create Order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Order created', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.data.id).to.be.a('number');",
+                  "});",
+                  "if (jsonData.data && jsonData.data.id) {",
+                  "    pm.collectionVariables.set('orderId', jsonData.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"outletId\": {{outletId}},\n  \"tableId\": {{tableId}},\n  \"orderType\": \"dine_in\",\n  \"guestCount\": 4\n}"
+            },
+            "url": "{{baseUrl}}/orders"
+          }
+        },
+        {
+          "name": "3. Add Items to Order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Items added', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"itemId\": 1,\n      \"quantity\": 2,\n      \"specialInstructions\": \"Extra spicy\"\n    },\n    {\n      \"itemId\": 2,\n      \"quantity\": 1\n    },\n    {\n      \"itemId\": 5,\n      \"quantity\": 2,\n      \"specialInstructions\": \"Less ice\"\n    }\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/orders/{{orderId}}/items"
+          }
+        },
+        {
+          "name": "4. Send KOT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('KOT sent successfully', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.data.tickets).to.be.an('array');",
+                  "    pm.expect(jsonData.data.tickets.length).to.be.greaterThan(0);",
+                  "});",
+                  "if (jsonData.data && jsonData.data.tickets && jsonData.data.tickets.length > 0) {",
+                  "    pm.collectionVariables.set('kotId', jsonData.data.tickets[0].id);",
+                  "    if (jsonData.data.tickets[0].items && jsonData.data.tickets[0].items.length > 0) {",
+                  "        pm.collectionVariables.set('kotItemId', jsonData.data.tickets[0].items[0].id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/{{orderId}}/kot"
+          }
+        },
+        {
+          "name": "5. Get Active KOTs",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Active KOTs retrieved', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.data).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/kot/active/{{outletId}}"
+          }
+        },
+        {
+          "name": "5b. Get Active KOTs - Kitchen Only",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/active/{{outletId}}?station=kitchen",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "active", "{{outletId}}"],
+              "query": [{ "key": "station", "value": "kitchen" }]
+            }
+          }
+        },
+        {
+          "name": "5c. Get Active KOTs - Bar Only",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/active/{{outletId}}?station=bar",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "active", "{{outletId}}"],
+              "query": [{ "key": "station", "value": "bar" }]
+            }
+          }
+        },
+        {
+          "name": "6. Accept KOT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('KOT accepted', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.data.status).to.eql('accepted');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/kot/{{kotId}}/accept"
+          }
+        },
+        {
+          "name": "7. Start Preparing KOT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('KOT preparing', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.data.status).to.eql('preparing');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/kot/{{kotId}}/preparing"
+          }
+        },
+        {
+          "name": "8. Mark Single Item Ready",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Item marked ready', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/kot/items/{{kotItemId}}/ready"
+          }
+        },
+        {
+          "name": "9. Mark Entire KOT Ready",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('KOT ready', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.data.status).to.eql('ready');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/kot/{{kotId}}/ready"
+          }
+        },
+        {
+          "name": "10. Mark KOT Served",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('KOT served', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.data.status).to.eql('served');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/kot/{{kotId}}/served"
+          }
+        },
+        {
+          "name": "Get KOTs for Order",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/{{orderId}}/kots"
+          }
+        },
+        {
+          "name": "Get KOT by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/kot/{{kotId}}"
+          }
+        },
+        {
+          "name": "Get Station Dashboard",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/station/{{outletId}}/kitchen"
+          }
+        },
+        {
+          "name": "Reprint KOT",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/kot/{{kotId}}/reprint"
+          }
+        },
+        {
+          "name": "Get Running KOTs for Table",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/tables/{{tableId}}/kots"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Captain Order History",
+      "item": [
+        {
+          "name": "Get Order History - All",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Order history retrieved', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.data.orders).to.be.an('array');",
+                  "    pm.expect(jsonData.data.pagination).to.be.an('object');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/captain/history/{{outletId}}"
+          }
+        },
+        {
+          "name": "Get Order History - Running Orders",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/captain/history/{{outletId}}?status=running",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "captain", "history", "{{outletId}}"],
+              "query": [{ "key": "status", "value": "running" }]
+            }
+          }
+        },
+        {
+          "name": "Get Order History - Completed Orders",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/captain/history/{{outletId}}?status=completed",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "captain", "history", "{{outletId}}"],
+              "query": [{ "key": "status", "value": "completed" }]
+            }
+          }
+        },
+        {
+          "name": "Get Order History - Cancelled Orders",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/captain/history/{{outletId}}?status=cancelled",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "captain", "history", "{{outletId}}"],
+              "query": [{ "key": "status", "value": "cancelled" }]
+            }
+          }
+        },
+        {
+          "name": "Get Order History - With Search",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/captain/history/{{outletId}}?search=ORD",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "captain", "history", "{{outletId}}"],
+              "query": [{ "key": "search", "value": "ORD" }]
+            }
+          }
+        },
+        {
+          "name": "Get Order History - Date Range",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/captain/history/{{outletId}}?startDate=2026-02-01&endDate=2026-02-28",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "captain", "history", "{{outletId}}"],
+              "query": [
+                { "key": "startDate", "value": "2026-02-01" },
+                { "key": "endDate", "value": "2026-02-28" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Order History - With Pagination",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/captain/history/{{outletId}}?page=1&limit=10&sortBy=created_at&sortOrder=DESC",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "captain", "history", "{{outletId}}"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" },
+                { "key": "sortBy", "value": "created_at" },
+                { "key": "sortOrder", "value": "DESC" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Order History - Combined Filters",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/captain/history/{{outletId}}?status=running&search=P1&startDate=2026-02-01&endDate=2026-02-28&page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "captain", "history", "{{outletId}}"],
+              "query": [
+                { "key": "status", "value": "running" },
+                { "key": "search", "value": "P1" },
+                { "key": "startDate", "value": "2026-02-01" },
+                { "key": "endDate", "value": "2026-02-28" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Order Detail with Time Logs",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Order detail retrieved', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.data.timeLogs).to.be.an('object');",
+                  "    pm.expect(jsonData.data.items).to.be.an('array');",
+                  "    pm.expect(jsonData.data.kots).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/captain/detail/{{orderId}}"
+          }
+        },
+        {
+          "name": "Get Captain Order Stats - Today",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test('Stats retrieved', function() {",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.data.total_orders).to.be.a('number');",
+                  "    pm.expect(jsonData.data.running_orders).to.be.a('number');",
+                  "    pm.expect(jsonData.data.completed_orders).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/orders/captain/stats/{{outletId}}"
+          }
+        },
+        {
+          "name": "Get Captain Order Stats - Date Range",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/captain/stats/{{outletId}}?startDate=2026-02-01&endDate=2026-02-28",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "captain", "stats", "{{outletId}}"],
+              "query": [
+                { "key": "startDate", "value": "2026-02-01" },
+                { "key": "endDate", "value": "2026-02-28" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cleanup",
+      "item": [
+        {
+          "name": "Cancel Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Testing cleanup\"\n}"
+            },
+            "url": "{{baseUrl}}/orders/{{orderId}}/cancel"
+          }
+        },
+        {
+          "name": "End Table Session",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/tables/{{tableId}}/session"
+          }
+        }
+      ]
+    }
+  ]
+}

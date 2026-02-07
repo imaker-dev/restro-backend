@@ -97,6 +97,13 @@ router.delete('/:id/session', authorize('super_admin', 'admin', 'manager', 'capt
  */
 router.get('/:id/session', tableController.getCurrentSession);
 
+/**
+ * @route   POST /api/v1/tables/:id/session/transfer
+ * @desc    Transfer table session to another captain (Manager/Admin only)
+ * @access  Private (manager, admin)
+ */
+router.post('/:id/session/transfer', authorize('super_admin', 'admin', 'manager'), tableController.transferSession);
+
 // ========================
 // Table Merge Routes
 // ========================

@@ -48,7 +48,8 @@ const tableController = {
 
   async getTableById(req, res, next) {
     try {
-      const table = await tableService.getById(req.params.id);
+      // Use getFullDetails for comprehensive table info including orders, items, captain, etc.
+      const table = await tableService.getFullDetails(req.params.id);
       if (!table) {
         return res.status(404).json({ success: false, message: 'Table not found' });
       }
@@ -161,6 +162,27 @@ const tableController = {
     try {
       const session = await tableService.getCurrentSession(req.params.id);
       res.json({ success: true, data: session });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async transferSession(req, res, next) {
+    try {
+      const { newCaptainId } = req.body;
+      if (!newCaptainId) {
+        return res.status(400).json({ success: false, message: 'newCaptainId is required' });
+      }
+      const result = await tableService.transferSession(
+        req.params.id,
+        newCaptainId,
+        req.user.userId
+      );
+      res.json({
+        success: true,
+        message: 'Table session transferred successfully',
+        data: result
+      });
     } catch (error) {
       next(error);
     }

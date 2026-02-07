@@ -127,12 +127,25 @@ const billingService = {
 
       const invoice = await this.getInvoiceById(invoiceId);
 
-      // Emit event
+      // Emit order update event
       await publishMessage('order:update', {
         type: 'order:billed',
         outletId: order.outlet_id,
         orderId,
         invoice,
+        timestamp: new Date().toISOString()
+      });
+
+      // Emit bill status event for Captain real-time tracking
+      await publishMessage('bill:status', {
+        outletId: order.outlet_id,
+        orderId,
+        tableId: order.table_id,
+        tableNumber: order.table_number,
+        invoiceId,
+        invoiceNumber,
+        billStatus: 'pending',
+        grandTotal: billDetails.grandTotal,
         timestamp: new Date().toISOString()
       });
 

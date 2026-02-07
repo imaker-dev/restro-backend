@@ -232,17 +232,45 @@ async function getTestData() {
   testData.outletId = outlets.data.data[0]?.id;
   console.log(`   Outlet ID: ${testData.outletId}`);
   
-  // Get available table
+  // Get available table (or reset an occupied one)
   const tables = await api().get(`/tables/outlet/${testData.outletId}`);
-  const availableTable = tables.data.data.find(t => t.status === 'available');
+  let availableTable = tables.data.data.find(t => t.status === 'available');
+  
+  // If no available table, try to release one that's in cleaning/occupied status
+  if (!availableTable) {
+    const occupiedTable = tables.data.data.find(t => t.status === 'cleaning' || t.status === 'occupied');
+    if (occupiedTable) {
+      console.log(`   ⚠️ No available tables, releasing table ${occupiedTable.table_number}...`);
+      try {
+        await api().patch(`/tables/${occupiedTable.id}/status`, { status: 'available' });
+        availableTable = occupiedTable;
+        console.log(`   ✅ Table ${occupiedTable.table_number} released`);
+      } catch (e) {
+        console.log(`   Could not release table: ${e.message}`);
+      }
+    }
+  }
+  
   testData.tableId = availableTable?.id;
   testData.tableNumber = availableTable?.table_number;
   console.log(`   Table: ${testData.tableNumber} (ID: ${testData.tableId})`);
   
-  // Get menu items
-  const menu = await api().get(`/menu/items/outlet/${testData.outletId}?limit=10`);
-  testData.menuItems = menu.data.data.items || menu.data.data;
-  console.log(`   Menu items available: ${testData.menuItems?.length || 0}`);
+  // Get captain menu (includes variants and addons)
+  const menu = await api().get(`/menu/${testData.outletId}/captain`);
+  const allItems = menu.data.data.menu.flatMap(c => c.items);
+  testData.menuItems = allItems;
+  
+  // Categorize items for different test scenarios
+  testData.simpleItems = allItems.filter(i => !i.variants && !i.addons);
+  testData.variantItems = allItems.filter(i => i.variants && !i.addons);
+  testData.addonItems = allItems.filter(i => !i.variants && i.addons);
+  testData.variantAddonItems = allItems.filter(i => i.variants && i.addons);
+  
+  console.log(`   Menu items available: ${allItems.length}`);
+  console.log(`   - Simple items: ${testData.simpleItems.length}`);
+  console.log(`   - With variants: ${testData.variantItems.length}`);
+  console.log(`   - With addons: ${testData.addonItems.length}`);
+  console.log(`   - With BOTH: ${testData.variantAddonItems.length}`);
   
   return testData.outletId && testData.tableId;
 }
@@ -256,20 +284,67 @@ async function step1_CreateOrder() {
   console.log('STEP 1: CREATE ORDER');
   console.log('='.repeat(50));
   
-  // Select items for order
-  const items = testData.menuItems.slice(0, 3).map((item, index) => ({
-    itemId: item.id,
-    quantity: index + 1,
-    specialInstructions: index === 0 ? 'Extra spicy' : null
-  }));
+  // Build diverse order with different item types
+  const items = [];
+  
+  // 1. Simple item (no variants/addons)
+  if (testData.simpleItems.length > 0) {
+    const simpleItem = testData.simpleItems[0];
+    items.push({
+      itemId: simpleItem.id,
+      quantity: 1,
+      specialInstructions: 'Extra spicy'
+    });
+    console.log(`   📦 Simple: ${simpleItem.name}`);
+  }
+  
+  // 2. Item with variants only
+  if (testData.variantItems.length > 0) {
+    const variantItem = testData.variantItems[0];
+    const selectedVariant = variantItem.variants.find(v => !v.isDefault) || variantItem.variants[0];
+    items.push({
+      itemId: variantItem.id,
+      variantId: selectedVariant.id,
+      quantity: 2,
+      specialInstructions: null
+    });
+    console.log(`   🔀 Variant: ${variantItem.name} → ${selectedVariant.name}`);
+  }
+  
+  // 3. Item with addons only
+  if (testData.addonItems.length > 0) {
+    const addonItem = testData.addonItems[0];
+    const addonGroup = addonItem.addons[0];
+    const selectedAddonIds = addonGroup.options.slice(0, 2).map(a => a.id);
+    items.push({
+      itemId: addonItem.id,
+      quantity: 1,
+      addons: selectedAddonIds
+    });
+    const addonNames = addonGroup.options.slice(0, 2).map(a => a.name).join(', ');
+    console.log(`   ➕ Addons: ${addonItem.name} + [${addonNames}]`);
+  }
+  
+  // 4. Item with BOTH variants AND addons
+  if (testData.variantAddonItems.length > 0) {
+    const comboItem = testData.variantAddonItems[0];
+    const selectedVariant = comboItem.variants[1] || comboItem.variants[0];
+    const addonGroup = comboItem.addons[0];
+    const selectedAddonIds = addonGroup.options.slice(0, 2).map(a => a.id);
+    items.push({
+      itemId: comboItem.id,
+      variantId: selectedVariant.id,
+      quantity: 1,
+      addons: selectedAddonIds,
+      specialInstructions: 'Test variant + addon combo'
+    });
+    const addonNames = addonGroup.options.slice(0, 2).map(a => a.name).join(', ');
+    console.log(`   🎯 Combo: ${comboItem.name} → ${selectedVariant.name} + [${addonNames}]`);
+  }
   
   testData.orderItems = items;
   
-  console.log('   Items to add:');
-  items.forEach(item => {
-    const menuItem = testData.menuItems.find(m => m.id === item.itemId);
-    console.log(`   - ${item.quantity}x ${menuItem?.name || 'Item ' + item.itemId}`);
-  });
+  console.log(`\n   Total items to add: ${items.length}`);
   
   try {
     // Step 1a: Create empty order
@@ -558,13 +633,17 @@ async function step7_ProcessPayment() {
     
     console.log(`   Invoice ID: ${invoice?.id}, Grand Total: ${invoice?.grand_total}`);
     
+    // Get order to ensure we have correct outletId
+    const order = await api().get(`/orders/${testData.orderId}`);
+    const orderOutletId = order.data.data.outlet_id || testData.outletId;
+    
     const response = await api().post(`/orders/payment`, {
       orderId: testData.orderId,
       invoiceId: testData.invoiceId,
-      outletId: testData.outletId,
+      outletId: orderOutletId,
       paymentMode: 'cash',
       amount: parseFloat(invoice.grand_total),
-      reference: 'CASH-' + Date.now()
+      referenceNumber: 'CASH-' + Date.now()
     });
     
     console.log(`   ✅ Payment processed: Rs.${parseFloat(invoice.grand_total).toFixed(2)}`);

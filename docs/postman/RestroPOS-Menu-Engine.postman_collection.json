@@ -1,0 +1,529 @@
+{
+  "info": {
+    "name": "RestroPOS - Menu Engine Complete",
+    "description": "Complete Menu Engine API Collection\n\n## Menu Engine Components\n- **Tax Setup**: Types, Components, Groups (GST + VAT)\n- **Time Slots**: Breakfast, Lunch, Dinner, Happy Hour\n- **Categories**: With visibility rules (floors, sections, time slots)\n- **Items**: With variants, addons, tax assignment\n- **Addon Groups & Addons**: Required/optional, single/multiple\n- **Price Rules**: Floor-based, time-based, happy hour\n- **Menu Preview**: Captain simplified view\n\n## Setup Wizard Flow\n1. Tax Types → Components → Groups\n2. Time Slots\n3. Kitchen Stations\n4. Categories (with visibility)\n5. Addon Groups → Addons\n6. Items (with variants, addons, tax)\n7. Price Rules\n8. Menu Preview",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {"key": "baseUrl", "value": "http://localhost:3000/api/v1"},
+    {"key": "adminToken", "value": ""},
+    {"key": "outletId", "value": ""},
+    {"key": "floorId", "value": ""},
+    {"key": "barFloorId", "value": ""},
+    {"key": "sectionId", "value": ""},
+    {"key": "barSectionId", "value": ""},
+    {"key": "gstTypeId", "value": ""},
+    {"key": "vatTypeId", "value": ""},
+    {"key": "cgstComponentId", "value": ""},
+    {"key": "sgstComponentId", "value": ""},
+    {"key": "vatComponentId", "value": ""},
+    {"key": "gst5GroupId", "value": ""},
+    {"key": "vatGroupId", "value": ""},
+    {"key": "breakfastSlotId", "value": ""},
+    {"key": "lunchSlotId", "value": ""},
+    {"key": "dinnerSlotId", "value": ""},
+    {"key": "happyHourSlotId", "value": ""},
+    {"key": "kitchenStationId", "value": ""},
+    {"key": "barStationId", "value": ""},
+    {"key": "categoryId", "value": ""},
+    {"key": "liquorCategoryId", "value": ""},
+    {"key": "itemId", "value": ""},
+    {"key": "variantId", "value": ""},
+    {"key": "addonGroupId", "value": ""},
+    {"key": "addonId", "value": ""},
+    {"key": "priceRuleId", "value": ""}
+  ],
+  "item": [
+    {
+      "name": "0. Setup",
+      "item": [
+        {
+          "name": "Admin Login",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "pm.test('Login success', () => pm.expect(res.success).to.be.true);", "if(res.success) pm.collectionVariables.set('adminToken', res.data.accessToken);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"email\": \"admin@restropos.com\",\n  \"password\": \"admin123\"\n}"}, "url": "{{baseUrl}}/auth/login"}
+        },
+        {
+          "name": "Get Outlets",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.data && res.data.length > 0) pm.collectionVariables.set('outletId', res.data[0].id);"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/outlets"}
+        },
+        {
+          "name": "Get Floors",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.data && res.data.length > 0) {", "  pm.collectionVariables.set('floorId', res.data[0].id);", "  if(res.data.length > 1) pm.collectionVariables.set('barFloorId', res.data[1].id);", "}"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/outlets/{{outletId}}/floors"}
+        },
+        {
+          "name": "Get Sections",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.data && res.data.length > 0) {", "  pm.collectionVariables.set('sectionId', res.data[0].id);", "  const bar = res.data.find(s => s.name.toLowerCase().includes('bar'));", "  if(bar) pm.collectionVariables.set('barSectionId', bar.id);", "}"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/outlets/{{outletId}}/sections"}
+        }
+      ]
+    },
+    {
+      "name": "1. Tax Types",
+      "description": "Tax Types: GST, VAT, etc.",
+      "item": [
+        {
+          "name": "Get All Tax Types",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.data) {", "  const gst = res.data.find(t => t.code === 'GST');", "  const vat = res.data.find(t => t.code === 'VAT');", "  if(gst) pm.collectionVariables.set('gstTypeId', gst.id);", "  if(vat) pm.collectionVariables.set('vatTypeId', vat.id);", "}"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/tax/types"}
+        },
+        {
+          "name": "Create GST Type",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.success) pm.collectionVariables.set('gstTypeId', res.data.id);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"GST\",\n  \"code\": \"GST\",\n  \"description\": \"Goods and Services Tax\"\n}"}, "url": "{{baseUrl}}/tax/types"}
+        },
+        {
+          "name": "Create VAT Type",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.success) pm.collectionVariables.set('vatTypeId', res.data.id);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"VAT\",\n  \"code\": \"VAT\",\n  \"description\": \"Value Added Tax for Liquor\"\n}"}, "url": "{{baseUrl}}/tax/types"}
+        },
+        {
+          "name": "Update Tax Type",
+          "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"description\": \"Updated description\"\n}"}, "url": "{{baseUrl}}/tax/types/{{gstTypeId}}"}
+        }
+      ]
+    },
+    {
+      "name": "2. Tax Components",
+      "description": "Tax Components: CGST, SGST, VAT rates",
+      "item": [
+        {
+          "name": "Get All Tax Components",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.data) {", "  const cgst = res.data.find(c => c.code === 'CGST');", "  const sgst = res.data.find(c => c.code === 'SGST');", "  const vat = res.data.find(c => c.code === 'VAT18');", "  if(cgst) pm.collectionVariables.set('cgstComponentId', cgst.id);", "  if(sgst) pm.collectionVariables.set('sgstComponentId', sgst.id);", "  if(vat) pm.collectionVariables.set('vatComponentId', vat.id);", "}"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/tax/components"}
+        },
+        {
+          "name": "Create CGST Component (2.5%)",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.success) pm.collectionVariables.set('cgstComponentId', res.data.id);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"taxTypeId\": {{gstTypeId}},\n  \"name\": \"CGST\",\n  \"code\": \"CGST\",\n  \"rate\": 2.5,\n  \"description\": \"Central GST 2.5%\"\n}"}, "url": "{{baseUrl}}/tax/components"}
+        },
+        {
+          "name": "Create SGST Component (2.5%)",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.success) pm.collectionVariables.set('sgstComponentId', res.data.id);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"taxTypeId\": {{gstTypeId}},\n  \"name\": \"SGST\",\n  \"code\": \"SGST\",\n  \"rate\": 2.5,\n  \"description\": \"State GST 2.5%\"\n}"}, "url": "{{baseUrl}}/tax/components"}
+        },
+        {
+          "name": "Create VAT Component (18%)",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.success) pm.collectionVariables.set('vatComponentId', res.data.id);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"taxTypeId\": {{vatTypeId}},\n  \"name\": \"VAT 18%\",\n  \"code\": \"VAT18\",\n  \"rate\": 18,\n  \"description\": \"Value Added Tax 18% for Liquor\"\n}"}, "url": "{{baseUrl}}/tax/components"}
+        },
+        {
+          "name": "Update Tax Component",
+          "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"rate\": 9,\n  \"description\": \"Updated rate\"\n}"}, "url": "{{baseUrl}}/tax/components/{{cgstComponentId}}"}
+        }
+      ]
+    },
+    {
+      "name": "3. Tax Groups",
+      "description": "Tax Groups: Combine components for items",
+      "item": [
+        {
+          "name": "Get All Tax Groups",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.data) {", "  const gst5 = res.data.find(g => g.code === 'GST5');", "  const vat = res.data.find(g => g.code === 'VAT18');", "  if(gst5) pm.collectionVariables.set('gst5GroupId', gst5.id);", "  if(vat) pm.collectionVariables.set('vatGroupId', vat.id);", "}"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/tax/groups"}
+        },
+        {
+          "name": "Create Restaurant GST 5% Group",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.success) pm.collectionVariables.set('gst5GroupId', res.data.id);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"outletId\": {{outletId}},\n  \"name\": \"Restaurant GST 5%\",\n  \"code\": \"GST5\",\n  \"description\": \"GST for restaurant food (CGST 2.5% + SGST 2.5%)\",\n  \"isInclusive\": false,\n  \"componentIds\": [{{cgstComponentId}}, {{sgstComponentId}}]\n}"}, "url": "{{baseUrl}}/tax/groups"}
+        },
+        {
+          "name": "Create Liquor VAT 18% Group",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.success) pm.collectionVariables.set('vatGroupId', res.data.id);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"outletId\": {{outletId}},\n  \"name\": \"Liquor VAT 18%\",\n  \"code\": \"VAT18\",\n  \"description\": \"VAT for liquor items\",\n  \"isInclusive\": false,\n  \"componentIds\": [{{vatComponentId}}]\n}"}, "url": "{{baseUrl}}/tax/groups"}
+        },
+        {
+          "name": "Get Tax Group by ID",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/tax/groups/{{gst5GroupId}}"}
+        },
+        {
+          "name": "Update Tax Group",
+          "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"isInclusive\": true\n}"}, "url": "{{baseUrl}}/tax/groups/{{gst5GroupId}}"}
+        },
+        {
+          "name": "Delete Tax Group",
+          "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/tax/groups/{{gst5GroupId}}"}
+        }
+      ]
+    },
+    {
+      "name": "4. Time Slots",
+      "description": "Time-based menu visibility",
+      "item": [
+        {
+          "name": "Get Time Slots",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.data) {", "  const breakfast = res.data.find(s => s.name.toLowerCase().includes('breakfast'));", "  const lunch = res.data.find(s => s.name.toLowerCase().includes('lunch'));", "  const dinner = res.data.find(s => s.name.toLowerCase().includes('dinner'));", "  const happy = res.data.find(s => s.name.toLowerCase().includes('happy'));", "  if(breakfast) pm.collectionVariables.set('breakfastSlotId', breakfast.id);", "  if(lunch) pm.collectionVariables.set('lunchSlotId', lunch.id);", "  if(dinner) pm.collectionVariables.set('dinnerSlotId', dinner.id);", "  if(happy) pm.collectionVariables.set('happyHourSlotId', happy.id);", "}"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/tax/time-slots/{{outletId}}"}
+        },
+        {
+          "name": "Create Breakfast Slot",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.success) pm.collectionVariables.set('breakfastSlotId', res.data.id);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"outletId\": {{outletId}},\n  \"name\": \"Breakfast\",\n  \"startTime\": \"07:00:00\",\n  \"endTime\": \"11:00:00\",\n  \"activeDays\": [\"monday\", \"tuesday\", \"wednesday\", \"thursday\", \"friday\", \"saturday\", \"sunday\"]\n}"}, "url": "{{baseUrl}}/tax/time-slots"}
+        },
+        {
+          "name": "Create Lunch Slot",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.success) pm.collectionVariables.set('lunchSlotId', res.data.id);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"outletId\": {{outletId}},\n  \"name\": \"Lunch\",\n  \"startTime\": \"11:00:00\",\n  \"endTime\": \"16:00:00\",\n  \"activeDays\": [\"monday\", \"tuesday\", \"wednesday\", \"thursday\", \"friday\", \"saturday\", \"sunday\"]\n}"}, "url": "{{baseUrl}}/tax/time-slots"}
+        },
+        {
+          "name": "Create Dinner Slot",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.success) pm.collectionVariables.set('dinnerSlotId', res.data.id);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"outletId\": {{outletId}},\n  \"name\": \"Dinner\",\n  \"startTime\": \"18:00:00\",\n  \"endTime\": \"23:00:00\",\n  \"activeDays\": [\"monday\", \"tuesday\", \"wednesday\", \"thursday\", \"friday\", \"saturday\", \"sunday\"]\n}"}, "url": "{{baseUrl}}/tax/time-slots"}
+        },
+        {
+          "name": "Create Happy Hour Slot",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.success) pm.collectionVariables.set('happyHourSlotId', res.data.id);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"outletId\": {{outletId}},\n  \"name\": \"Happy Hour\",\n  \"startTime\": \"16:00:00\",\n  \"endTime\": \"19:00:00\",\n  \"activeDays\": [\"monday\", \"tuesday\", \"wednesday\", \"thursday\", \"friday\"]\n}"}, "url": "{{baseUrl}}/tax/time-slots"}
+        },
+        {
+          "name": "Get Current Time Slot",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/tax/time-slots/{{outletId}}/current"}
+        },
+        {
+          "name": "Update Time Slot",
+          "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"startTime\": \"06:30:00\",\n  \"endTime\": \"10:30:00\"\n}"}, "url": "{{baseUrl}}/tax/time-slots/{{breakfastSlotId}}"}
+        },
+        {
+          "name": "Delete Time Slot",
+          "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/tax/time-slots/{{happyHourSlotId}}"}
+        }
+      ]
+    },
+    {
+      "name": "5. Kitchen Stations",
+      "description": "Route items to correct preparation area",
+      "item": [
+        {
+          "name": "Get Kitchen Stations",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.data) {", "  const kitchen = res.data.find(s => s.name.toLowerCase().includes('kitchen'));", "  const bar = res.data.find(s => s.name.toLowerCase().includes('bar'));", "  if(kitchen) pm.collectionVariables.set('kitchenStationId', kitchen.id);", "  if(bar) pm.collectionVariables.set('barStationId', bar.id);", "}"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/tax/kitchen-stations/{{outletId}}"}
+        },
+        {
+          "name": "Create Kitchen Station",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.success) pm.collectionVariables.set('kitchenStationId', res.data.id);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"outletId\": {{outletId}},\n  \"name\": \"Main Kitchen\",\n  \"code\": \"KITCHEN\",\n  \"description\": \"Main kitchen for food preparation\"\n}"}, "url": "{{baseUrl}}/tax/kitchen-stations"}
+        },
+        {
+          "name": "Create Bar Station",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.success) pm.collectionVariables.set('barStationId', res.data.id);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"outletId\": {{outletId}},\n  \"name\": \"Bar Station\",\n  \"code\": \"BAR\",\n  \"description\": \"Bar for drinks and cocktails\"\n}"}, "url": "{{baseUrl}}/tax/kitchen-stations"}
+        },
+        {
+          "name": "Update Kitchen Station",
+          "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"description\": \"Updated kitchen description\"\n}"}, "url": "{{baseUrl}}/tax/kitchen-stations/{{kitchenStationId}}"}
+        },
+        {
+          "name": "Delete Kitchen Station",
+          "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/tax/kitchen-stations/{{barStationId}}"}
+        }
+      ]
+    },
+    {
+      "name": "6. Categories",
+      "description": "Categories with visibility rules",
+      "item": [
+        {
+          "name": "Get All Categories",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.data && res.data.length > 0) pm.collectionVariables.set('categoryId', res.data[0].id);"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/menu/categories/outlet/{{outletId}}"}
+        },
+        {
+          "name": "Get Category Tree",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/menu/categories/outlet/{{outletId}}/tree"}
+        },
+        {
+          "name": "Create Food Category (Restaurant, Lunch+Dinner)",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.success) pm.collectionVariables.set('categoryId', res.data.id);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"outletId\": {{outletId}},\n  \"name\": \"Main Course\",\n  \"description\": \"Main course food items\",\n  \"imageUrl\": \"https://example.com/images/main-course.jpg\",\n  \"displayOrder\": 1,\n  \"isGlobal\": false,\n  \"floorIds\": [{{floorId}}],\n  \"sectionIds\": [{{sectionId}}],\n  \"timeSlotIds\": [{{lunchSlotId}}, {{dinnerSlotId}}]\n}"}, "url": "{{baseUrl}}/menu/categories"}
+        },
+        {
+          "name": "Create Liquor Category (Bar Only)",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.success) pm.collectionVariables.set('liquorCategoryId', res.data.id);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"outletId\": {{outletId}},\n  \"name\": \"Liquor\",\n  \"description\": \"Alcoholic beverages - Bar only\",\n  \"imageUrl\": \"https://example.com/images/liquor.jpg\",\n  \"displayOrder\": 10,\n  \"isGlobal\": false,\n  \"floorIds\": [{{barFloorId}}],\n  \"sectionIds\": [{{barSectionId}}]\n}"}, "url": "{{baseUrl}}/menu/categories"}
+        },
+        {
+          "name": "Get Category by ID",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/menu/categories/{{categoryId}}"}
+        },
+        {
+          "name": "Update Category Visibility",
+          "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"timeSlotIds\": [{{dinnerSlotId}}],\n  \"description\": \"Now dinner only\"\n}"}, "url": "{{baseUrl}}/menu/categories/{{categoryId}}"}
+        },
+        {
+          "name": "Delete Category",
+          "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/menu/categories/{{categoryId}}"}
+        }
+      ]
+    },
+    {
+      "name": "7. Addon Groups",
+      "description": "Groups of addons for items",
+      "item": [
+        {
+          "name": "Get Addon Groups",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.data && res.data.length > 0) pm.collectionVariables.set('addonGroupId', res.data[0].id);"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/menu/addon-groups/outlet/{{outletId}}"}
+        },
+        {
+          "name": "Create Toppings Group (Multiple Select)",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.success) pm.collectionVariables.set('addonGroupId', res.data.id);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"outletId\": {{outletId}},\n  \"name\": \"Pizza Toppings\",\n  \"description\": \"Extra toppings for pizza\",\n  \"selectionType\": \"multiple\",\n  \"minSelection\": 0,\n  \"maxSelection\": 5,\n  \"isRequired\": false\n}"}, "url": "{{baseUrl}}/menu/addon-groups"}
+        },
+        {
+          "name": "Create Size Group (Single Select, Required)",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"outletId\": {{outletId}},\n  \"name\": \"Drink Size\",\n  \"description\": \"Select size\",\n  \"selectionType\": \"single\",\n  \"minSelection\": 1,\n  \"maxSelection\": 1,\n  \"isRequired\": true\n}"}, "url": "{{baseUrl}}/menu/addon-groups"}
+        },
+        {
+          "name": "Get Addon Group by ID",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/menu/addon-groups/{{addonGroupId}}"}
+        },
+        {
+          "name": "Update Addon Group",
+          "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"maxSelection\": 3\n}"}, "url": "{{baseUrl}}/menu/addon-groups/{{addonGroupId}}"}
+        },
+        {
+          "name": "Delete Addon Group",
+          "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/menu/addon-groups/{{addonGroupId}}"}
+        }
+      ]
+    },
+    {
+      "name": "8. Addons",
+      "description": "Individual addon items",
+      "item": [
+        {
+          "name": "Get Addons by Group",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.data && res.data.length > 0) pm.collectionVariables.set('addonId', res.data[0].id);"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/menu/addons/group/{{addonGroupId}}"}
+        },
+        {
+          "name": "Create Extra Cheese Addon",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.success) pm.collectionVariables.set('addonId', res.data.id);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"addonGroupId\": {{addonGroupId}},\n  \"name\": \"Extra Cheese\",\n  \"price\": 50,\n  \"itemType\": \"veg\",\n  \"imageUrl\": \"https://example.com/images/cheese.jpg\"\n}"}, "url": "{{baseUrl}}/menu/addons"}
+        },
+        {
+          "name": "Create Jalapenos Addon",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"addonGroupId\": {{addonGroupId}},\n  \"name\": \"Jalapenos\",\n  \"price\": 30,\n  \"itemType\": \"veg\",\n  \"imageUrl\": \"https://example.com/images/jalapeno.jpg\"\n}"}, "url": "{{baseUrl}}/menu/addons"}
+        },
+        {
+          "name": "Update Addon Price",
+          "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"price\": 60\n}"}, "url": "{{baseUrl}}/menu/addons/{{addonId}}"}
+        },
+        {
+          "name": "Delete Addon",
+          "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/menu/addons/{{addonId}}"}
+        }
+      ]
+    },
+    {
+      "name": "9. Items",
+      "description": "Menu items with variants, addons, tax",
+      "item": [
+        {
+          "name": "Get All Items",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.data && res.data.length > 0) pm.collectionVariables.set('itemId', res.data[0].id);"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/menu/items/outlet/{{outletId}}"}
+        },
+        {
+          "name": "Get Items by Category",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/menu/items/category/{{categoryId}}"}
+        },
+        {
+          "name": "Create Pizza with Variants & Addons",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.success) pm.collectionVariables.set('itemId', res.data.id);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"outletId\": {{outletId}},\n  \"categoryId\": {{categoryId}},\n  \"name\": \"Margherita Pizza\",\n  \"description\": \"Classic pizza with tomato sauce and mozzarella\",\n  \"itemType\": \"veg\",\n  \"basePrice\": 299,\n  \"taxGroupId\": {{gst5GroupId}},\n  \"hasVariants\": true,\n  \"hasAddons\": true,\n  \"allowSpecialNotes\": true,\n  \"minQuantity\": 1,\n  \"maxQuantity\": 10,\n  \"kitchenStationId\": {{kitchenStationId}},\n  \"floorIds\": [{{floorId}}],\n  \"sectionIds\": [{{sectionId}}],\n  \"addonGroupIds\": [{{addonGroupId}}],\n  \"variants\": [\n    { \"name\": \"Small (8\\\")\", \"price\": 299, \"isDefault\": true },\n    { \"name\": \"Medium (10\\\")\", \"price\": 399 },\n    { \"name\": \"Large (12\\\")\", \"price\": 499 }\n  ]\n}"}, "url": "{{baseUrl}}/menu/items"}
+        },
+        {
+          "name": "Create Whisky with ML Variants (Bar)",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"outletId\": {{outletId}},\n  \"categoryId\": {{liquorCategoryId}},\n  \"name\": \"Premium Whisky\",\n  \"description\": \"Single malt whisky\",\n  \"itemType\": \"veg\",\n  \"basePrice\": 300,\n  \"taxGroupId\": {{vatGroupId}},\n  \"hasVariants\": true,\n  \"kitchenStationId\": {{barStationId}},\n  \"floorIds\": [{{barFloorId}}],\n  \"sectionIds\": [{{barSectionId}}],\n  \"variants\": [\n    { \"name\": \"30ml\", \"price\": 300, \"isDefault\": true },\n    { \"name\": \"60ml\", \"price\": 550 },\n    { \"name\": \"90ml\", \"price\": 750 }\n  ]\n}"}, "url": "{{baseUrl}}/menu/items"}
+        },
+        {
+          "name": "Get Item by ID",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/menu/items/{{itemId}}"}
+        },
+        {
+          "name": "Get Item Full Details",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/menu/items/{{itemId}}/details"}
+        },
+        {
+          "name": "Get Item for Order",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/menu/item/{{itemId}}/order"}
+        },
+        {
+          "name": "Update Item",
+          "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"basePrice\": 319,\n  \"isRecommended\": true,\n  \"isBestseller\": true\n}"}, "url": "{{baseUrl}}/menu/items/{{itemId}}"}
+        },
+        {
+          "name": "Delete Item",
+          "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/menu/items/{{itemId}}"}
+        }
+      ]
+    },
+    {
+      "name": "10. Variants",
+      "description": "Item size/quantity variants",
+      "item": [
+        {
+          "name": "Get Variants for Item",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.data && res.data.length > 0) pm.collectionVariables.set('variantId', res.data[0].id);"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/menu/items/{{itemId}}/variants"}
+        },
+        {
+          "name": "Add Variant to Item",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Extra Large (14\\\")\",\n  \"price\": 599,\n  \"isDefault\": false\n}"}, "url": "{{baseUrl}}/menu/items/{{itemId}}/variants"}
+        },
+        {
+          "name": "Update Variant Price",
+          "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"price\": 419\n}"}, "url": "{{baseUrl}}/menu/variants/{{variantId}}"}
+        },
+        {
+          "name": "Delete Variant",
+          "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/menu/variants/{{variantId}}"}
+        }
+      ]
+    },
+    {
+      "name": "11. Map Addons to Items",
+      "description": "Associate addon groups with items",
+      "item": [
+        {
+          "name": "Map Addon Group to Item",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/menu/items/{{itemId}}/addon-groups/{{addonGroupId}}"}
+        },
+        {
+          "name": "Unmap Addon Group from Item",
+          "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/menu/items/{{itemId}}/addon-groups/{{addonGroupId}}"}
+        }
+      ]
+    },
+    {
+      "name": "12. Price Rules",
+      "description": "Dynamic pricing: floor, time, happy hour",
+      "item": [
+        {
+          "name": "Get Price Rules",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.data && res.data.length > 0) pm.collectionVariables.set('priceRuleId', res.data[0].id);"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/tax/price-rules/{{outletId}}"}
+        },
+        {
+          "name": "Create Happy Hour Rule (-15%)",
+          "event": [{"listen": "test", "script": {"exec": ["const res = pm.response.json();", "if(res.success) pm.collectionVariables.set('priceRuleId', res.data.id);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"outletId\": {{outletId}},\n  \"name\": \"Happy Hour Beer Discount\",\n  \"description\": \"15% off on beer during happy hour\",\n  \"ruleType\": \"happy_hour\",\n  \"itemId\": {{itemId}},\n  \"timeStart\": \"16:00:00\",\n  \"timeEnd\": \"19:00:00\",\n  \"adjustmentType\": \"percentage\",\n  \"adjustmentValue\": -15,\n  \"priority\": 10\n}"}, "url": "{{baseUrl}}/tax/price-rules"}
+        },
+        {
+          "name": "Create Bar Floor Premium (+5%)",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"outletId\": {{outletId}},\n  \"name\": \"Bar Floor Premium\",\n  \"description\": \"5% premium for bar floor service\",\n  \"ruleType\": \"floor\",\n  \"itemId\": {{itemId}},\n  \"floorId\": {{barFloorId}},\n  \"adjustmentType\": \"percentage\",\n  \"adjustmentValue\": 5,\n  \"priority\": 5\n}"}, "url": "{{baseUrl}}/tax/price-rules"}
+        },
+        {
+          "name": "Create Weekend Override",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"outletId\": {{outletId}},\n  \"name\": \"Weekend Special\",\n  \"description\": \"Fixed weekend price\",\n  \"ruleType\": \"day_of_week\",\n  \"itemId\": {{itemId}},\n  \"daysOfWeek\": \"saturday,sunday\",\n  \"adjustmentType\": \"override\",\n  \"adjustmentValue\": 349,\n  \"priority\": 15\n}"}, "url": "{{baseUrl}}/tax/price-rules"}
+        },
+        {
+          "name": "Update Price Rule",
+          "request": {"method": "PUT", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"adjustmentValue\": -20\n}"}, "url": "{{baseUrl}}/tax/price-rules/{{priceRuleId}}"}
+        },
+        {
+          "name": "Delete Price Rule",
+          "request": {"method": "DELETE", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/tax/price-rules/{{priceRuleId}}"}
+        }
+      ]
+    },
+    {
+      "name": "13. Happy Hour",
+      "description": "Special happy hour discounts",
+      "item": [
+        {
+          "name": "Create Happy Hour",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Evening Happy Hour\",\n  \"description\": \"20% off on all drinks\",\n  \"timeStart\": \"17:00:00\",\n  \"timeEnd\": \"20:00:00\",\n  \"daysOfWeek\": \"monday,tuesday,wednesday,thursday,friday\",\n  \"discountPercent\": 20,\n  \"categoryIds\": [{{liquorCategoryId}}]\n}"}, "url": "{{baseUrl}}/tax/happy-hour/{{outletId}}"}
+        },
+        {
+          "name": "Get Active Happy Hours",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/tax/happy-hour/{{outletId}}/active"}
+        }
+      ]
+    },
+    {
+      "name": "14. Menu Engine",
+      "description": "Dynamic menu with filters",
+      "item": [
+        {
+          "name": "Get Full Menu",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/menu/{{outletId}}"}
+        },
+        {
+          "name": "Get Captain Menu (Simplified)",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/menu/{{outletId}}/captain"}
+        },
+        {
+          "name": "Preview Menu (Admin) - Restaurant Lunch",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": {"raw": "{{baseUrl}}/menu/{{outletId}}/preview?floorId={{floorId}}&timeSlotId={{lunchSlotId}}", "host": ["{{baseUrl}}"], "path": ["menu", "{{outletId}}", "preview"], "query": [{"key": "floorId", "value": "{{floorId}}"}, {"key": "timeSlotId", "value": "{{lunchSlotId}}"}]}}
+        },
+        {
+          "name": "Preview Menu (Admin) - Bar Evening",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": {"raw": "{{baseUrl}}/menu/{{outletId}}/preview?floorId={{barFloorId}}&sectionId={{barSectionId}}", "host": ["{{baseUrl}}"], "path": ["menu", "{{outletId}}", "preview"], "query": [{"key": "floorId", "value": "{{barFloorId}}"}, {"key": "sectionId", "value": "{{barSectionId}}"}]}}
+        },
+        {
+          "name": "Get Menu Rules Summary",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/menu/{{outletId}}/rules"}
+        },
+        {
+          "name": "Search Menu Items",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": {"raw": "{{baseUrl}}/menu/{{outletId}}/search?q=pizza", "host": ["{{baseUrl}}"], "path": ["menu", "{{outletId}}", "search"], "query": [{"key": "q", "value": "pizza"}]}}
+        },
+        {
+          "name": "Get Featured Items",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/menu/{{outletId}}/featured"}
+        }
+      ]
+    },
+    {
+      "name": "15. Price Calculation",
+      "description": "Calculate item total with tax",
+      "item": [
+        {
+          "name": "Calculate Pizza Large × 2 + Addons",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"itemId\": {{itemId}},\n  \"variantId\": {{variantId}},\n  \"quantity\": 2,\n  \"addons\": [{{addonId}}]\n}"}, "url": "{{baseUrl}}/menu/calculate"}
+        },
+        {
+          "name": "Calculate with Floor Context",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"itemId\": {{itemId}},\n  \"quantity\": 1,\n  \"floorId\": {{barFloorId}},\n  \"sectionId\": {{barSectionId}}\n}"}, "url": "{{baseUrl}}/menu/calculate"}
+        },
+        {
+          "name": "Calculate with Time Slot Context",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"itemId\": {{itemId}},\n  \"quantity\": 1,\n  \"timeSlotId\": {{happyHourSlotId}}\n}"}, "url": "{{baseUrl}}/menu/calculate"}
+        }
+      ]
+    },
+    {
+      "name": "16. Service Charges",
+      "item": [
+        {
+          "name": "Get Service Charges",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/tax/service-charges/{{outletId}}"}
+        },
+        {
+          "name": "Create Service Charge",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"outletId\": {{outletId}},\n  \"name\": \"Service Charge\",\n  \"rate\": 10,\n  \"isActive\": true\n}"}, "url": "{{baseUrl}}/tax/service-charges"}
+        }
+      ]
+    },
+    {
+      "name": "17. Discounts",
+      "item": [
+        {
+          "name": "Get Discounts",
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}], "url": "{{baseUrl}}/tax/discounts/{{outletId}}"}
+        },
+        {
+          "name": "Create Percentage Discount",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"outletId\": {{outletId}},\n  \"code\": \"SAVE20\",\n  \"name\": \"20% Off\",\n  \"description\": \"20% discount on orders above ₹500\",\n  \"discountType\": \"percentage\",\n  \"value\": 20,\n  \"maxDiscountAmount\": 200,\n  \"minOrderAmount\": 500,\n  \"applicableOn\": \"all\"\n}"}, "url": "{{baseUrl}}/tax/discounts"}
+        },
+        {
+          "name": "Validate Discount Code",
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"code\": \"SAVE20\",\n  \"orderTotal\": 1000\n}"}, "url": "{{baseUrl}}/tax/discounts/{{outletId}}/validate"}
+        }
+      ]
+    }
+  ]
+}

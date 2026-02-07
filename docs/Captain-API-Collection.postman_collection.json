@@ -1,0 +1,1583 @@
+{
+  "info": {
+    "name": "Captain API - Complete Order & Table Lifecycle",
+    "description": "Complete Postman collection for Captain/Waiter workflow including table sessions, orders, KOT, and billing.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "outletId",
+      "value": "4",
+      "type": "string"
+    },
+    {
+      "key": "floorId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "tableId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "orderId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "kotId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "invoiceId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "sessionId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Authentication",
+      "item": [
+        {
+          "name": "1.1 Login with Email",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.success && jsonData.data.token) {",
+                  "    pm.collectionVariables.set('token', jsonData.data.token);",
+                  "    console.log('Token saved successfully');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"captain@restaurant.com\",\n  \"password\": \"Captain@123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            },
+            "description": "Login with email and password. Token is automatically saved."
+          },
+          "response": []
+        },
+        {
+          "name": "1.2 Login with PIN",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.success && jsonData.data.token) {",
+                  "    pm.collectionVariables.set('token', jsonData.data.token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"employeeCode\": \"CAP001\",\n  \"pin\": \"1234\",\n  \"outletId\": 4\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login/pin",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login", "pin"]
+            },
+            "description": "Quick login with employee code and PIN"
+          },
+          "response": []
+        },
+        {
+          "name": "1.3 Get Current User",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "me"]
+            },
+            "description": "Get current logged in user with permissions"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. Table Management",
+      "item": [
+        {
+          "name": "2.1 Get Floor Tables",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tables/floor/{{floorId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["tables", "floor", "{{floorId}}"]
+            },
+            "description": "Get all tables on a floor with current status"
+          },
+          "response": []
+        },
+        {
+          "name": "2.2 Get Real-Time Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tables/realtime/{{outletId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["tables", "realtime", "{{outletId}}"]
+            },
+            "description": "Get real-time status of all tables in outlet"
+          },
+          "response": []
+        },
+        {
+          "name": "2.3 Get Table by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tables/{{tableId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["tables", "{{tableId}}"]
+            },
+            "description": "Get single table details"
+          },
+          "response": []
+        },
+        {
+          "name": "2.4 Start Table Session",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.success && jsonData.data.sessionId) {",
+                  "    pm.collectionVariables.set('sessionId', jsonData.data.sessionId);",
+                  "    console.log('Session ID saved: ' + jsonData.data.sessionId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"guestCount\": 4,\n  \"guestName\": \"Mr. Sharma\",\n  \"guestPhone\": \"9876543210\",\n  \"notes\": \"VIP guest - priority service\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tables/{{tableId}}/session",
+              "host": ["{{baseUrl}}"],
+              "path": ["tables", "{{tableId}}", "session"]
+            },
+            "description": "Start a new session on the table (occupy table)"
+          },
+          "response": []
+        },
+        {
+          "name": "2.5 Get Current Session",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tables/{{tableId}}/session",
+              "host": ["{{baseUrl}}"],
+              "path": ["tables", "{{tableId}}", "session"]
+            },
+            "description": "Get current active session on table"
+          },
+          "response": []
+        },
+        {
+          "name": "2.6 End Table Session",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tables/{{tableId}}/session",
+              "host": ["{{baseUrl}}"],
+              "path": ["tables", "{{tableId}}", "session"]
+            },
+            "description": "End table session manually (usually auto-ends after payment)"
+          },
+          "response": []
+        },
+        {
+          "name": "2.7 Transfer Session (Manager)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newCaptainId\": 99\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tables/{{tableId}}/session/transfer",
+              "host": ["{{baseUrl}}"],
+              "path": ["tables", "{{tableId}}", "session", "transfer"]
+            },
+            "description": "Transfer table session to another captain (Manager/Admin only)"
+          },
+          "response": []
+        },
+        {
+          "name": "2.8 Update Table Status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"available\",\n  \"reason\": \"Reset for testing\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tables/{{tableId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["tables", "{{tableId}}", "status"]
+            },
+            "description": "Update table status manually. Statuses: available, occupied, reserved, billing, blocked"
+          },
+          "response": []
+        },
+        {
+          "name": "2.9 Get Running KOTs for Table",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tables/{{tableId}}/kots",
+              "host": ["{{baseUrl}}"],
+              "path": ["tables", "{{tableId}}", "kots"]
+            },
+            "description": "Get all running KOTs for a table"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. Menu",
+      "item": [
+        {
+          "name": "3.1 Get Captain Menu",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/menu/{{outletId}}/captain",
+              "host": ["{{baseUrl}}"],
+              "path": ["menu", "{{outletId}}", "captain"]
+            },
+            "description": "Get simplified menu for captain ordering"
+          },
+          "response": []
+        },
+        {
+          "name": "3.2 Get Full Menu",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/menu/{{outletId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["menu", "{{outletId}}"]
+            },
+            "description": "Get full dynamic menu"
+          },
+          "response": []
+        },
+        {
+          "name": "3.3 Search Menu Items",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/menu/{{outletId}}/search?q=paneer",
+              "host": ["{{baseUrl}}"],
+              "path": ["menu", "{{outletId}}", "search"],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "paneer"
+                }
+              ]
+            },
+            "description": "Search menu items by name"
+          },
+          "response": []
+        },
+        {
+          "name": "3.4 Get Item Details for Order",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/menu/item/1/order",
+              "host": ["{{baseUrl}}"],
+              "path": ["menu", "item", "1", "order"]
+            },
+            "description": "Get item details with variants and addons for ordering"
+          },
+          "response": []
+        },
+        {
+          "name": "3.5 Get Featured Items",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/menu/{{outletId}}/featured",
+              "host": ["{{baseUrl}}"],
+              "path": ["menu", "{{outletId}}", "featured"]
+            },
+            "description": "Get bestsellers and recommended items"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "4. Orders",
+      "item": [
+        {
+          "name": "4.1 Create Order (Dine-In)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.success && jsonData.data.id) {",
+                  "    pm.collectionVariables.set('orderId', jsonData.data.id);",
+                  "    console.log('Order ID saved: ' + jsonData.data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"outletId\": 4,\n  \"tableId\": 1,\n  \"floorId\": 1,\n  \"sectionId\": 1,\n  \"orderType\": \"dine_in\",\n  \"guestCount\": 4,\n  \"customerName\": \"Mr. Sharma\",\n  \"customerPhone\": \"9876543210\",\n  \"specialInstructions\": \"VIP guest - priority service\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders"]
+            },
+            "description": "Create a new dine-in order. Auto-creates/uses existing session."
+          },
+          "response": []
+        },
+        {
+          "name": "4.2 Create Order (Takeaway)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.success && jsonData.data.id) {",
+                  "    pm.collectionVariables.set('orderId', jsonData.data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"outletId\": 4,\n  \"orderType\": \"takeaway\",\n  \"customerName\": \"Walk-in Customer\",\n  \"customerPhone\": \"9876543210\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders"]
+            },
+            "description": "Create a takeaway order (no table required)"
+          },
+          "response": []
+        },
+        {
+          "name": "4.3 Get Order with Items",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}"]
+            },
+            "description": "Get order details with all items"
+          },
+          "response": []
+        },
+        {
+          "name": "4.4 Get Active Orders",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/active/{{outletId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "active", "{{outletId}}"]
+            },
+            "description": "Get all active orders in outlet"
+          },
+          "response": []
+        },
+        {
+          "name": "4.5 Get Orders by Table",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/table/{{tableId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "table", "{{tableId}}"]
+            },
+            "description": "Get all orders for a specific table"
+          },
+          "response": []
+        },
+        {
+          "name": "4.6 Add Items to Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"itemId\": 1,\n      \"quantity\": 2,\n      \"specialInstructions\": \"Extra spicy\"\n    },\n    {\n      \"itemId\": 7,\n      \"variantId\": 2,\n      \"quantity\": 1,\n      \"addons\": [1, 2],\n      \"specialInstructions\": \"Less oil\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/items",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "items"]
+            },
+            "description": "Add items to an existing order"
+          },
+          "response": []
+        },
+        {
+          "name": "4.7 Update Item Quantity",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 3\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/items/101/quantity",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "items", "101", "quantity"]
+            },
+            "description": "Update item quantity (only for pending items)"
+          },
+          "response": []
+        },
+        {
+          "name": "4.8 Cancel Item",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Guest changed mind\",\n  \"reasonId\": 1,\n  \"quantity\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/items/101/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "items", "101", "cancel"]
+            },
+            "description": "Cancel an order item"
+          },
+          "response": []
+        },
+        {
+          "name": "4.9 Cancel Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Customer left without ordering\",\n  \"reasonId\": 2\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "cancel"]
+            },
+            "description": "Cancel entire order"
+          },
+          "response": []
+        },
+        {
+          "name": "4.10 Transfer Order to Table",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"toTableId\": 5\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/transfer",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "transfer"]
+            },
+            "description": "Transfer order to a different table"
+          },
+          "response": []
+        },
+        {
+          "name": "4.11 Get Cancel Reasons",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/cancel-reasons/{{outletId}}?type=item",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "cancel-reasons", "{{outletId}}"],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "item"
+                }
+              ]
+            },
+            "description": "Get predefined cancel reasons"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "5. KOT (Kitchen Order Ticket)",
+      "item": [
+        {
+          "name": "5.1 Send KOT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.success && jsonData.data.tickets && jsonData.data.tickets.length > 0) {",
+                  "    pm.collectionVariables.set('kotId', jsonData.data.tickets[0].id);",
+                  "    console.log('KOT ID saved: ' + jsonData.data.tickets[0].id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/kot",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "kot"]
+            },
+            "description": "Send pending items to kitchen/bar as KOT"
+          },
+          "response": []
+        },
+        {
+          "name": "5.2 Get KOTs by Order",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/kots",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "kots"]
+            },
+            "description": "Get all KOTs for an order"
+          },
+          "response": []
+        },
+        {
+          "name": "5.3 Get KOT by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/{{kotId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "{{kotId}}"]
+            },
+            "description": "Get single KOT details"
+          },
+          "response": []
+        },
+        {
+          "name": "5.4 Get Active KOTs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/active/{{outletId}}?station=kitchen",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "active", "{{outletId}}"],
+              "query": [
+                {
+                  "key": "station",
+                  "value": "kitchen"
+                }
+              ]
+            },
+            "description": "Get active KOTs for a station (kitchen, bar, mocktail)"
+          },
+          "response": []
+        },
+        {
+          "name": "5.5 Accept KOT (Kitchen)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/{{kotId}}/accept",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "{{kotId}}", "accept"]
+            },
+            "description": "Kitchen acknowledges the KOT"
+          },
+          "response": []
+        },
+        {
+          "name": "5.6 Start Preparing KOT",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/{{kotId}}/preparing",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "{{kotId}}", "preparing"]
+            },
+            "description": "Mark KOT as being prepared"
+          },
+          "response": []
+        },
+        {
+          "name": "5.7 Mark KOT Ready",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/{{kotId}}/ready",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "{{kotId}}", "ready"]
+            },
+            "description": "Mark entire KOT as ready"
+          },
+          "response": []
+        },
+        {
+          "name": "5.8 Mark Item Ready",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/items/101/ready",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "items", "101", "ready"]
+            },
+            "description": "Mark individual item as ready"
+          },
+          "response": []
+        },
+        {
+          "name": "5.9 Mark KOT Served",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/{{kotId}}/served",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "{{kotId}}", "served"]
+            },
+            "description": "Captain marks KOT as served to guest"
+          },
+          "response": []
+        },
+        {
+          "name": "5.10 Reprint KOT",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/{{kotId}}/reprint",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "{{kotId}}", "reprint"]
+            },
+            "description": "Reprint KOT ticket"
+          },
+          "response": []
+        },
+        {
+          "name": "5.11 Get Station Dashboard",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/station/{{outletId}}/kitchen",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "station", "{{outletId}}", "kitchen"]
+            },
+            "description": "Get kitchen/bar dashboard with all pending KOTs"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "6. Billing",
+      "item": [
+        {
+          "name": "6.1 Generate Bill",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.success && jsonData.data.invoice && jsonData.data.invoice.id) {",
+                  "    pm.collectionVariables.set('invoiceId', jsonData.data.invoice.id);",
+                  "    console.log('Invoice ID saved: ' + jsonData.data.invoice.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerName\": \"Mr. Sharma\",\n  \"customerPhone\": \"9876543210\",\n  \"customerEmail\": \"sharma@email.com\",\n  \"customerGstin\": \"\",\n  \"applyServiceCharge\": true,\n  \"notes\": \"Thank you for dining with us!\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/bill",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "bill"]
+            },
+            "description": "Generate bill/invoice for the order"
+          },
+          "response": []
+        },
+        {
+          "name": "6.2 Get Invoice by Order",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/invoice",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "invoice"]
+            },
+            "description": "Get invoice for an order"
+          },
+          "response": []
+        },
+        {
+          "name": "6.3 Get Invoice by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/invoice/{{invoiceId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "invoice", "{{invoiceId}}"]
+            },
+            "description": "Get invoice by invoice ID"
+          },
+          "response": []
+        },
+        {
+          "name": "6.4 Print Duplicate Bill",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Customer requested copy\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/invoice/{{invoiceId}}/duplicate",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "invoice", "{{invoiceId}}", "duplicate"]
+            },
+            "description": "Print duplicate copy of bill"
+          },
+          "response": []
+        },
+        {
+          "name": "6.5 Apply Discount (Manager)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"discountName\": \"Manager Discount\",\n  \"discountType\": \"percentage\",\n  \"discountValue\": 10,\n  \"appliedOn\": \"subtotal\",\n  \"approvalReason\": \"VIP guest\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/discount",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "discount"]
+            },
+            "description": "Apply discount to order"
+          },
+          "response": []
+        },
+        {
+          "name": "6.6 Split Bill",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"splits\": [\n    {\n      \"itemIds\": [101, 102],\n      \"customerName\": \"Guest 1\"\n    },\n    {\n      \"itemIds\": [103],\n      \"customerName\": \"Guest 2\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/split-bill",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "split-bill"]
+            },
+            "description": "Split bill into multiple invoices"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "7. Payments (Cashier)",
+      "item": [
+        {
+          "name": "7.1 Process Cash Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": 45,\n  \"invoiceId\": 25,\n  \"paymentMode\": \"cash\",\n  \"amount\": 1500,\n  \"tipAmount\": 100\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/payment",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "payment"]
+            },
+            "description": "Process cash payment"
+          },
+          "response": []
+        },
+        {
+          "name": "7.2 Process Card Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": 45,\n  \"invoiceId\": 25,\n  \"paymentMode\": \"card\",\n  \"amount\": 1315,\n  \"transactionId\": \"TXN123456\",\n  \"cardLastFour\": \"4242\",\n  \"cardType\": \"visa\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/payment",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "payment"]
+            },
+            "description": "Process card payment"
+          },
+          "response": []
+        },
+        {
+          "name": "7.3 Process UPI Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": 45,\n  \"invoiceId\": 25,\n  \"paymentMode\": \"upi\",\n  \"amount\": 1315,\n  \"upiId\": \"customer@upi\",\n  \"transactionId\": \"UPI123456\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/payment",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "payment"]
+            },
+            "description": "Process UPI payment"
+          },
+          "response": []
+        },
+        {
+          "name": "7.4 Process Split Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": 45,\n  \"invoiceId\": 25,\n  \"splits\": [\n    {\n      \"paymentMode\": \"cash\",\n      \"amount\": 700\n    },\n    {\n      \"paymentMode\": \"upi\",\n      \"amount\": 615,\n      \"upiId\": \"customer@upi\",\n      \"transactionId\": \"UPI789\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/payment/split",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "payment", "split"]
+            },
+            "description": "Process split payment with multiple modes"
+          },
+          "response": []
+        },
+        {
+          "name": "7.5 Get Payments by Order",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/payments",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "payments"]
+            },
+            "description": "Get all payments for an order"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "8. Complete Flow Test",
+      "item": [
+        {
+          "name": "Step 1: Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.success) {",
+                  "    pm.collectionVariables.set('token', jsonData.data.token);",
+                  "    console.log('✅ Logged in');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@restropos.com\",\n  \"password\": \"admin123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Step 2: End Existing Session",
+          "request": {
+            "method": "DELETE",
+            "header": [{"key": "Authorization", "value": "Bearer {{token}}"}],
+            "url": {
+              "raw": "{{baseUrl}}/tables/1/session",
+              "host": ["{{baseUrl}}"],
+              "path": ["tables", "1", "session"]
+            }
+          }
+        },
+        {
+          "name": "Step 3: Reset Table",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"status\": \"available\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tables/1/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["tables", "1", "status"]
+            }
+          }
+        },
+        {
+          "name": "Step 4: Create Order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.success) {",
+                  "    pm.collectionVariables.set('orderId', jsonData.data.id);",
+                  "    console.log('✅ Order created: ' + jsonData.data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"outletId\": 4,\n  \"tableId\": 1,\n  \"floorId\": 1,\n  \"sectionId\": 1,\n  \"orderType\": \"dine_in\",\n  \"guestCount\": 2,\n  \"customerName\": \"Test Customer\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders"]
+            }
+          }
+        },
+        {
+          "name": "Step 5: Add Items",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\"itemId\": 1, \"quantity\": 2},\n    {\"itemId\": 7, \"quantity\": 1}\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/items",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "items"]
+            }
+          }
+        },
+        {
+          "name": "Step 6: Send KOT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.success && jsonData.data.tickets) {",
+                  "    pm.collectionVariables.set('kotId', jsonData.data.tickets[0].id);",
+                  "    console.log('✅ KOT sent: ' + jsonData.data.tickets[0].id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {"mode": "raw", "raw": "{}"},
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/kot",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "kot"]
+            }
+          }
+        },
+        {
+          "name": "Step 7: Accept KOT",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{token}}"}],
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/{{kotId}}/accept",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "{{kotId}}", "accept"]
+            }
+          }
+        },
+        {
+          "name": "Step 8: Prepare KOT",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{token}}"}],
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/{{kotId}}/preparing",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "{{kotId}}", "preparing"]
+            }
+          }
+        },
+        {
+          "name": "Step 9: Ready KOT",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{token}}"}],
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/{{kotId}}/ready",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "{{kotId}}", "ready"]
+            }
+          }
+        },
+        {
+          "name": "Step 10: Serve KOT",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{token}}"}],
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/{{kotId}}/served",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "{{kotId}}", "served"]
+            }
+          }
+        },
+        {
+          "name": "Step 11: Generate Bill",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.success && jsonData.data.invoice) {",
+                  "    pm.collectionVariables.set('invoiceId', jsonData.data.invoice.id);",
+                  "    console.log('✅ Bill generated: ' + jsonData.data.invoice.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {"mode": "raw", "raw": "{}"},
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/bill",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "bill"]
+            }
+          }
+        },
+        {
+          "name": "Step 12: Process Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": {{orderId}},\n  \"invoiceId\": {{invoiceId}},\n  \"paymentMode\": \"cash\",\n  \"amount\": 2000,\n  \"tipAmount\": 100\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/payment",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "payment"]
+            }
+          }
+        },
+        {
+          "name": "Step 13: Verify Table Available",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{token}}"}],
+            "url": {
+              "raw": "{{baseUrl}}/tables/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["tables", "1"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

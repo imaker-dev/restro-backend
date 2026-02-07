@@ -38,6 +38,53 @@ const orderService = {
   ITEM_STATUS,
 
   // ========================
+  // CAPTAIN OWNERSHIP VERIFICATION
+  // ========================
+
+  /**
+   * Verify if user can modify order (is session owner or admin/manager)
+   */
+  async verifyCaptainOwnership(orderId, userId, connection = null) {
+    const pool = connection || getPool();
+    
+    const [order] = await pool.query(
+      `SELECT o.table_session_id, o.order_type, ts.started_by 
+       FROM orders o 
+       LEFT JOIN table_sessions ts ON o.table_session_id = ts.id 
+       WHERE o.id = ?`,
+      [orderId]
+    );
+    
+    if (!order[0]) throw new Error('Order not found');
+    
+    // Non dine-in orders don't have session ownership
+    if (order[0].order_type !== 'dine_in' || !order[0].table_session_id) {
+      return true;
+    }
+    
+    // Check if user is admin/manager
+    const [userRoles] = await pool.query(
+      `SELECT r.slug as role_name FROM user_roles ur 
+       JOIN roles r ON ur.role_id = r.id 
+       WHERE ur.user_id = ? AND ur.is_active = 1`,
+      [userId]
+    );
+    const isAdminOrManager = userRoles.some(r => ['admin', 'manager', 'super_admin'].includes(r.role_name));
+    
+    if (isAdminOrManager) return true;
+    
+    // Check if user is session owner (convert to numbers for comparison)
+    const sessionOwnerId = parseInt(order[0].started_by, 10);
+    const currentUserId = parseInt(userId, 10);
+    
+    if (sessionOwnerId !== currentUserId) {
+      throw new Error('Only the assigned captain can modify this order. Contact manager to transfer table.');
+    }
+    
+    return true;
+  },
+
+  // ========================
   // ORDER CREATION
   // ========================
 
@@ -82,16 +129,54 @@ const orderService = {
       // Get or create table session
       let tableSessionId = null;
       if (tableId && orderType === 'dine_in') {
-        // Start table session
-        const session = await tableService.startSession(tableId, {
-          guestCount,
-          waiterId: createdBy,
-          notes: specialInstructions
-        });
-        tableSessionId = session.sessionId;
+        // Check for existing active session
+        const existingSession = await tableService.getActiveSession(tableId);
+        
+        if (existingSession) {
+          // Session exists - verify ownership or authorization
+          if (existingSession.order_id) {
+            throw new Error(`Table already has an active order (Order ID: ${existingSession.order_id}). Use existing order or end session first.`);
+          }
+          
+          // Check if captain owns this session OR is admin/manager
+          const [userRoles] = await connection.query(
+            `SELECT r.slug as role_name FROM user_roles ur 
+             JOIN roles r ON ur.role_id = r.id 
+             WHERE ur.user_id = ? AND ur.is_active = 1`,
+            [createdBy]
+          );
+          const isAdminOrManager = userRoles.some(r => ['admin', 'manager', 'super_admin'].includes(r.role_name));
+          
+          // Convert to numbers for comparison (handle type mismatch)
+          const sessionOwnerId = parseInt(existingSession.started_by, 10);
+          const currentUserId = parseInt(createdBy, 10);
+          
+          if (sessionOwnerId !== currentUserId && !isAdminOrManager) {
+            // Get session owner name for better error message
+            const [sessionOwner] = await connection.query(
+              'SELECT name FROM users WHERE id = ?',
+              [sessionOwnerId]
+            );
+            const ownerName = sessionOwner[0]?.name || `User ID ${sessionOwnerId}`;
+            throw new Error(`This table session was started by ${ownerName}. Only they can create orders for this table, or contact a manager to transfer the table.`);
+          }
+          
+          // Use existing session
+          tableSessionId = existingSession.id;
+        } else {
+          // No session exists - create new one
+          const session = await tableService.startSession(tableId, {
+            guestCount,
+            guestName: customerName,
+            guestPhone: customerPhone,
+            waiterId: createdBy,
+            notes: specialInstructions
+          }, createdBy);
+          tableSessionId = session.sessionId;
 
-        // Update table status to occupied
-        await tableService.updateStatus(tableId, 'occupied', createdBy);
+          // Update table status to occupied
+          await tableService.updateStatus(tableId, 'occupied', createdBy);
+        }
       }
 
       // Create order
@@ -109,6 +194,14 @@ const orderService = {
           specialInstructions, createdBy
         ]
       );
+
+      // Link order to table session
+      if (tableSessionId) {
+        await connection.query(
+          'UPDATE table_sessions SET order_id = ? WHERE id = ?',
+          [result.insertId, tableSessionId]
+        );
+      }
 
       await connection.commit();
 
@@ -145,6 +238,29 @@ const orderService = {
       if (!order) throw new Error('Order not found');
       if (order.status === 'billed' || order.status === 'paid' || order.status === 'cancelled') {
         throw new Error('Cannot add items to this order');
+      }
+
+      // Verify captain ownership for dine-in orders
+      if (order.table_session_id && order.order_type === 'dine_in') {
+        const [sessionOwner] = await connection.query(
+          'SELECT started_by FROM table_sessions WHERE id = ?',
+          [order.table_session_id]
+        );
+        const [userRoles] = await connection.query(
+          `SELECT r.slug as role_name FROM user_roles ur 
+           JOIN roles r ON ur.role_id = r.id 
+           WHERE ur.user_id = ? AND ur.is_active = 1`,
+          [createdBy]
+        );
+        const isAdminOrManager = userRoles.some(r => ['admin', 'manager', 'super_admin'].includes(r.role_name));
+        
+        // Convert to numbers for comparison (handle type mismatch)
+        const sessionOwnerId = parseInt(sessionOwner[0]?.started_by, 10);
+        const currentUserId = parseInt(createdBy, 10);
+        
+        if (sessionOwner[0] && sessionOwnerId !== currentUserId && !isAdminOrManager) {
+          throw new Error('Only the assigned captain can modify this order. Contact manager to transfer table.');
+        }
       }
 
       const addedItems = [];
@@ -284,15 +400,15 @@ const orderService = {
       [orderId]
     );
 
-    const subtotal = items[0].subtotal || 0;
-    const taxAmount = items[0].tax_total || 0;
+    const subtotal = parseFloat(items[0].subtotal) || 0;
+    const taxAmount = parseFloat(items[0].tax_total) || 0;
 
     // Get discount
     const [discounts] = await pool.query(
       'SELECT SUM(discount_amount) as total FROM order_discounts WHERE order_id = ?',
       [orderId]
     );
-    const discountAmount = discounts[0].total || 0;
+    const discountAmount = parseFloat(discounts[0].total) || 0;
 
     // Calculate total
     const totalAmount = subtotal - discountAmount + taxAmount;
@@ -519,7 +635,13 @@ const orderService = {
       await connection.beginTransaction();
 
       const [items] = await connection.query(
-        'SELECT oi.*, o.outlet_id, o.status as order_status FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE oi.id = ?',
+        `SELECT oi.*, o.outlet_id, o.status as order_status, o.order_number, o.table_id,
+          t.table_number, kt.kot_number, kt.station as kot_station
+         FROM order_items oi
+         JOIN orders o ON oi.order_id = o.id
+         LEFT JOIN tables t ON o.table_id = t.id
+         LEFT JOIN kot_tickets kt ON oi.kot_id = kt.id
+         WHERE oi.id = ?`,
         [orderItemId]
       );
       if (!items[0]) throw new Error('Order item not found');
@@ -566,10 +688,48 @@ const orderService = {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           item.order_id, orderItemId,
-          isFullCancel ? 'partial_item' : 'quantity_reduce',
+          isFullCancel ? 'full_item' : 'quantity_reduce',
           item.quantity, cancelQuantity, reasonId, reason, approvedBy, userId
         ]
       );
+
+      // Update KOT item status if item was sent to kitchen
+      let kotCancelled = false;
+      let kotData = null;
+      
+      if (isFullCancel && item.kot_id) {
+        await connection.query(
+          `UPDATE kot_items SET status = 'cancelled' WHERE order_item_id = ?`,
+          [orderItemId]
+        );
+        
+        // Get KOT details for real-time event
+        const [kotDetails] = await connection.query(
+          `SELECT kt.*, o.order_number, o.table_id, t.table_number
+           FROM kot_tickets kt
+           JOIN orders o ON kt.order_id = o.id
+           LEFT JOIN tables t ON o.table_id = t.id
+           WHERE kt.id = ?`,
+          [item.kot_id]
+        );
+        kotData = kotDetails[0];
+        
+        // Check if all items in the KOT are cancelled, update KOT status
+        const [kotItems] = await connection.query(
+          `SELECT COUNT(*) as total, 
+                  SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled
+           FROM kot_items WHERE kot_id = ?`,
+          [item.kot_id]
+        );
+        
+        if (kotItems[0] && Number(kotItems[0].total) > 0 && Number(kotItems[0].total) === Number(kotItems[0].cancelled)) {
+          await connection.query(
+            `UPDATE kot_tickets SET status = 'cancelled' WHERE id = ?`,
+            [item.kot_id]
+          );
+          kotCancelled = true;
+        }
+      }
 
       // Recalculate order totals
       await this.recalculateTotals(item.order_id, connection);
@@ -578,6 +738,60 @@ const orderService = {
 
       const order = await this.getOrderWithItems(item.order_id);
       await this.emitOrderUpdate(item.outlet_id, order, 'order:item_cancelled');
+
+      // Emit KOT event to kitchen for real-time update
+      if (item.kot_id && kotData) {
+        const kotService = require('./kot.service');
+        const updatedKot = await kotService.getKotById(item.kot_id);
+        
+        if (kotCancelled) {
+          // Entire KOT was cancelled
+          await kotService.emitKotUpdate(item.outlet_id, updatedKot, 'kot:cancelled');
+        } else {
+          // Single item cancelled - kitchen needs to know
+          await kotService.emitKotUpdate(item.outlet_id, {
+            ...updatedKot,
+            cancelled_item: {
+              order_item_id: orderItemId,
+              item_name: item.item_name,
+              quantity: cancelQuantity,
+              reason: reason
+            }
+          }, 'kot:item_cancelled');
+        }
+      }
+
+      // Print cancel slip to kitchen printer
+      try {
+        const printerService = require('./printer.service');
+        const kotService = require('./kot.service');
+        const cancelSlipData = {
+          outletId: item.outlet_id,
+          orderId: item.order_id,
+          orderNumber: item.order_number,
+          tableNumber: item.table_number || 'Takeaway',
+          kotNumber: item.kot_number || null,
+          station: item.kot_station || 'kitchen',
+          time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+          reason: reason,
+          cancelledBy: userId,
+          items: [{
+            itemName: item.item_name,
+            variantName: item.variant_name,
+            quantity: cancelQuantity,
+            itemType: item.item_type || null
+          }]
+        };
+
+        const printer = await kotService.getPrinterForStation(item.outlet_id, cancelSlipData.station);
+        if (printer && printer.ip_address) {
+          await printerService.printCancelSlipDirect(cancelSlipData, printer.ip_address, printer.port || 9100);
+        } else {
+          await printerService.printCancelSlip(cancelSlipData, userId);
+        }
+      } catch (printError) {
+        logger.error('Failed to print cancel slip:', printError.message);
+      }
 
       return order;
     } catch (error) {
@@ -615,15 +829,41 @@ const orderService = {
         [orderId]
       );
       
-      if (preparedItems[0].count > 0 && !approvedBy) {
-        throw new Error('Manager approval required to cancel order with prepared items');
-      }
+      // if (preparedItems[0].count > 0 && !approvedBy) {
+      //   throw new Error('Manager approval required to cancel order with prepared items');
+      // }
+
+      // Get all active KOTs for this order before cancelling (for kitchen notification)
+      const [activeKots] = await connection.query(
+        `SELECT kt.*, o.table_id, t.table_number 
+         FROM kot_tickets kt
+         JOIN orders o ON kt.order_id = o.id
+         LEFT JOIN tables t ON o.table_id = t.id
+         WHERE kt.order_id = ? AND kt.status NOT IN ('served', 'cancelled')`,
+        [orderId]
+      );
 
       // Cancel all items
       await connection.query(
         `UPDATE order_items SET status = 'cancelled', cancelled_by = ?, cancelled_at = NOW(), cancel_reason = ?
          WHERE order_id = ? AND status != 'cancelled'`,
         [userId, reason, orderId]
+      );
+
+      // Cancel all KOT items
+      await connection.query(
+        `UPDATE kot_items ki
+         JOIN kot_tickets kt ON ki.kot_id = kt.id
+         SET ki.status = 'cancelled'
+         WHERE kt.order_id = ? AND ki.status != 'cancelled'`,
+        [orderId]
+      );
+
+      // Cancel all KOTs
+      await connection.query(
+        `UPDATE kot_tickets SET status = 'cancelled'
+         WHERE order_id = ? AND status NOT IN ('served', 'cancelled')`,
+        [orderId]
       );
 
       // Cancel order
@@ -641,11 +881,14 @@ const orderService = {
         [orderId, reasonId, reason, approvedBy, userId]
       );
 
-      // Release table if dine-in
+      // Release table if dine-in - end session and set to available
       if (order.table_id) {
-        await tableService.updateStatus(order.table_id, 'cleaning', userId);
-        if (order.table_session_id) {
-          await tableService.endSession(order.table_session_id, userId);
+        // End session first (this also sets table to available)
+        try {
+          await tableService.endSession(order.table_id, userId);
+        } catch (e) {
+          // If no active session, just update table status
+          await tableService.updateStatus(order.table_id, 'available', userId);
         }
       }
 
@@ -654,6 +897,65 @@ const orderService = {
       const cancelledOrder = await this.getById(orderId);
       await this.emitOrderUpdate(order.outlet_id, cancelledOrder, 'order:cancelled');
 
+      // Emit KOT cancellation events to kitchen + print cancel slips for each KOT
+      if (activeKots.length > 0) {
+        const kotService = require('./kot.service');
+        const printerService = require('./printer.service');
+
+        for (const kot of activeKots) {
+          // Fetch full KOT with items, addons, item_type for rich event data
+          const fullKot = await kotService.getKotById(kot.id);
+
+          // Emit to kitchen with full details
+          await kotService.emitKotUpdate(order.outlet_id, {
+            ...(fullKot || kot),
+            status: 'cancelled',
+            cancel_reason: reason,
+            order_number: order.order_number,
+            table_number: kot.table_number
+          }, 'kot:cancelled');
+
+          // Print cancel slip to kitchen printer for this KOT
+          try {
+            const kotItems = (fullKot?.items || []).map(i => ({
+              itemName: i.item_name,
+              variantName: i.variant_name,
+              quantity: i.quantity,
+              itemType: i.item_type || null
+            }));
+
+            const cancelSlipData = {
+              outletId: order.outlet_id,
+              orderId,
+              orderNumber: order.order_number,
+              tableNumber: kot.table_number || 'Takeaway',
+              kotNumber: kot.kot_number,
+              station: kot.station || 'kitchen',
+              time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+              reason: reason || 'Order cancelled',
+              cancelledBy: userId,
+              items: kotItems
+            };
+
+            const printer = await kotService.getPrinterForStation(order.outlet_id, cancelSlipData.station);
+            if (printer && printer.ip_address) {
+              await printerService.printCancelSlipDirect(cancelSlipData, printer.ip_address, printer.port || 9100);
+              logger.info(`Cancel slip for KOT ${kot.kot_number} printed to ${printer.ip_address}`);
+            } else {
+              await printerService.printCancelSlip(cancelSlipData, userId);
+              logger.info(`Cancel slip print job created for KOT ${kot.kot_number}`);
+            }
+          } catch (printError) {
+            logger.error(`Failed to print cancel slip for KOT ${kot.kot_number}:`, printError.message);
+          }
+        }
+      }
+
+      // Emit table update for real-time floor plan update
+      if (order.table_id) {
+        await this.emitTableUpdate(order.outlet_id, order.table_id);
+      }
+
       return cancelledOrder;
     } catch (error) {
       await connection.rollback();
@@ -661,6 +963,269 @@ const orderService = {
     } finally {
       connection.release();
     }
+  },
+
+  // ========================
+  // CAPTAIN ORDER HISTORY
+  // ========================
+
+  /**
+   * Get captain's order history with filters
+   * Captain sees only their own orders
+   */
+  async getCaptainOrderHistory(captainId, outletId, filters = {}) {
+    const pool = getPool();
+    
+    const {
+      status,        // 'running' | 'completed' | 'cancelled' | 'all'
+      search,        // Search by order number, table number, customer name
+      startDate,     // Date range start
+      endDate,       // Date range end
+      page = 1,
+      limit = 20,
+      sortBy = 'created_at',
+      sortOrder = 'DESC'
+    } = filters;
+
+    let query = `
+      SELECT 
+        o.id,
+        o.order_number,
+        o.order_type,
+        o.status,
+        o.subtotal,
+        o.tax_amount,
+        o.discount_amount,
+        o.total_amount,
+        o.guest_count,
+        o.customer_name,
+        o.customer_phone,
+        o.created_at,
+        o.updated_at,
+        o.cancelled_at,
+        o.cancel_reason,
+        t.table_number,
+        t.name as table_name,
+        f.name as floor_name,
+        ts.started_at as session_started_at,
+        ts.ended_at as session_ended_at,
+        (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id AND oi.status != 'cancelled') as item_count,
+        (SELECT COUNT(*) FROM kot_tickets kt WHERE kt.order_id = o.id) as kot_count,
+        u.name as created_by_name
+      FROM orders o
+      LEFT JOIN tables t ON o.table_id = t.id
+      LEFT JOIN floors f ON o.floor_id = f.id
+      LEFT JOIN table_sessions ts ON o.table_session_id = ts.id
+      LEFT JOIN users u ON o.created_by = u.id
+      WHERE o.outlet_id = ? AND o.created_by = ?
+    `;
+    const params = [outletId, captainId];
+
+    // Status filter
+    if (status && status !== 'all') {
+      if (status === 'running') {
+        query += ` AND o.status IN ('pending', 'confirmed', 'preparing', 'ready', 'served')`;
+      } else if (status === 'completed') {
+        query += ` AND o.status IN ('billed', 'paid')`;
+      } else if (status === 'cancelled') {
+        query += ` AND o.status = 'cancelled'`;
+      } else {
+        query += ` AND o.status = ?`;
+        params.push(status);
+      }
+    }
+
+    // Search filter
+    if (search) {
+      query += ` AND (
+        o.order_number LIKE ? OR 
+        t.table_number LIKE ? OR 
+        o.customer_name LIKE ? OR
+        o.customer_phone LIKE ?
+      )`;
+      const searchPattern = `%${search}%`;
+      params.push(searchPattern, searchPattern, searchPattern, searchPattern);
+    }
+
+    // Date range filter
+    if (startDate) {
+      query += ` AND DATE(o.created_at) >= ?`;
+      params.push(startDate);
+    }
+    if (endDate) {
+      query += ` AND DATE(o.created_at) <= ?`;
+      params.push(endDate);
+    }
+
+    // Get total count for pagination
+    const countQuery = query.replace(/SELECT[\s\S]*?FROM orders/, 'SELECT COUNT(*) as total FROM orders');
+    const [countResult] = await pool.query(countQuery, params);
+    const total = countResult[0].total;
+
+    // Add sorting and pagination
+    const validSortColumns = ['created_at', 'order_number', 'total_amount', 'status'];
+    const sortColumn = validSortColumns.includes(sortBy) ? sortBy : 'created_at';
+    const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+    
+    query += ` ORDER BY o.${sortColumn} ${order}`;
+    query += ` LIMIT ? OFFSET ?`;
+    params.push(parseInt(limit), (parseInt(page) - 1) * parseInt(limit));
+
+    const [orders] = await pool.query(query, params);
+
+    return {
+      orders,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        totalPages: Math.ceil(total / limit)
+      }
+    };
+  },
+
+  /**
+   * Get detailed order with time logs for captain
+   */
+  async getCaptainOrderDetail(orderId, captainId) {
+    const pool = getPool();
+
+    // Get order with verification
+    const [orders] = await pool.query(
+      `SELECT o.*, 
+        t.table_number, t.name as table_name,
+        f.name as floor_name,
+        u.name as created_by_name,
+        ts.started_at as session_started_at,
+        ts.ended_at as session_ended_at,
+        ts.guest_count as session_guest_count
+       FROM orders o
+       LEFT JOIN tables t ON o.table_id = t.id
+       LEFT JOIN floors f ON o.floor_id = f.id
+       LEFT JOIN users u ON o.created_by = u.id
+       LEFT JOIN table_sessions ts ON o.table_session_id = ts.id
+       WHERE o.id = ?`,
+      [orderId]
+    );
+
+    if (!orders[0]) {
+      throw new Error('Order not found');
+    }
+
+    const order = orders[0];
+
+    // Verify captain owns this order (or is admin/manager)
+    const [userRoles] = await pool.query(
+      `SELECT r.slug as role_name FROM user_roles ur 
+       JOIN roles r ON ur.role_id = r.id 
+       WHERE ur.user_id = ? AND ur.is_active = 1`,
+      [captainId]
+    );
+    const isAdminOrManager = userRoles.some(r => 
+      ['admin', 'manager', 'super_admin'].includes(r.role_name)
+    );
+
+    if (order.created_by !== captainId && !isAdminOrManager) {
+      throw new Error('You can only view your own orders');
+    }
+
+    // Get order items with details
+    const [items] = await pool.query(
+      `SELECT oi.*, 
+        i.name as item_name, i.short_name,
+        v.name as variant_name,
+        uc.name as cancelled_by_name
+       FROM order_items oi
+       LEFT JOIN items i ON oi.item_id = i.id
+       LEFT JOIN variants v ON oi.variant_id = v.id
+       LEFT JOIN users uc ON oi.cancelled_by = uc.id
+       WHERE oi.order_id = ?
+       ORDER BY oi.created_at`,
+      [orderId]
+    );
+    order.items = items;
+
+    // Get KOT history with time logs
+    const [kots] = await pool.query(
+      `SELECT kt.*,
+        ua.name as accepted_by_name,
+        us.name as served_by_name
+       FROM kot_tickets kt
+       LEFT JOIN users ua ON kt.accepted_by = ua.id
+       LEFT JOIN users us ON kt.served_by = us.id
+       WHERE kt.order_id = ?
+       ORDER BY kt.created_at`,
+      [orderId]
+    );
+
+    for (const kot of kots) {
+      const [kotItems] = await pool.query(
+        'SELECT * FROM kot_items WHERE kot_id = ?',
+        [kot.id]
+      );
+      kot.items = kotItems;
+    }
+    order.kots = kots;
+
+    // Get time logs
+    order.timeLogs = {
+      orderCreated: order.created_at,
+      sessionStarted: order.session_started_at,
+      firstKotSent: kots.length > 0 ? kots[0].created_at : null,
+      lastKotSent: kots.length > 0 ? kots[kots.length - 1].created_at : null,
+      orderCompleted: order.status === 'paid' ? order.updated_at : null,
+      orderCancelled: order.cancelled_at,
+      sessionEnded: order.session_ended_at
+    };
+
+    // Get invoice if exists
+    const [invoices] = await pool.query(
+      'SELECT * FROM invoices WHERE order_id = ? ORDER BY created_at DESC LIMIT 1',
+      [orderId]
+    );
+    order.invoice = invoices[0] || null;
+
+    // Get payments if exists
+    const [payments] = await pool.query(
+      'SELECT * FROM payments WHERE order_id = ? ORDER BY created_at',
+      [orderId]
+    );
+    order.payments = payments;
+
+    return order;
+  },
+
+  /**
+   * Get captain order statistics
+   */
+  async getCaptainOrderStats(captainId, outletId, dateRange = {}) {
+    const pool = getPool();
+    
+    const { startDate, endDate } = dateRange;
+    let dateFilter = '';
+    const params = [outletId, captainId];
+
+    if (startDate && endDate) {
+      dateFilter = 'AND DATE(o.created_at) BETWEEN ? AND ?';
+      params.push(startDate, endDate);
+    } else {
+      dateFilter = 'AND DATE(o.created_at) = CURDATE()';
+    }
+
+    const [stats] = await pool.query(
+      `SELECT 
+        COUNT(*) as total_orders,
+        COUNT(CASE WHEN status IN ('pending', 'confirmed', 'preparing', 'ready', 'served') THEN 1 END) as running_orders,
+        COUNT(CASE WHEN status IN ('billed', 'paid') THEN 1 END) as completed_orders,
+        COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled_orders,
+        COALESCE(SUM(CASE WHEN status = 'paid' THEN total_amount ELSE 0 END), 0) as total_sales,
+        COALESCE(AVG(CASE WHEN status = 'paid' THEN total_amount END), 0) as avg_order_value
+       FROM orders o
+       WHERE o.outlet_id = ? AND o.created_by = ? ${dateFilter}`,
+      params
+    );
+
+    return stats[0];
   },
 
   // ========================
@@ -704,7 +1269,7 @@ const orderService = {
 
       // Update table statuses
       await connection.query('UPDATE tables SET status = ? WHERE id = ?', ['occupied', toTableId]);
-      await connection.query('UPDATE tables SET status = ? WHERE id = ?', ['cleaning', fromTableId]);
+      await connection.query('UPDATE tables SET status = ? WHERE id = ?', ['available', fromTableId]);
 
       // Log transfer
       await connection.query(

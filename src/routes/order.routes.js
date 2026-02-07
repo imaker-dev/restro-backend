@@ -26,6 +26,41 @@ router.post('/', validate(orderValidation.createOrder), orderController.createOr
  */
 router.get('/active/:outletId', orderController.getActiveOrders);
 
+// ========================
+// CAPTAIN ORDER HISTORY
+// ========================
+
+/**
+ * @route   GET /api/v1/orders/captain/history/:outletId
+ * @desc    Get captain's own order history with filters
+ * @access  Private (captain, waiter)
+ * @query   status - 'running' | 'completed' | 'cancelled' | 'all'
+ * @query   search - Search by order number, table number, customer name
+ * @query   startDate - Filter from date (YYYY-MM-DD)
+ * @query   endDate - Filter to date (YYYY-MM-DD)
+ * @query   page - Page number (default: 1)
+ * @query   limit - Items per page (default: 20)
+ * @query   sortBy - Sort column (created_at, order_number, total_amount)
+ * @query   sortOrder - ASC or DESC (default: DESC)
+ */
+router.get('/captain/history/:outletId', orderController.getCaptainOrderHistory);
+
+/**
+ * @route   GET /api/v1/orders/captain/stats/:outletId
+ * @desc    Get captain's order statistics
+ * @access  Private (captain, waiter)
+ * @query   startDate - Filter from date (YYYY-MM-DD)
+ * @query   endDate - Filter to date (YYYY-MM-DD)
+ */
+router.get('/captain/stats/:outletId', orderController.getCaptainOrderStats);
+
+/**
+ * @route   GET /api/v1/orders/captain/detail/:orderId
+ * @desc    Get detailed order view with time logs (captain's own orders only)
+ * @access  Private (captain, waiter)
+ */
+router.get('/captain/detail/:orderId', orderController.getCaptainOrderDetail);
+
 /**
  * @route   GET /api/v1/orders/table/:tableId
  * @desc    Get orders by table
@@ -133,9 +168,20 @@ router.post('/items/:itemId/cancel', validate(orderValidation.cancelItem), order
 router.post('/:id/kot', orderController.sendKot);
 
 /**
+ * @route   GET /api/v1/orders/kot/active
+ * @desc    Get active KOTs for user's outlet (polling fallback for socket)
+ * @access  Private (kitchen, bar staff)
+ * @query   station - Filter by station (kitchen, bar, mocktail, dessert)
+ * @query   status - Filter by status (pending, accepted, preparing, ready)
+ */
+router.get('/kot/active', orderController.getActiveKotsForUser);
+
+/**
  * @route   GET /api/v1/orders/kot/active/:outletId
- * @desc    Get active KOTs for outlet
+ * @desc    Get active KOTs for specific outlet (legacy/admin)
  * @access  Private
+ * @query   station - Filter by station (kitchen, bar, mocktail, dessert)
+ * @query   status - Filter by status (pending, accepted, preparing, ready)
  */
 router.get('/kot/active/:outletId', orderController.getActiveKots);
 
@@ -196,8 +242,15 @@ router.post('/kot/:id/reprint', orderController.reprintKot);
 router.post('/kot/items/:itemId/ready', orderController.markItemReady);
 
 /**
+ * @route   GET /api/v1/orders/station/:station
+ * @desc    Get station dashboard for user's outlet (kitchen, bar, mocktail)
+ * @access  Private (kitchen, bar staff)
+ */
+router.get('/station/:station', orderController.getStationDashboardForUser);
+
+/**
  * @route   GET /api/v1/orders/station/:outletId/:station
- * @desc    Get station dashboard (kitchen, bar, mocktail)
+ * @desc    Get station dashboard for specific outlet (legacy/admin)
  * @access  Private
  */
 router.get('/station/:outletId/:station', orderController.getStationDashboard);
