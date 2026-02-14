@@ -104,7 +104,8 @@ const outletController = {
   async getFloorsByOutlet(req, res, next) {
     try {
       const includeInactive = req.query.includeInactive === 'true';
-      const floors = await floorService.getByOutlet(req.params.outletId, includeInactive);
+      const userId = req.user ? req.user.userId : null;
+      const floors = await floorService.getByOutlet(req.params.outletId, includeInactive, userId);
       res.json({ success: true, data: floors });
     } catch (error) {
       next(error);
@@ -195,6 +196,16 @@ const outletController = {
     try {
       const includeInactive = req.query.includeInactive === 'true';
       const sections = await sectionService.getByOutlet(req.params.outletId, includeInactive);
+      res.json({ success: true, data: sections });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async getSectionsByFloor(req, res, next) {
+    try {
+      const includeInactive = req.query.includeInactive === 'true';
+      const sections = await sectionService.getByFloor(req.params.floorId, includeInactive);
       res.json({ success: true, data: sections });
     } catch (error) {
       next(error);

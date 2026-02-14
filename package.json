@@ -46,6 +46,7 @@
     "jsonwebtoken": "^9.0.2",
     "lodash": "^4.17.21",
     "morgan": "^1.10.0",
+    "multer": "^2.0.2",
     "mysql2": "^3.6.5",
     "node-cron": "^3.0.3",
     "pdfkit": "^0.14.0",

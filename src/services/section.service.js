@@ -11,7 +11,35 @@ const sectionService = {
    */
   async create(data, userId) {
     const pool = getPool();
-    
+
+    // Validate floor exists and belongs to the outlet
+    if (data.floorId) {
+      const [floors] = await pool.query(
+        'SELECT id FROM floors WHERE id = ? AND outlet_id = ? AND is_active = 1',
+        [data.floorId, data.outletId]
+      );
+      if (floors.length === 0) {
+        const error = new Error('Floor not found or does not belong to this outlet');
+        error.statusCode = 400;
+        throw error;
+      }
+    }
+
+    // Check duplicate section name on same floor
+    if (data.floorId) {
+      const [existing] = await pool.query(
+        `SELECT s.id FROM sections s
+         JOIN floor_sections fs ON s.id = fs.section_id
+         WHERE s.outlet_id = ? AND fs.floor_id = ? AND LOWER(s.name) = LOWER(?) AND s.is_active = 1 AND fs.is_active = 1`,
+        [data.outletId, data.floorId, data.name]
+      );
+      if (existing.length > 0) {
+        const error = new Error('A section with this name already exists on this floor');
+        error.statusCode = 409;
+        throw error;
+      }
+    }
+
     const [result] = await pool.query(
       `INSERT INTO sections (outlet_id, name, code, section_type, description, color_code, display_order, is_active)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -27,8 +55,20 @@ const sectionService = {
       ]
     );
 
+    const sectionId = result.insertId;
+
+    // Auto-link section to floor
+    if (data.floorId) {
+      await pool.query(
+        `INSERT INTO floor_sections (floor_id, section_id, price_modifier_percent, is_active)
+         VALUES (?, ?, 0, 1)
+         ON DUPLICATE KEY UPDATE is_active = 1`,
+        [data.floorId, sectionId]
+      );
+    }
+
     await cache.del(`sections:outlet:${data.outletId}`);
-    return this.getById(result.insertId);
+    return this.getById(sectionId);
   },
 
   /**
@@ -51,6 +91,32 @@ const sectionService = {
     query += ' ORDER BY s.display_order, s.name';
 
     const [sections] = await pool.query(query, [outletId]);
+    return sections;
+  },
+
+  /**
+   * Get all sections for a specific floor
+   */
+  async getByFloor(floorId, includeInactive = false) {
+    const pool = getPool();
+
+    let query = `
+      SELECT s.*,
+        fs.price_modifier_percent,
+        (SELECT COUNT(*) FROM tables t WHERE t.section_id = s.id AND t.floor_id = ? AND t.is_active = 1) as table_count
+      FROM sections s
+      JOIN floor_sections fs ON s.id = fs.section_id
+      WHERE fs.floor_id = ? AND fs.is_active = 1
+    `;
+    const params = [floorId, floorId];
+
+    if (!includeInactive) {
+      query += ' AND s.is_active = 1';
+    }
+
+    query += ' ORDER BY s.display_order, s.name';
+
+    const [sections] = await pool.query(query, params);
     return sections;
   },
 

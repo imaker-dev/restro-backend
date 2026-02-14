@@ -11,25 +11,254 @@ const logger = require('../utils/logger');
 const orderService = require('./order.service');
 const taxService = require('./tax.service');
 const printerService = require('./printer.service');
+const { prefixImageUrl } = require('../utils/helpers');
+
+// ========================
+// FORMAT HELPERS — clean camelCase output matching KOT details style
+// ========================
+
+function formatInvoiceItem(item) {
+  if (!item) return null;
+  return {
+    id: item.id,
+    orderItemId: item.order_item_id || item.id,
+    itemId: item.item_id,
+    name: item.item_name || item.name,
+    shortName: item.short_name || null,
+    imageUrl: prefixImageUrl(item.image_url),
+    variantName: item.variant_name || null,
+    itemType: item.item_type || null,
+    quantity: parseInt(item.quantity) || 0,
+    unitPrice: parseFloat(item.unit_price) || 0,
+    totalPrice: parseFloat(item.total_price) || 0,
+    taxDetails: item.tax_details
+      ? (typeof item.tax_details === 'string' ? JSON.parse(item.tax_details) : item.tax_details)
+      : null,
+    status: item.status,
+    specialInstructions: item.special_instructions || null,
+  };
+}
+
+function formatDiscount(discount) {
+  if (!discount) return null;
+  return {
+    id: discount.id,
+    orderId: discount.order_id,
+    orderItemId: discount.order_item_id || null,
+    discountId: discount.discount_id || null,
+    discountCode: discount.discount_code || null,
+    discountName: discount.discount_name,
+    discountType: discount.discount_type,
+    discountValue: parseFloat(discount.discount_value) || 0,
+    discountAmount: parseFloat(discount.discount_amount) || 0,
+    appliedOn: discount.applied_on || 'subtotal',
+    approvedBy: discount.approved_by || null,
+    createdBy: discount.created_by || null,
+    createdAt: discount.created_at || null,
+  };
+}
+
+function formatPaymentEntry(payment) {
+  if (!payment) return null;
+  return {
+    id: payment.id,
+    paymentMode: payment.payment_mode,
+    amount: parseFloat(payment.amount) || 0,
+    tipAmount: parseFloat(payment.tip_amount) || 0,
+    totalAmount: parseFloat(payment.total_amount) || 0,
+    status: payment.status,
+    transactionId: payment.transaction_id || null,
+    referenceNumber: payment.reference_number || null,
+    createdAt: payment.created_at || null,
+  };
+}
+
+function formatInvoice(invoice) {
+  if (!invoice) return null;
+  return {
+    id: invoice.id,
+    uuid: invoice.uuid,
+    outletId: invoice.outlet_id,
+    orderId: invoice.order_id,
+    invoiceNumber: invoice.invoice_number,
+    invoiceDate: invoice.invoice_date,
+    invoiceTime: invoice.invoice_time,
+    orderNumber: invoice.order_number || null,
+    orderType: invoice.order_type || null,
+    tableId: invoice.table_id || null,
+    tableNumber: invoice.table_number || null,
+    tableName: invoice.table_name || null,
+    floorId: invoice.floor_id || null,
+    floorName: invoice.floor_name || null,
+    customerId: invoice.customer_id || null,
+    customerName: invoice.customer_name || null,
+    customerPhone: invoice.customer_phone || null,
+    customerEmail: invoice.customer_email || null,
+    customerGstin: invoice.customer_gstin || null,
+    customerAddress: invoice.customer_address || null,
+    billingAddress: invoice.billing_address || null,
+    subtotal: parseFloat(invoice.subtotal) || 0,
+    discountAmount: parseFloat(invoice.discount_amount) || 0,
+    taxableAmount: parseFloat(invoice.taxable_amount) || 0,
+    cgstAmount: parseFloat(invoice.cgst_amount) || 0,
+    sgstAmount: parseFloat(invoice.sgst_amount) || 0,
+    igstAmount: parseFloat(invoice.igst_amount) || 0,
+    vatAmount: parseFloat(invoice.vat_amount) || 0,
+    cessAmount: parseFloat(invoice.cess_amount) || 0,
+    totalTax: parseFloat(invoice.total_tax) || 0,
+    serviceCharge: parseFloat(invoice.service_charge) || 0,
+    packagingCharge: parseFloat(invoice.packaging_charge) || 0,
+    deliveryCharge: parseFloat(invoice.delivery_charge) || 0,
+    roundOff: parseFloat(invoice.round_off) || 0,
+    grandTotal: parseFloat(invoice.grand_total) || 0,
+    amountInWords: invoice.amount_in_words || null,
+    paymentStatus: invoice.payment_status,
+    taxBreakup: invoice.tax_breakup
+      ? (typeof invoice.tax_breakup === 'string' ? JSON.parse(invoice.tax_breakup) : invoice.tax_breakup)
+      : null,
+    hsnSummary: invoice.hsn_summary
+      ? (typeof invoice.hsn_summary === 'string' ? JSON.parse(invoice.hsn_summary) : invoice.hsn_summary)
+      : null,
+    notes: invoice.notes || null,
+    termsConditions: invoice.terms_conditions || null,
+    generatedBy: invoice.generated_by || null,
+    generatedByName: invoice.generated_by_name || null,
+    isCancelled: !!invoice.is_cancelled,
+    cancelledAt: invoice.cancelled_at || null,
+    cancelledBy: invoice.cancelled_by || null,
+    cancelReason: invoice.cancel_reason || null,
+    createdAt: invoice.created_at || null,
+    items: (invoice.items || []).map(formatInvoiceItem),
+    discounts: (invoice.discounts || []).map(formatDiscount),
+    payments: (invoice.payments || []).map(formatPaymentEntry),
+    isDuplicate: invoice.isDuplicate || false,
+    duplicateNumber: invoice.duplicateNumber || null,
+  };
+}
 
 const billingService = {
+  // ========================
+  // PRINTER LOOKUP
+  // ========================
+
+  /**
+   * Get bill printer for an outlet (station = 'bill')
+   * Falls back to any active printer if no dedicated bill printer found
+   */
+  async getBillPrinter(outletId) {
+    const pool = getPool();
+
+    // First try dedicated bill printer
+    let [printers] = await pool.query(
+      `SELECT * FROM printers 
+       WHERE outlet_id = ? AND station = 'bill' AND is_active = 1
+       ORDER BY is_default DESC LIMIT 1`,
+      [outletId]
+    );
+    if (printers[0]) return printers[0];
+
+    // Fallback: any active network printer for this outlet
+    [printers] = await pool.query(
+      `SELECT * FROM printers 
+       WHERE outlet_id = ? AND is_active = 1 AND ip_address IS NOT NULL
+       ORDER BY is_default DESC LIMIT 1`,
+      [outletId]
+    );
+    return printers[0] || null;
+  },
+
+  /**
+   * Print bill to thermal printer — shared by generateBill + existing invoice reprint
+   * Tries direct TCP first, falls back to print job queue
+   */
+  async printBillToThermal(invoice, order, userId) {
+    const pool = getPool();
+
+    // Get outlet info for bill header
+    const [outletInfo] = await pool.query(
+      `SELECT name, CONCAT_WS(', ', NULLIF(address_line1,''), NULLIF(city,''), NULLIF(state,'')) as address, gstin, phone
+       FROM outlets WHERE id = ?`,
+      [invoice.outletId || order.outlet_id]
+    );
+    const outletData = outletInfo[0] || {};
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2, '0');
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const yy = String(now.getFullYear()).slice(2);
+
+    // Build print data from the formatted invoice (camelCase fields)
+    const billPrintData = {
+      outletId: invoice.outletId || order.outlet_id,
+      orderId: invoice.orderId || order.id,
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      orderNumber: invoice.orderNumber || order.order_number || null,
+      orderType: invoice.orderType || order.order_type || null,
+      outletName: outletData.name || 'Restaurant',
+      outletAddress: outletData.address || null,
+      outletPhone: outletData.phone || null,
+      outletGstin: outletData.gstin || null,
+      tableNumber: invoice.tableNumber || order.table_number,
+      cashierName: invoice.generatedByName || order.created_by_name || null,
+      date: `${dd}/${mm}/${yy}`,
+      time: now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+      items: (invoice.items || []).filter(i => i.status !== 'cancelled').map(item => ({
+        itemName: item.name || item.item_name || item.itemName,
+        quantity: item.quantity,
+        unitPrice: parseFloat(item.unitPrice || item.unit_price || 0).toFixed(2),
+        totalPrice: parseFloat(item.totalPrice || item.total_price || 0).toFixed(2)
+      })),
+      subtotal: parseFloat(invoice.subtotal || 0).toFixed(2),
+      taxes: Object.values(invoice.taxBreakup || {}).map(t => ({
+        name: t.name || 'Tax',
+        rate: t.rate || 0,
+        amount: parseFloat(t.taxAmount || 0).toFixed(2)
+      })),
+      serviceCharge: parseFloat(invoice.serviceCharge || 0) > 0 ? parseFloat(invoice.serviceCharge).toFixed(2) : null,
+      discount: parseFloat(invoice.discountAmount || 0) > 0 ? parseFloat(invoice.discountAmount).toFixed(2) : null,
+      roundOff: invoice.roundOff !== undefined ? parseFloat(invoice.roundOff).toFixed(2) : null,
+      grandTotal: parseFloat(invoice.grandTotal || 0).toFixed(2),
+      paymentMode: invoice.payments?.[0]?.paymentMode || null,
+      isDuplicate: invoice.isDuplicate || false,
+      duplicateNumber: invoice.duplicateNumber || null,
+      openDrawer: false
+    };
+
+    const printer = await this.getBillPrinter(billPrintData.outletId);
+    if (printer && printer.ip_address) {
+      try {
+        await printerService.printBillDirect(billPrintData, printer.ip_address, printer.port || 9100);
+        logger.info(`Bill ${invoice.invoiceNumber} printed directly to ${printer.ip_address}:${printer.port || 9100}`);
+        return;
+      } catch (directErr) {
+        logger.error(`Direct bill print failed for ${invoice.invoiceNumber}:`, directErr.message);
+      }
+    }
+    // Fallback: create print job for bridge polling
+    await printerService.printBill(billPrintData, userId);
+    logger.info(`Bill ${invoice.invoiceNumber} queued for bridge printing`);
+  },
+
   // ========================
   // INVOICE NUMBER GENERATION
   // ========================
 
-  async generateInvoiceNumber(outletId) {
-    const pool = getPool();
+  async generateInvoiceNumber(outletId, connection = null) {
+    const queryRunner = connection || getPool();
     const today = new Date();
     const financialYear = today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1;
     const fyShort = `${String(financialYear).slice(2)}${String(financialYear + 1).slice(2)}`;
     
-    const [result] = await pool.query(
-      `SELECT COUNT(*) + 1 as seq FROM invoices 
+    // Use MAX to extract highest sequence number to avoid collisions
+    const [result] = await queryRunner.query(
+      `SELECT MAX(CAST(SUBSTRING_INDEX(invoice_number, '/', -1) AS UNSIGNED)) as max_seq 
+       FROM invoices 
        WHERE outlet_id = ? AND YEAR(invoice_date) = YEAR(CURDATE())`,
       [outletId]
     );
     
-    const seq = String(result[0].seq).padStart(6, '0');
+    const nextSeq = (result[0].max_seq || 0) + 1;
+    const seq = String(nextSeq).padStart(6, '0');
     return `INV/${fyShort}/${seq}`;
   },
 
@@ -45,13 +274,39 @@ const billingService = {
     const connection = await pool.getConnection();
 
     try {
-      await connection.beginTransaction();
-
-      // Get order with items
-      const order = await orderService.getOrderWithItems(orderId);
+      // Read order BEFORE transaction to avoid REPEATABLE READ snapshot issues
+      let order = await orderService.getOrderWithItems(orderId);
+      if (!order) {
+        // Fallback: read directly via connection BEFORE transaction starts
+        const [rows] = await connection.query(
+          `SELECT o.*, t.table_number, t.name as table_name,
+            f.name as floor_name, s.name as section_name,
+            u.name as created_by_name
+           FROM orders o
+           LEFT JOIN tables t ON o.table_id = t.id
+           LEFT JOIN floors f ON o.floor_id = f.id
+           LEFT JOIN sections s ON o.section_id = s.id
+           LEFT JOIN users u ON o.created_by = u.id
+           WHERE o.id = ?`,
+          [orderId]
+        );
+        if (rows[0]) {
+          order = rows[0];
+          const [items] = await connection.query(
+            `SELECT oi.*, i.short_name, i.image_url
+             FROM order_items oi
+             LEFT JOIN items i ON oi.item_id = i.id
+             WHERE oi.order_id = ? ORDER BY oi.id`,
+            [orderId]
+          );
+          order.items = items;
+        }
+      }
       if (!order) throw new Error('Order not found');
 
-      if (order.status === 'paid') {
+      await connection.beginTransaction();
+
+      if (order.status === 'paid' || order.status === 'completed') {
         throw new Error('Order already paid');
       }
 
@@ -62,14 +317,46 @@ const billingService = {
       );
 
       if (existingInvoice[0]) {
-        // Return existing invoice
-        return this.getInvoiceById(existingInvoice[0].id);
+        const ei = existingInvoice[0];
+        // Default: no service charge. Only apply if explicitly passed as true
+        const applyServiceCharge = data.applyServiceCharge === true;
+
+        // Rollback the transaction — we don't need it for existing invoice
+        await connection.rollback();
+
+        // Recalculate & update if service charge state needs to change
+        const currentSC = parseFloat(ei.service_charge) || 0;
+        const needsUpdate = (currentSC > 0 && !applyServiceCharge) || (currentSC === 0 && applyServiceCharge);
+
+        if (needsUpdate) {
+          const billDetails = await this.calculateBillDetails(order, { applyServiceCharge });
+          await pool.query(
+            `UPDATE invoices SET
+              service_charge = ?, grand_total = ?, round_off = ?,
+              amount_in_words = ?, tax_breakup = ?, hsn_summary = ?
+             WHERE id = ?`,
+            [
+              billDetails.serviceCharge, billDetails.grandTotal, billDetails.roundOff,
+              this.numberToWords(billDetails.grandTotal),
+              JSON.stringify(billDetails.taxBreakup), JSON.stringify(billDetails.hsnSummary),
+              ei.id
+            ]
+          );
+        }
+
+        const existingInv = await this.getInvoiceById(ei.id);
+        try {
+          await this.printBillToThermal(existingInv, order, data.generatedBy);
+        } catch (printErr) {
+          logger.error(`Reprint existing invoice ${existingInv?.invoiceNumber} failed:`, printErr.message);
+        }
+        return existingInv;
       }
 
       const {
         customerId, customerName, customerPhone, customerEmail,
         customerGstin, customerAddress, billingAddress,
-        applyServiceCharge = true, notes, termsConditions,
+        applyServiceCharge = false, notes, termsConditions,
         generatedBy
       } = data;
 
@@ -77,7 +364,7 @@ const billingService = {
       const billDetails = await this.calculateBillDetails(order, { applyServiceCharge });
 
       // Generate invoice number
-      const invoiceNumber = await this.generateInvoiceNumber(order.outlet_id);
+      const invoiceNumber = await this.generateInvoiceNumber(order.outlet_id, connection);
       const uuid = uuidv4();
       const today = new Date();
 
@@ -123,15 +410,57 @@ const billingService = {
         [generatedBy, billDetails.grandTotal, billDetails.totalTax, billDetails.serviceCharge, billDetails.roundOff, orderId]
       );
 
+      // Update table status to 'billing' when bill is generated (dine_in orders with a table)
+      if (order.table_id && order.order_type === 'dine_in') {
+        await connection.query(
+          `UPDATE tables SET status = 'billing' WHERE id = ? AND status IN ('occupied', 'running', 'billing')`,
+          [order.table_id]
+        );
+      }
+
       await connection.commit();
 
-      const invoice = await this.getInvoiceById(invoiceId);
+      // Try pool first, fall back to connection read for visibility lag
+      let invoice = await this.getInvoiceById(invoiceId);
+      if (!invoice) {
+        // Fallback: read invoice directly via connection
+        const [invRows] = await connection.query(
+          `SELECT i.*, o.order_number, o.order_type, o.table_id,
+            t.table_number, t.name as table_name
+           FROM invoices i
+           LEFT JOIN orders o ON i.order_id = o.id
+           LEFT JOIN tables t ON o.table_id = t.id
+           WHERE i.id = ?`,
+          [invoiceId]
+        );
+        if (invRows[0]) {
+          invoice = invRows[0];
+          invoice.items = order.items || [];
+          invoice.discounts = [];
+          invoice.payments = [];
+          invoice = formatInvoice(invoice);
+        }
+      }
+
+      // Emit table status update to 'billing' for real-time floor view
+      if (order.table_id && order.order_type === 'dine_in') {
+        await publishMessage('table:update', {
+          outletId: order.outlet_id,
+          tableId: order.table_id,
+          floorId: order.floor_id,
+          status: 'billing',
+          event: 'bill_generated',
+          timestamp: new Date().toISOString()
+        });
+      }
 
       // Emit order update event
       await publishMessage('order:update', {
         type: 'order:billed',
         outletId: order.outlet_id,
         orderId,
+        tableId: order.table_id,
+        captainId: order.created_by,
         invoice,
         timestamp: new Date().toISOString()
       });
@@ -142,6 +471,7 @@ const billingService = {
         orderId,
         tableId: order.table_id,
         tableNumber: order.table_number,
+        captainId: order.created_by,
         invoiceId,
         invoiceNumber,
         billStatus: 'pending',
@@ -149,36 +479,11 @@ const billingService = {
         timestamp: new Date().toISOString()
       });
 
-      // Create print job for bill
+      // Print bill to thermal printer
       try {
-        await printerService.printBill({
-          outletId: order.outlet_id,
-          orderId,
-          invoiceId,
-          invoiceNumber,
-          outletName: order.outlet_name || 'Restaurant',
-          outletAddress: order.outlet_address,
-          outletGstin: order.outlet_gstin,
-          tableNumber: order.table_number,
-          date: today.toLocaleDateString('en-IN'),
-          time: today.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
-          items: order.items.filter(i => i.status !== 'cancelled').map(item => ({
-            itemName: item.item_name,
-            quantity: item.quantity,
-            unitPrice: parseFloat(item.unit_price).toFixed(2),
-            totalPrice: parseFloat(item.total_price).toFixed(2)
-          })),
-          subtotal: billDetails.subtotal.toFixed(2),
-          taxes: billDetails.taxBreakup,
-          serviceCharge: billDetails.serviceCharge > 0 ? billDetails.serviceCharge.toFixed(2) : null,
-          discount: billDetails.discountAmount > 0 ? billDetails.discountAmount.toFixed(2) : null,
-          grandTotal: billDetails.grandTotal.toFixed(2),
-          paymentMode: null, // Will be updated when payment is made
-          isDuplicate: false,
-          openDrawer: false
-        }, generatedBy);
+        await this.printBillToThermal(invoice, order, generatedBy);
       } catch (printError) {
-        logger.error(`Failed to create print job for invoice ${invoiceNumber}:`, printError);
+        logger.error(`Bill print failed for ${invoiceNumber}:`, printError.message);
       }
 
       return invoice;
@@ -195,7 +500,7 @@ const billingService = {
    */
   async calculateBillDetails(order, options = {}) {
     const pool = getPool();
-    const { applyServiceCharge = true } = options;
+    const { applyServiceCharge = false } = options;
 
     let subtotal = 0;
     let cgstAmount = 0;
@@ -221,36 +526,46 @@ const billingService = {
 
         if (Array.isArray(taxDetails)) {
           for (const tax of taxDetails) {
-            const taxCode = tax.code || tax.name || 'TAX';
-            if (!taxCode || !taxBreakup[taxCode]) {
+            // DB stores componentCode/componentName; API may use code/name
+            const taxCode = tax.componentCode || tax.code || tax.componentName || tax.name || 'TAX';
+            const taxName = tax.componentName || tax.name || taxCode;
+            const taxAmt = tax.amount || (itemTotal * tax.rate / 100);
+
+            if (!taxBreakup[taxCode]) {
               taxBreakup[taxCode] = {
-                name: tax.name,
+                name: taxName,
                 rate: tax.rate,
                 taxableAmount: 0,
                 taxAmount: 0
               };
             }
             taxBreakup[taxCode].taxableAmount += itemTotal;
-            taxBreakup[taxCode].taxAmount += tax.amount || (itemTotal * tax.rate / 100);
+            taxBreakup[taxCode].taxAmount += taxAmt;
 
-            // Categorize tax
-            if (taxCode.includes('CGST')) {
-              cgstAmount += tax.amount || (itemTotal * tax.rate / 100);
-            } else if (taxCode.includes('SGST')) {
-              sgstAmount += tax.amount || (itemTotal * tax.rate / 100);
-            } else if (taxCode.includes('IGST')) {
-              igstAmount += tax.amount || (itemTotal * tax.rate / 100);
-            } else if (taxCode.includes('VAT')) {
-              vatAmount += tax.amount || (itemTotal * tax.rate / 100);
-            } else if (taxCode.includes('CESS')) {
-              cessAmount += tax.amount || (itemTotal * tax.rate / 100);
+            // Categorize tax by code
+            const codeUpper = taxCode.toUpperCase();
+            if (codeUpper.includes('CGST')) {
+              cgstAmount += taxAmt;
+            } else if (codeUpper.includes('SGST')) {
+              sgstAmount += taxAmt;
+            } else if (codeUpper.includes('IGST')) {
+              igstAmount += taxAmt;
+            } else if (codeUpper.includes('VAT')) {
+              vatAmount += taxAmt;
+            } else if (codeUpper.includes('CESS')) {
+              cessAmount += taxAmt;
             }
           }
         }
       }
     }
 
-    const totalTax = cgstAmount + sgstAmount + igstAmount + vatAmount + cessAmount;
+    // totalTax: sum from taxBreakup to ensure ALL tax types are included
+    // (even if a code doesn't match CGST/SGST/IGST/VAT/CESS categories)
+    let totalTax = 0;
+    for (const key of Object.keys(taxBreakup)) {
+      totalTax += taxBreakup[key].taxAmount;
+    }
     const discountAmount = parseFloat(order.discount_amount) || 0;
     const taxableAmount = subtotal - discountAmount;
 
@@ -308,7 +623,7 @@ const billingService = {
         t.table_number, t.name as table_name,
         u.name as generated_by_name
        FROM invoices i
-       JOIN orders o ON i.order_id = o.id
+       LEFT JOIN orders o ON i.order_id = o.id
        LEFT JOIN tables t ON o.table_id = t.id
        LEFT JOIN users u ON i.generated_by = u.id
        WHERE i.id = ?`,
@@ -319,9 +634,9 @@ const billingService = {
 
     const invoice = rows[0];
 
-    // Get order items
+    // Get order items — exclude cancelled items from bill/invoice view
     const order = await orderService.getOrderWithItems(invoice.order_id);
-    invoice.items = order.items;
+    invoice.items = (order.items || []).filter(item => item.status !== 'cancelled');
     invoice.discounts = order.discounts;
 
     // Get payments
@@ -331,7 +646,7 @@ const billingService = {
     );
     invoice.payments = payments;
 
-    return invoice;
+    return formatInvoice(invoice);
   },
 
   async getInvoiceByOrder(orderId) {
@@ -341,6 +656,61 @@ const billingService = {
       [orderId]
     );
     return rows[0] ? await this.getInvoiceById(rows[0].id) : null;
+  },
+
+  /**
+   * Get outlet info for invoice PDF / print header
+   */
+  async getOutletInfo(outletId) {
+    const pool = getPool();
+    const [rows] = await pool.query(
+      `SELECT name, CONCAT_WS(', ', address_line1, address_line2, city, state, postal_code) as address,
+        phone, email, gstin, logo_url
+       FROM outlets WHERE id = ?`,
+      [outletId]
+    );
+    return rows[0] || {};
+  },
+
+  /**
+   * Resolve invoice — tries by invoice ID first, then by order ID
+   */
+  async resolveInvoice(id) {
+    let invoice = await this.getInvoiceById(id);
+    if (!invoice) {
+      invoice = await this.getInvoiceByOrder(id);
+    }
+    if (!invoice) throw new Error('Invoice not found');
+    return invoice;
+  },
+
+  /**
+   * Generate invoice PDF stream
+   * @param {number} id - Invoice ID or Order ID
+   * @returns {{ pdfStream, invoice, filename }}
+   */
+  async generateInvoicePDF(id) {
+    const invoice = await this.resolveInvoice(id);
+
+    const outlet = await this.getOutletInfo(invoice.outletId);
+    const { generateInvoicePDF } = require('../utils/invoice-pdf');
+
+    const pdfStream = generateInvoicePDF(invoice, outlet);
+    const filename = `${invoice.invoiceNumber.replace(/\//g, '-')}.pdf`;
+
+    return { pdfStream, invoice, filename };
+  },
+
+  /**
+   * Print invoice to thermal printer (after payment or on demand)
+   * @param {number} id - Invoice ID or Order ID
+   * @param {number} userId
+   */
+  async printInvoice(id, userId) {
+    const invoice = await this.resolveInvoice(id);
+
+    await this.printBillToThermal(invoice, { outlet_id: invoice.outletId }, userId);
+    return invoice;
   },
 
   // ========================
@@ -371,6 +741,13 @@ const billingService = {
     invoice.isDuplicate = true;
     invoice.duplicateNumber = duplicateNumber;
 
+    // Print duplicate bill to thermal printer using shared helper
+    try {
+      await this.printBillToThermal(invoice, { outlet_id: invoice.outletId }, userId);
+    } catch (printError) {
+      logger.error(`Duplicate bill #${duplicateNumber} print failed for ${invoice.invoiceNumber}:`, printError.message);
+    }
+
     return invoice;
   },
 
@@ -400,7 +777,7 @@ const billingService = {
         const splitOrder = { ...order, items: splitItems };
         const billDetails = await this.calculateBillDetails(splitOrder, { applyServiceCharge: false });
 
-        const invoiceNumber = await this.generateInvoiceNumber(order.outlet_id);
+        const invoiceNumber = await this.generateInvoiceNumber(order.outlet_id, connection);
         const uuid = uuidv4();
         const today = new Date();
 
@@ -461,7 +838,7 @@ const billingService = {
     const invoice = await this.getInvoiceById(invoiceId);
     if (!invoice) throw new Error('Invoice not found');
 
-    if (invoice.payment_status === 'paid') {
+    if (invoice.paymentStatus === 'paid') {
       throw new Error('Cannot cancel paid invoice');
     }
 
@@ -475,10 +852,457 @@ const billingService = {
     // Revert order status
     await pool.query(
       `UPDATE orders SET status = 'served' WHERE id = ?`,
-      [invoice.order_id]
+      [invoice.orderId]
     );
 
+    // Emit bill cancelled event
+    await publishMessage('bill:status', {
+      outletId: invoice.outletId,
+      orderId: invoice.orderId,
+      invoiceId,
+      invoiceNumber: invoice.invoiceNumber,
+      billStatus: 'cancelled',
+      reason,
+      timestamp: new Date().toISOString()
+    });
+
     return { success: true, message: 'Invoice cancelled' };
+  },
+
+  // ========================
+  // PENDING BILLS — Cashier real-time view
+  // ========================
+
+  /**
+   * Get all pending (unpaid) invoices for an outlet — role-aware
+   * Captain: sees only their own orders' bills
+   * Cashier/Admin/Manager: sees all bills
+   * @param {number} outletId
+   * @param {object} filters - { floorId, search, sortBy, sortOrder, page, limit, status }
+   *   status: 'pending' (default) | 'completed' | 'all'
+   * @param {object} user - { userId, roles[] } from auth token
+   */
+  async getPendingBills(outletId, filters = {}, user = {}) {
+    const pool = getPool();
+    const { floorId, search, sortBy = 'created_at', sortOrder = 'desc', status = 'pending' } = filters;
+    const page = Math.max(1, parseInt(filters.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(filters.limit) || 20));
+    const offset = (page - 1) * limit;
+
+    // Determine if user is a captain (not admin/manager/cashier/super_admin)
+    const privilegedRoles = ['admin', 'manager', 'super_admin', 'cashier'];
+    const userRoles = user.roles || [];
+    const isCaptain = !userRoles.some(r => privilegedRoles.includes(r));
+
+    let whereClause = `WHERE i.outlet_id = ? AND i.is_cancelled = 0`;
+    const params = [outletId];
+
+    // Captain sees only their own orders' bills
+    if (isCaptain && user.userId) {
+      whereClause += ` AND o.created_by = ?`;
+      params.push(user.userId);
+    }
+
+    // Status filter: pending (default), completed, or all
+    if (status === 'completed') {
+      whereClause += ` AND i.payment_status = 'paid'`;
+    } else if (status === 'all') {
+      whereClause += ` AND i.payment_status IN ('pending', 'partial', 'paid')`;
+    } else {
+      // Default: pending bills only
+      whereClause += ` AND i.payment_status IN ('pending', 'partial')`;
+    }
+
+    // Also exclude invoices whose order is cancelled
+    whereClause += ` AND (o.status IS NULL OR o.status != 'cancelled')`;
+
+    // Floor filter
+    if (floorId) {
+      whereClause += ' AND o.floor_id = ?';
+      params.push(floorId);
+    } else if (filters.floorIds && filters.floorIds.length > 0) {
+      whereClause += ` AND o.floor_id IN (${filters.floorIds.map(() => '?').join(',')})`;
+      params.push(...filters.floorIds);
+    }
+
+    // Search: table number, customer name, order number, invoice number
+    if (search) {
+      whereClause += ` AND (t.table_number LIKE ? OR i.customer_name LIKE ? OR o.order_number LIKE ? OR i.invoice_number LIKE ?)`;
+      const like = `%${search}%`;
+      params.push(like, like, like, like);
+    }
+
+    const fromClause = `FROM invoices i
+       LEFT JOIN orders o ON i.order_id = o.id
+       LEFT JOIN tables t ON o.table_id = t.id
+       LEFT JOIN floors f ON o.floor_id = f.id
+       LEFT JOIN users u ON i.generated_by = u.id`;
+
+    // Count total matching rows for pagination
+    const [countResult] = await pool.query(
+      `SELECT COUNT(*) as total ${fromClause} ${whereClause}`, params
+    );
+    const total = countResult[0].total;
+    const totalPages = Math.ceil(total / limit);
+
+    // Sort
+    const allowedSorts = {
+      created_at: 'i.created_at',
+      grand_total: 'i.grand_total',
+      table_number: 't.table_number',
+      invoice_number: 'i.invoice_number',
+      order_number: 'o.order_number'
+    };
+    const sortCol = allowedSorts[sortBy] || 'i.created_at';
+    const order = sortOrder?.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+
+    const dataQuery = `SELECT i.*, o.order_number, o.order_type, o.table_id, o.floor_id,
+        t.table_number, t.name as table_name,
+        f.name as floor_name,
+        u.name as generated_by_name
+       ${fromClause} ${whereClause}
+       ORDER BY ${sortCol} ${order}
+       LIMIT ? OFFSET ?`;
+
+    const [rows] = await pool.query(dataQuery, [...params, limit, offset]);
+
+    // Attach items (excluding cancelled), discounts, payments for each invoice
+    const invoices = [];
+    for (const row of rows) {
+      const ord = await orderService.getOrderWithItems(row.order_id);
+      // Filter out cancelled items — cashier should not see them on the bill
+      row.items = (ord?.items || []).filter(item => item.status !== 'cancelled');
+      row.discounts = ord?.discounts || [];
+      const [payments] = await pool.query(
+        'SELECT * FROM payments WHERE invoice_id = ?', [row.id]
+      );
+      row.payments = payments;
+      invoices.push(formatInvoice(row));
+    }
+
+    return {
+      data: invoices,
+      pagination: { page, limit, total, totalPages }
+    };
+  },
+
+  // ========================
+  // CAPTAIN BILLS — Captain sees only their own orders' bills
+  // ========================
+
+  /**
+   * Get captain's own bills (pending/completed/all)
+   * Filters by orders created_by = captainId (captain's own orders)
+   * @param {number} captainId
+   * @param {number} outletId
+   * @param {object} filters - { status, search, page, limit, sortBy, sortOrder }
+   */
+  async getCaptainBills(captainId, outletId, filters = {}) {
+    const pool = getPool();
+    const { search, sortBy = 'created_at', sortOrder = 'desc', status = 'pending' } = filters;
+    const page = Math.max(1, parseInt(filters.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(filters.limit) || 20));
+    const offset = (page - 1) * limit;
+
+    let whereClause = `WHERE i.outlet_id = ? AND i.is_cancelled = 0 AND o.created_by = ?`;
+    const params = [outletId, captainId];
+
+    // Status filter
+    if (status === 'completed') {
+      whereClause += ` AND i.payment_status = 'paid'`;
+    } else if (status === 'all') {
+      whereClause += ` AND i.payment_status IN ('pending', 'partial', 'paid')`;
+    } else {
+      whereClause += ` AND i.payment_status IN ('pending', 'partial')`;
+    }
+
+    whereClause += ` AND (o.status IS NULL OR o.status != 'cancelled')`;
+
+    // Floor restriction for captain/cashier
+    if (filters.floorIds && filters.floorIds.length > 0) {
+      whereClause += ` AND o.floor_id IN (${filters.floorIds.map(() => '?').join(',')})`;
+      params.push(...filters.floorIds);
+    }
+
+    if (search) {
+      whereClause += ` AND (t.table_number LIKE ? OR o.order_number LIKE ? OR i.invoice_number LIKE ?)`;
+      const like = `%${search}%`;
+      params.push(like, like, like);
+    }
+
+    const fromClause = `FROM invoices i
+       LEFT JOIN orders o ON i.order_id = o.id
+       LEFT JOIN tables t ON o.table_id = t.id
+       LEFT JOIN floors f ON o.floor_id = f.id`;
+
+    // Count
+    const [countResult] = await pool.query(
+      `SELECT COUNT(*) as total ${fromClause} ${whereClause}`, params
+    );
+    const total = countResult[0].total;
+    const totalPages = Math.ceil(total / limit);
+
+    // Sort
+    const allowedSorts = {
+      created_at: 'i.created_at',
+      grand_total: 'i.grand_total',
+      table_number: 't.table_number'
+    };
+    const sortCol = allowedSorts[sortBy] || 'i.created_at';
+    const order = sortOrder?.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+
+    const [rows] = await pool.query(
+      `SELECT i.*, o.order_number, o.order_type, o.table_id, o.floor_id,
+        t.table_number, t.name as table_name,
+        f.name as floor_name
+       ${fromClause} ${whereClause}
+       ORDER BY ${sortCol} ${order}
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+
+    // Attach items (excluding cancelled) for each invoice
+    const invoices = [];
+    for (const row of rows) {
+      const ord = await orderService.getOrderWithItems(row.order_id);
+      row.items = (ord?.items || []).filter(item => item.status !== 'cancelled');
+      row.discounts = ord?.discounts || [];
+      const [payments] = await pool.query(
+        'SELECT * FROM payments WHERE invoice_id = ?', [row.id]
+      );
+      row.payments = payments;
+      invoices.push(formatInvoice(row));
+    }
+
+    return {
+      data: invoices,
+      pagination: { page, limit, total, totalPages }
+    };
+  },
+
+  // ========================
+  // UPDATE INVOICE CHARGES — Remove/restore service charge & GST
+  // ========================
+
+  /**
+   * Update invoice: toggle service charge, toggle GST, recalculate
+   * @param {number} invoiceId
+   * @param {object} options - { removeServiceCharge, removeGst }
+   * @param {number} userId
+   */
+  async updateInvoiceCharges(invoiceId, options, userId) {
+    const pool = getPool();
+
+    const invoice = await this.getInvoiceById(invoiceId);
+    if (!invoice) throw new Error('Invoice not found');
+    if (invoice.paymentStatus === 'paid') throw new Error('Cannot modify paid invoice');
+    if (invoice.isCancelled) throw new Error('Cannot modify cancelled invoice');
+
+    const { removeServiceCharge = false, removeGst = false, customerGstin } = options;
+
+    // When removing GST, customer GSTIN is mandatory
+    if (removeGst && !customerGstin) {
+      throw new Error('Customer GSTIN is required when removing GST');
+    }
+
+    // Re-fetch order to recalculate from scratch
+    const order = await orderService.getOrderWithItems(invoice.orderId);
+    if (!order) throw new Error('Order not found');
+
+    // Recalculate bill with toggled options
+    const applyServiceCharge = !removeServiceCharge;
+    const billDetails = await this.calculateBillDetails(order, { applyServiceCharge });
+
+    // If removeGst, zero out all taxes
+    let finalTax = billDetails.totalTax;
+    let finalCgst = billDetails.cgstAmount;
+    let finalSgst = billDetails.sgstAmount;
+    let finalIgst = billDetails.igstAmount;
+    let finalVat = billDetails.vatAmount;
+    let finalCess = billDetails.cessAmount;
+    let finalTaxBreakup = billDetails.taxBreakup;
+
+    if (removeGst) {
+      finalTax = 0;
+      finalCgst = 0;
+      finalSgst = 0;
+      finalIgst = 0;
+      finalVat = 0;
+      finalCess = 0;
+      finalTaxBreakup = {};
+    }
+
+    const finalServiceCharge = removeServiceCharge ? 0 : billDetails.serviceCharge;
+    const preRoundTotal = billDetails.taxableAmount + finalTax + finalServiceCharge
+      + billDetails.packagingCharge + billDetails.deliveryCharge;
+    const grandTotal = Math.round(preRoundTotal);
+    const roundOff = parseFloat((grandTotal - preRoundTotal).toFixed(2));
+
+    // Build update query — include customer_gstin when removing GST
+    let updateQuery = `UPDATE invoices SET
+        cgst_amount = ?, sgst_amount = ?, igst_amount = ?, vat_amount = ?, cess_amount = ?,
+        total_tax = ?, service_charge = ?, round_off = ?, grand_total = ?,
+        amount_in_words = ?, tax_breakup = ?`;
+    const updateParams = [
+      finalCgst, finalSgst, finalIgst, finalVat, finalCess,
+      finalTax, finalServiceCharge, roundOff, grandTotal,
+      this.numberToWords(grandTotal), JSON.stringify(finalTaxBreakup)
+    ];
+
+    if (removeGst && customerGstin) {
+      updateQuery += ', customer_gstin = ?';
+      updateParams.push(customerGstin);
+    }
+
+    updateQuery += ', updated_at = NOW() WHERE id = ?';
+    updateParams.push(invoiceId);
+
+    await pool.query(updateQuery, updateParams);
+
+    // Update order totals to match
+    await pool.query(
+      `UPDATE orders SET total_amount = ?, tax_amount = ?, service_charge = ?, round_off = ? WHERE id = ?`,
+      [grandTotal, finalTax, finalServiceCharge, roundOff, invoice.orderId]
+    );
+
+    const updatedInvoice = await this.getInvoiceById(invoiceId);
+
+    // Get captainId from order for real-time filtering
+    const orderForEvent = await orderService.getById(invoice.orderId);
+
+    // Emit bill updated event for real-time
+    await publishMessage('bill:status', {
+      outletId: invoice.outletId,
+      orderId: invoice.orderId,
+      tableId: invoice.tableId,
+      tableNumber: invoice.tableNumber,
+      captainId: orderForEvent?.created_by || null,
+      invoiceId,
+      invoiceNumber: invoice.invoiceNumber,
+      billStatus: 'updated',
+      grandTotal,
+      removeServiceCharge,
+      removeGst,
+      timestamp: new Date().toISOString()
+    });
+
+    return updatedInvoice;
+  },
+
+  // ========================
+  // DISCOUNT BY CODE — Validate from discounts master table
+  // ========================
+
+  /**
+   * Apply discount using a discount code from the discounts master table
+   */
+  async applyDiscountByCode(orderId, discountCode, userId) {
+    const pool = getPool();
+
+    const order = await orderService.getOrderWithItems(orderId);
+    if (!order) throw new Error('Order not found');
+
+    if (['paid', 'completed', 'cancelled'].includes(order.status)) {
+      throw new Error(`Cannot apply discount — order is ${order.status}`);
+    }
+
+    // Lookup discount code in discounts master
+    const [discRows] = await pool.query(
+      `SELECT * FROM discounts WHERE code = ? AND outlet_id = ? AND is_active = 1`,
+      [discountCode, order.outlet_id]
+    );
+
+    if (!discRows[0]) throw new Error('Invalid discount code');
+
+    const disc = discRows[0];
+
+    // Check validity dates
+    const now = new Date();
+    if (disc.valid_from && now < new Date(disc.valid_from)) {
+      throw new Error('Discount code is not yet valid');
+    }
+    if (disc.valid_until && now > new Date(disc.valid_until)) {
+      throw new Error('Discount code has expired');
+    }
+
+    // Check usage limit
+    if (disc.usage_limit && disc.usage_count >= disc.usage_limit) {
+      throw new Error('Discount code usage limit reached');
+    }
+
+    // Check minimum order amount
+    const subtotal = parseFloat(order.subtotal) || 0;
+    if (disc.min_order_amount && subtotal < parseFloat(disc.min_order_amount)) {
+      throw new Error(`Minimum order amount of ₹${disc.min_order_amount} required`);
+    }
+
+    // Check if already applied on this order
+    const [existing] = await pool.query(
+      'SELECT id FROM order_discounts WHERE order_id = ? AND discount_code = ?',
+      [orderId, discountCode]
+    );
+    if (existing[0]) throw new Error('Discount code already applied on this order');
+
+    // Calculate discount amount
+    let discountAmount = 0;
+    const discountType = disc.discount_type === 'bill_level' ? 'flat'
+      : disc.discount_type === 'item_level' ? 'flat'
+      : disc.discount_type;
+
+    if (discountType === 'percentage') {
+      discountAmount = (subtotal * parseFloat(disc.value)) / 100;
+      // Cap at max_discount_amount if set
+      if (disc.max_discount_amount && discountAmount > parseFloat(disc.max_discount_amount)) {
+        discountAmount = parseFloat(disc.max_discount_amount);
+      }
+    } else {
+      discountAmount = parseFloat(disc.value);
+    }
+
+    // Don't discount more than subtotal
+    if (discountAmount > subtotal) {
+      discountAmount = subtotal;
+    }
+
+    discountAmount = parseFloat(discountAmount.toFixed(2));
+
+    // Insert order_discount record
+    await pool.query(
+      `INSERT INTO order_discounts (
+        order_id, discount_id, discount_code, discount_name,
+        discount_type, discount_value, discount_amount, applied_on,
+        created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'subtotal', ?)`,
+      [
+        orderId, disc.id, discountCode, disc.name,
+        discountType, parseFloat(disc.value), discountAmount, userId
+      ]
+    );
+
+    // Increment usage count
+    await pool.query(
+      'UPDATE discounts SET usage_count = usage_count + 1 WHERE id = ?',
+      [disc.id]
+    );
+
+    // Recalculate order totals
+    await orderService.recalculateTotals(orderId);
+
+    // If invoice exists, recalculate it
+    await this.recalculateInvoiceAfterDiscount(orderId);
+
+    const updatedOrder = await orderService.getOrderWithItems(orderId);
+    return {
+      order: updatedOrder,
+      appliedDiscount: {
+        discountName: disc.name,
+        discountCode: discountCode,
+        discountType: discountType,
+        discountValue: parseFloat(disc.value),
+        discountAmount,
+        appliedOn: 'subtotal'
+      }
+    };
   },
 
   // ========================
@@ -486,7 +1310,54 @@ const billingService = {
   // ========================
 
   /**
-   * Apply discount to order
+   * Get all discounts applied to an order
+   */
+  async getOrderDiscounts(orderId) {
+    const pool = getPool();
+
+    const order = await orderService.getById(orderId);
+    if (!order) throw new Error('Order not found');
+
+    const [discounts] = await pool.query(
+      `SELECT od.*, u.name as created_by_name, a.name as approved_by_name
+       FROM order_discounts od
+       LEFT JOIN users u ON od.created_by = u.id
+       LEFT JOIN users a ON od.approved_by = a.id
+       WHERE od.order_id = ?
+       ORDER BY od.created_at DESC`,
+      [orderId]
+    );
+
+    // Summary
+    const totalDiscount = discounts.reduce((sum, d) => sum + parseFloat(d.discount_amount), 0);
+
+    return {
+      orderId: parseInt(orderId),
+      orderNumber: order.order_number,
+      subtotal: parseFloat(order.subtotal) || 0,
+      totalDiscount: parseFloat(totalDiscount.toFixed(2)),
+      discountCount: discounts.length,
+      discounts: discounts.map(d => ({
+        id: d.id,
+        discountName: d.discount_name,
+        discountType: d.discount_type,
+        discountValue: parseFloat(d.discount_value),
+        discountAmount: parseFloat(d.discount_amount),
+        discountCode: d.discount_code || null,
+        appliedOn: d.applied_on,
+        orderItemId: d.order_item_id || null,
+        createdBy: d.created_by,
+        createdByName: d.created_by_name,
+        approvedBy: d.approved_by,
+        approvedByName: d.approved_by_name,
+        approvalReason: d.approval_reason,
+        createdAt: d.created_at
+      }))
+    };
+  },
+
+  /**
+   * Apply manual discount to order (percentage or fixed)
    */
   async applyDiscount(orderId, data, userId) {
     const pool = getPool();
@@ -495,37 +1366,178 @@ const billingService = {
       appliedOn = 'subtotal', orderItemId, approvedBy, approvalReason
     } = data;
 
-    const order = await orderService.getById(orderId);
+    const order = await orderService.getOrderWithItems(orderId);
     if (!order) throw new Error('Order not found');
 
-    // Calculate discount amount
+    // Status check — can't discount paid/cancelled orders
+    if (['paid', 'completed', 'cancelled'].includes(order.status)) {
+      throw new Error(`Cannot apply discount — order is ${order.status}`);
+    }
+
+    const subtotal = parseFloat(order.subtotal) || 0;
+    if (subtotal <= 0) throw new Error('Order has no billable amount');
+
+    // Validate percentage range
+    if (discountType === 'percentage' && discountValue > 100) {
+      throw new Error('Percentage discount cannot exceed 100%');
+    }
+
+    // Calculate base amount and discount
+    let baseAmount = subtotal;
     let discountAmount = 0;
+
+    if (appliedOn === 'item' && orderItemId) {
+      const item = order.items?.find(i => i.id === parseInt(orderItemId) && i.status !== 'cancelled');
+      if (!item) throw new Error('Order item not found or cancelled');
+      baseAmount = parseFloat(item.total_price) || 0;
+    }
+
     if (discountType === 'percentage') {
-      const base = appliedOn === 'item' && orderItemId
-        ? (await pool.query('SELECT total_price FROM order_items WHERE id = ?', [orderItemId]))[0][0]?.total_price || 0
-        : order.subtotal;
-      discountAmount = (base * discountValue) / 100;
+      discountAmount = (baseAmount * discountValue) / 100;
     } else {
       discountAmount = discountValue;
     }
 
-    await pool.query(
+    // Cap: discount cannot exceed base amount
+    if (discountAmount > baseAmount) {
+      discountAmount = baseAmount;
+    }
+
+    // Check total discount doesn't exceed subtotal
+    const existingDiscount = parseFloat(order.discount_amount) || 0;
+    if (existingDiscount + discountAmount > subtotal) {
+      const maxAllowed = subtotal - existingDiscount;
+      throw new Error(`Discount exceeds order total. Maximum additional discount allowed: ₹${maxAllowed.toFixed(2)}`);
+    }
+
+    discountAmount = parseFloat(discountAmount.toFixed(2));
+
+    const [result] = await pool.query(
       `INSERT INTO order_discounts (
         order_id, order_item_id, discount_id, discount_code, discount_name,
         discount_type, discount_value, discount_amount, applied_on,
         approved_by, approval_reason, created_by
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        orderId, orderItemId, discountId, discountCode, discountName,
+        orderId, orderItemId || null, discountId || null, discountCode || null, discountName,
         discountType, discountValue, discountAmount, appliedOn,
-        approvedBy, approvalReason, userId
+        approvedBy || null, approvalReason || null, userId
       ]
     );
 
     // Recalculate order totals
     await orderService.recalculateTotals(orderId);
 
-    return orderService.getOrderWithItems(orderId);
+    // If invoice exists, recalculate it
+    await this.recalculateInvoiceAfterDiscount(orderId);
+
+    const updatedOrder = await orderService.getOrderWithItems(orderId);
+    return {
+      order: updatedOrder,
+      appliedDiscount: {
+        id: result.insertId,
+        discountName,
+        discountType,
+        discountValue,
+        discountAmount,
+        appliedOn,
+        orderItemId: orderItemId || null
+      }
+    };
+  },
+
+  /**
+   * Remove a discount from an order
+   */
+  async removeDiscount(orderId, discountRecordId, userId) {
+    const pool = getPool();
+
+    const order = await orderService.getById(orderId);
+    if (!order) throw new Error('Order not found');
+
+    if (['paid', 'completed', 'cancelled'].includes(order.status)) {
+      throw new Error(`Cannot remove discount — order is ${order.status}`);
+    }
+
+    // Find the discount record
+    const [discRows] = await pool.query(
+      'SELECT * FROM order_discounts WHERE id = ? AND order_id = ?',
+      [discountRecordId, orderId]
+    );
+    if (!discRows[0]) throw new Error('Discount not found on this order');
+
+    const disc = discRows[0];
+
+    // Delete the discount record
+    await pool.query('DELETE FROM order_discounts WHERE id = ?', [discountRecordId]);
+
+    // If it was a code-based discount, decrement usage count
+    if (disc.discount_id) {
+      await pool.query(
+        'UPDATE discounts SET usage_count = GREATEST(usage_count - 1, 0) WHERE id = ?',
+        [disc.discount_id]
+      );
+    }
+
+    // Recalculate order totals
+    await orderService.recalculateTotals(orderId);
+
+    // If invoice exists, recalculate it
+    await this.recalculateInvoiceAfterDiscount(orderId);
+
+    const updatedOrder = await orderService.getOrderWithItems(orderId);
+    return {
+      order: updatedOrder,
+      removedDiscount: {
+        id: disc.id,
+        discountName: disc.discount_name,
+        discountType: disc.discount_type,
+        discountValue: parseFloat(disc.discount_value),
+        discountAmount: parseFloat(disc.discount_amount),
+        discountCode: disc.discount_code || null
+      }
+    };
+  },
+
+  /**
+   * Recalculate existing invoice after discount change
+   */
+  async recalculateInvoiceAfterDiscount(orderId) {
+    const pool = getPool();
+
+    const [invoices] = await pool.query(
+      'SELECT id FROM invoices WHERE order_id = ? AND is_cancelled = 0',
+      [orderId]
+    );
+
+    if (!invoices[0]) return; // No invoice yet — nothing to recalculate
+
+    const order = await orderService.getOrderWithItems(orderId);
+    if (!order) return;
+
+    const billDetails = await this.calculateBillDetails(order, { applyServiceCharge: false });
+
+    await pool.query(
+      `UPDATE invoices SET
+        subtotal = ?, discount_amount = ?, taxable_amount = ?,
+        cgst_amount = ?, sgst_amount = ?, igst_amount = ?,
+        total_tax = ?, service_charge = ?,
+        grand_total = ?, round_off = ?,
+        amount_in_words = ?, tax_breakup = ?, hsn_summary = ?,
+        updated_at = NOW()
+       WHERE id = ?`,
+      [
+        billDetails.subtotal, billDetails.discountAmount, billDetails.taxableAmount,
+        billDetails.cgstAmount, billDetails.sgstAmount, billDetails.igstAmount,
+        billDetails.totalTax, billDetails.serviceCharge,
+        billDetails.grandTotal, billDetails.roundOff,
+        this.numberToWords(billDetails.grandTotal),
+        JSON.stringify(billDetails.taxBreakup), JSON.stringify(billDetails.hsnSummary),
+        invoices[0].id
+      ]
+    );
+
+    logger.info(`Invoice ${invoices[0].id} recalculated after discount change on order ${orderId}`);
   },
 
   // ========================

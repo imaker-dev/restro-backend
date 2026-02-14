@@ -2,8 +2,9 @@ const { getPool } = require('../database');
 const { cache, pubsub } = require('../config/redis');
 const { emit } = require('../config/socket');
 const logger = require('../utils/logger');
+const { prefixImageUrl } = require('../utils/helpers');
 
-const TABLE_STATUSES = ['available', 'occupied', 'running', 'reserved', 'billing', 'blocked'];
+const TABLE_STATUSES = ['available', 'occupied', 'running', 'reserved', 'billing', 'blocked', 'merged'];
 
 /**
  * Table Service - Comprehensive table management with real-time updates
@@ -18,7 +19,44 @@ const tableService = {
    */
   async create(data, userId) {
     const pool = getPool();
-    
+
+    // Validate floor exists and belongs to outlet
+    const [floors] = await pool.query(
+      'SELECT id FROM floors WHERE id = ? AND outlet_id = ? AND is_active = 1',
+      [data.floorId, data.outletId]
+    );
+    if (floors.length === 0) {
+      const error = new Error('Floor not found or does not belong to this outlet');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Validate section exists and is linked to the floor
+    if (data.sectionId) {
+      const [sections] = await pool.query(
+        `SELECT s.id FROM sections s
+         JOIN floor_sections fs ON s.id = fs.section_id
+         WHERE s.id = ? AND s.outlet_id = ? AND fs.floor_id = ? AND s.is_active = 1 AND fs.is_active = 1`,
+        [data.sectionId, data.outletId, data.floorId]
+      );
+      if (sections.length === 0) {
+        const error = new Error('Section not found or does not belong to this floor');
+        error.statusCode = 400;
+        throw error;
+      }
+    }
+
+    // Check duplicate table number in same outlet
+    const [existing] = await pool.query(
+      'SELECT id FROM tables WHERE outlet_id = ? AND table_number = ? AND is_active = 1',
+      [data.outletId, data.tableNumber]
+    );
+    if (existing.length > 0) {
+      const error = new Error('A table with this number already exists in this outlet');
+      error.statusCode = 409;
+      throw error;
+    }
+
     const [result] = await pool.query(
       `INSERT INTO tables (
         outlet_id, floor_id, section_id, table_number, name,
@@ -178,31 +216,68 @@ const tableService = {
           const [orders] = await pool.query(
             `SELECT o.*, 
               inv.id as invoice_id, inv.invoice_number, inv.grand_total as invoice_total,
-              p.id as payment_id, p.payment_number, p.amount as paid_amount, p.payment_mode
+              p.id as payment_id, p.payment_number, p.amount as paid_amount_completed, p.payment_mode,
+              uc.name as created_by_name, ub.name as billed_by_name, ux.name as cancelled_by_name
              FROM orders o
              LEFT JOIN invoices inv ON o.id = inv.order_id
              LEFT JOIN payments p ON o.id = p.order_id AND p.status = 'completed'
+             LEFT JOIN users uc ON o.created_by = uc.id
+             LEFT JOIN users ub ON o.billed_by = ub.id
+             LEFT JOIN users ux ON o.cancelled_by = ux.id
              WHERE o.id = ?`,
             [session.order_id]
           );
 
           if (orders[0]) {
             const order = orders[0];
+
+            // Fetch service charge config for outlet
+            let serviceChargeConfig = null;
+            try {
+              const [scRows] = await pool.query(
+                'SELECT * FROM service_charges WHERE outlet_id = ? AND is_active = 1 LIMIT 1',
+                [table.outlet_id]
+              );
+              if (scRows[0]) {
+                serviceChargeConfig = {
+                  name: scRows[0].name,
+                  rate: parseFloat(scRows[0].rate),
+                  isPercentage: !!scRows[0].is_percentage,
+                  applyOn: scRows[0].apply_on,
+                  isTaxable: !!scRows[0].is_taxable,
+                  isOptional: !!scRows[0].is_optional
+                };
+              }
+            } catch (e) {}
+
             result.order = {
               id: order.id,
               orderNumber: order.order_number,
               orderType: order.order_type,
               status: order.status,
               paymentStatus: order.payment_status,
-              subtotal: parseFloat(order.subtotal) || 0,
-              taxAmount: parseFloat(order.tax_amount) || 0,
-              discountAmount: parseFloat(order.discount_amount) || 0,
-              serviceCharge: parseFloat(order.service_charge) || 0,
+              guestCount: order.guest_count,
+              isPriority: !!order.is_priority,
+              isComplimentary: !!order.is_complimentary,
+              complimentaryReason: order.complimentary_reason,
               totalAmount: parseFloat(order.total_amount) || 0,
+              paidAmount: parseFloat(order.paid_amount) || 0,
+              dueAmount: parseFloat(order.due_amount) || 0,
+
+              // Customer info
               customerName: order.customer_name,
               customerPhone: order.customer_phone,
               specialInstructions: order.special_instructions,
-              createdAt: order.created_at
+              internalNotes: order.internal_notes,
+
+              // Audit
+              createdBy: order.created_by_name,
+              createdAt: order.created_at,
+              billedBy: order.billed_by_name,
+              billedAt: order.billed_at,
+              cancelledBy: order.cancelled_by_name,
+              cancelledAt: order.cancelled_at,
+              cancelReason: order.cancel_reason
             };
 
             // Add invoice info if exists
@@ -213,21 +288,26 @@ const tableService = {
                 grandTotal: parseFloat(order.invoice_total) || 0,
                 paymentId: order.payment_id,
                 paymentNumber: order.payment_number,
-                paidAmount: parseFloat(order.paid_amount) || 0,
+                paidAmount: parseFloat(order.paid_amount_completed) || 0,
                 paymentMode: order.payment_mode
               };
             }
 
-            // Get order items with variants and addons
+            // Get order items with variants, addons, and full pricing
             const [items] = await pool.query(
               `SELECT oi.*, 
                 i.name as item_name, i.short_name, i.image_url, i.item_type,
-                v.name as variant_name,
-                ks.name as kitchen_station_name, ks.station_type
+                i.base_price as menu_base_price,
+                v.name as variant_name, v.price as variant_menu_price,
+                ks.name as kitchen_station_name, ks.station_type,
+                tg.name as tax_group_name, tg.total_rate as tax_total_rate,
+                uc.name as cancelled_by_name
                FROM order_items oi
                JOIN items i ON oi.item_id = i.id
                LEFT JOIN variants v ON oi.variant_id = v.id
                LEFT JOIN kitchen_stations ks ON i.kitchen_station_id = ks.id
+               LEFT JOIN tax_groups tg ON oi.tax_group_id = tg.id
+               LEFT JOIN users uc ON oi.cancelled_by = uc.id
                WHERE oi.order_id = ?
                ORDER BY oi.created_at`,
               [order.id]
@@ -242,31 +322,161 @@ const tableService = {
               item.addons = addons;
             }
 
-            result.items = items.map(item => ({
+            // Build internal items with full data (for charges computation)
+            const _items = items.map(item => {
+              let taxDetails = null;
+              try { taxDetails = item.tax_details ? (typeof item.tax_details === 'string' ? JSON.parse(item.tax_details) : item.tax_details) : null; } catch (e) {}
+
+              const addonTotal = item.addons.reduce((sum, a) => sum + parseFloat(a.unit_price || 0) * (a.quantity || 1), 0);
+              const menuPrice = item.variant_id
+                ? parseFloat(item.variant_menu_price || item.menu_base_price || 0)
+                : parseFloat(item.menu_base_price || 0);
+
+              return {
+                id: item.id, itemId: item.item_id,
+                name: item.item_name, shortName: item.short_name,
+                imageUrl: prefixImageUrl(item.image_url),
+                variantId: item.variant_id, variantName: item.variant_name,
+                quantity: parseFloat(item.quantity), itemType: item.item_type,
+                menuPrice,
+                addonTotal: parseFloat(addonTotal.toFixed(2)),
+                unitPrice: parseFloat(item.unit_price),
+                totalPrice: parseFloat(item.total_price),
+                taxAmount: parseFloat(item.tax_amount || 0),
+                discountAmount: parseFloat(item.discount_amount || 0),
+                taxGroupId: item.tax_group_id,
+                taxGroupName: item.tax_group_name,
+                taxRate: item.tax_total_rate ? parseFloat(item.tax_total_rate) : null,
+                taxDetails,
+                status: item.status, kotId: item.kot_id,
+                station: item.kitchen_station_name, stationType: item.station_type,
+                specialInstructions: item.special_instructions,
+                isComplimentary: !!item.is_complimentary, complimentaryReason: item.complimentary_reason,
+                cancelReason: item.cancel_reason,
+                cancelQuantity: parseFloat(item.cancel_quantity || 0),
+                cancelledBy: item.cancelled_by_name, cancelledAt: item.cancelled_at,
+                createdAt: item.created_at,
+                addons: item.addons
+              };
+            });
+
+            // Items for response — menu-wise pricing only (no tax in item price)
+            result.items = _items.map(item => ({
               id: item.id,
-              itemId: item.item_id,
-              name: item.item_name,
-              shortName: item.short_name,
-              variantId: item.variant_id,
-              variantName: item.variant_name,
+              itemId: item.itemId,
+              name: item.name,
+              shortName: item.shortName,
+              imageUrl: item.imageUrl,
+              variantId: item.variantId,
+              variantName: item.variantName,
               quantity: item.quantity,
-              unitPrice: parseFloat(item.unit_price),
-              totalPrice: parseFloat(item.total_price),
+              itemType: item.itemType,
+              menuPrice: item.menuPrice,
+              addonTotal: item.addonTotal,
+              itemTotal: parseFloat(((item.menuPrice + item.addonTotal) * item.quantity).toFixed(2)),
               status: item.status,
-              kotStatus: item.kot_status,
-              itemType: item.item_type,
-              station: item.kitchen_station_name,
-              stationType: item.station_type,
-              specialInstructions: item.special_instructions,
-              isComplimentary: !!item.is_complimentary,
+              kotId: item.kotId,
+              station: item.station,
+              stationType: item.stationType,
+              specialInstructions: item.specialInstructions,
+              isComplimentary: item.isComplimentary,
+              complimentaryReason: item.complimentaryReason,
+              cancelReason: item.cancelReason,
+              cancelQuantity: item.cancelQuantity,
+              cancelledBy: item.cancelledBy,
+              cancelledAt: item.cancelledAt,
+              createdAt: item.createdAt,
               addons: item.addons.map(a => ({
                 id: a.addon_id,
                 name: a.addon_name,
                 groupName: a.addon_group_name,
                 price: parseFloat(a.unit_price),
-                quantity: a.quantity
+                quantity: a.quantity,
+                totalPrice: parseFloat(a.total_price || a.unit_price)
               }))
             }));
+
+            // ── Build clear order-level charges breakdown ──
+            const activeItems = _items.filter(i => i.status !== 'cancelled');
+            const cancelledItems = _items.filter(i => i.status === 'cancelled');
+
+            // itemsMenuTotal = sum of (menuPrice + addonTotal) * qty for active items
+            const itemsMenuTotal = parseFloat(
+              activeItems.reduce((s, i) => s + (i.menuPrice + i.addonTotal) * i.quantity, 0).toFixed(2)
+            );
+            const subtotal = parseFloat(order.subtotal) || 0;
+            const priceAdjustment = parseFloat((subtotal - itemsMenuTotal).toFixed(2));
+
+            // Group active items by tax group for clear tax summary
+            const taxGroupMap = {};
+            for (const item of activeItems) {
+              const gKey = item.taxGroupId || 0;
+              if (!taxGroupMap[gKey]) {
+                taxGroupMap[gKey] = {
+                  taxGroup: item.taxGroupName || 'No Tax',
+                  taxRate: item.taxRate || 0,
+                  itemCount: 0,
+                  taxableAmount: 0,
+                  components: {},
+                  totalTax: 0
+                };
+              }
+              const g = taxGroupMap[gKey];
+              g.itemCount += 1;
+              g.taxableAmount += item.totalPrice;
+              g.totalTax += item.taxAmount;
+
+              // Aggregate component-level breakdown (CGST, SGST, VAT etc)
+              if (item.taxDetails && Array.isArray(item.taxDetails)) {
+                for (const comp of item.taxDetails) {
+                  const cKey = comp.componentCode || comp.code || comp.componentName || comp.name || 'TAX';
+                  if (!g.components[cKey]) {
+                    g.components[cKey] = { name: comp.componentName || comp.name, code: cKey, rate: comp.rate, amount: 0 };
+                  }
+                  g.components[cKey].amount += parseFloat(comp.amount || 0);
+                }
+              }
+            }
+
+            // Convert to clean array
+            const taxSummary = Object.values(taxGroupMap).map(g => ({
+              taxGroup: g.taxGroup,
+              taxRate: g.taxRate,
+              itemCount: g.itemCount,
+              taxableAmount: parseFloat(g.taxableAmount.toFixed(2)),
+              components: Object.values(g.components).map(c => ({
+                name: c.name,
+                code: c.code,
+                rate: c.rate,
+                amount: parseFloat(c.amount.toFixed(2))
+              })),
+              totalTax: parseFloat(g.totalTax.toFixed(2))
+            }));
+
+            const totalTax = parseFloat(order.tax_amount) || 0;
+            const scAmount = parseFloat(order.service_charge) || 0;
+
+            result.order.charges = {
+              itemsMenuTotal,
+              priceAdjustment,
+              subtotal,
+              discount: parseFloat(order.discount_amount) || 0,
+              taxSummary,
+              totalTax,
+              serviceCharge: serviceChargeConfig ? {
+                name: serviceChargeConfig.name,
+                rate: serviceChargeConfig.rate,
+                isPercentage: serviceChargeConfig.isPercentage,
+                amount: scAmount
+              } : { name: null, rate: 0, isPercentage: false, amount: scAmount },
+              packagingCharge: parseFloat(order.packaging_charge) || 0,
+              deliveryCharge: parseFloat(order.delivery_charge) || 0,
+              roundOff: parseFloat(order.round_off) || 0,
+              grandTotal: parseFloat(order.total_amount) || 0
+            };
+
+            result.order.activeItemCount = activeItems.length;
+            result.order.cancelledItemCount = cancelledItems.length;
 
             // Get KOT tickets
             const [kots] = await pool.query(
@@ -324,11 +534,15 @@ const tableService = {
        ORDER BY created_at DESC LIMIT 10`,
       [id]
     );
-    result.timeline = history.map(h => ({
-      action: h.action,
-      details: h.details ? JSON.parse(h.details) : null,
-      timestamp: h.created_at
-    }));
+    result.timeline = history.map(h => {
+      const action = h.event_type || h.action || null;
+      let details = null;
+      const raw = h.event_data || h.details;
+      if (raw) {
+        try { details = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) {}
+      }
+      return { action, details, timestamp: h.created_at };
+    });
 
     // Add status-specific summary
     result.statusSummary = this.getStatusSummary(result);
@@ -355,17 +569,21 @@ const tableService = {
       
       case 'occupied':
       case 'running':
+        const activeItems = items.filter(i => i.status !== 'cancelled');
+        const cancelledCount = items.length - activeItems.length;
         const pendingKots = kots.filter(k => ['pending', 'preparing'].includes(k.status)).length;
         const readyKots = kots.filter(k => k.status === 'ready').length;
-        const servedItems = items.filter(i => i.kotStatus === 'served').length;
+        const servedItems = activeItems.filter(i => i.status === 'served').length;
         return {
           message: status === 'running' 
-            ? `Running - ${servedItems}/${items.length} items served` 
-            : `Occupied - ${items.length} items ordered`,
+            ? `Running - ${servedItems}/${activeItems.length} items served` 
+            : `Occupied - ${activeItems.length} active items${cancelledCount ? `, ${cancelledCount} cancelled` : ''}`,
           guestCount: session?.guestCount,
           duration: session?.duration,
           orderNumber: order?.orderNumber,
-          itemCount: items.length,
+          totalItems: items.length,
+          activeItemCount: activeItems.length,
+          cancelledItemCount: cancelledCount,
           servedItems,
           orderTotal: order?.totalAmount,
           pendingKots,
@@ -411,6 +629,9 @@ const tableService = {
     if (filters.floorId) {
       query += ' AND t.floor_id = ?';
       params.push(filters.floorId);
+    } else if (filters.floorIds && filters.floorIds.length > 0) {
+      query += ` AND t.floor_id IN (${filters.floorIds.map(() => '?').join(',')})`;
+      params.push(...filters.floorIds);
     }
 
     if (filters.sectionId) {
@@ -486,16 +707,32 @@ const tableService = {
         table.item_count = itemCount[0].count;
       }
 
-      // Get merged tables info
-      if (table.session_id) {
-        const [merges] = await pool.query(
-          `SELECT tm.*, t.table_number as merged_table_number
+      // Get merged tables info (check active merges regardless of session)
+      const [mergesAsPrimary] = await pool.query(
+        `SELECT tm.id as merge_id, tm.merged_table_id, t.table_number as merged_table_number, t.name as merged_table_name, t.capacity as merged_table_capacity
+         FROM table_merges tm
+         JOIN tables t ON tm.merged_table_id = t.id
+         WHERE tm.primary_table_id = ? AND tm.unmerged_at IS NULL`,
+        [table.id]
+      );
+      if (mergesAsPrimary.length > 0) {
+        table.mergedTables = mergesAsPrimary;
+        table.isMergedPrimary = true;
+      }
+
+      // Check if this table is merged INTO another (secondary)
+      if (table.status === 'merged') {
+        const [mergesAsSecondary] = await pool.query(
+          `SELECT tm.primary_table_id, t.table_number as primary_table_number, t.name as primary_table_name
            FROM table_merges tm
-           JOIN tables t ON tm.merged_table_id = t.id
-           WHERE tm.primary_table_id = ? AND tm.unmerged_at IS NULL`,
+           JOIN tables t ON tm.primary_table_id = t.id
+           WHERE tm.merged_table_id = ? AND tm.unmerged_at IS NULL
+           LIMIT 1`,
           [table.id]
         );
-        table.mergedTables = merges;
+        if (mergesAsSecondary.length > 0) {
+          table.mergedInto = mergesAsSecondary[0];
+        }
       }
     }
 
@@ -751,21 +988,38 @@ const tableService = {
         [userId, session.id]
       );
 
-      // Unmerge any merged tables
-      await connection.query(
-        'UPDATE table_merges SET unmerged_at = NOW(), unmerged_by = ? WHERE primary_table_id = ? AND unmerged_at IS NULL',
-        [userId, tableId]
-      );
-
-      // Update all merged tables to available (session ended)
-      await connection.query(
-        `UPDATE tables SET status = 'available' 
-         WHERE id IN (
-           SELECT merged_table_id FROM table_merges 
-           WHERE primary_table_id = ? AND unmerged_at IS NOT NULL AND unmerged_at > DATE_SUB(NOW(), INTERVAL 1 MINUTE)
-         )`,
+      // Unmerge any merged tables and restore capacity
+      const [activeMerges] = await connection.query(
+        `SELECT tm.merged_table_id, t.capacity
+         FROM table_merges tm
+         JOIN tables t ON tm.merged_table_id = t.id
+         WHERE tm.primary_table_id = ? AND tm.unmerged_at IS NULL`,
         [tableId]
       );
+
+      if (activeMerges.length > 0) {
+        // Mark merge records as unmerged
+        await connection.query(
+          'UPDATE table_merges SET unmerged_at = NOW(), unmerged_by = ? WHERE primary_table_id = ? AND unmerged_at IS NULL',
+          [userId, tableId]
+        );
+
+        // Restore secondary tables to available
+        const mergedIds = activeMerges.map(m => m.merged_table_id);
+        await connection.query(
+          'UPDATE tables SET status = "available" WHERE id IN (?)',
+          [mergedIds]
+        );
+
+        // Restore primary table capacity
+        const capacityToRemove = activeMerges.reduce((sum, m) => sum + (m.capacity || 0), 0);
+        if (capacityToRemove > 0) {
+          await connection.query(
+            'UPDATE tables SET capacity = GREATEST(1, capacity - ?) WHERE id = ?',
+            [capacityToRemove, tableId]
+          );
+        }
+      }
 
       // Update primary table to available (session ended)
       await connection.query('UPDATE tables SET status = "available" WHERE id = ?', [tableId]);
@@ -923,6 +1177,9 @@ const tableService = {
 
   /**
    * Merge tables
+   * - Secondary tables get status "merged" and are disabled for ordering
+   * - Primary table capacity = original + sum of all merged table capacities
+   * - On unmerge, everything is restored
    */
   async mergeTables(primaryTableId, tableIdsToMerge, userId) {
     const pool = getPool();
@@ -934,6 +1191,7 @@ const tableService = {
       const primaryTable = await this.getById(primaryTableId);
       if (!primaryTable) throw new Error('Primary table not found');
       if (!primaryTable.is_mergeable) throw new Error('Primary table is not mergeable');
+      if (primaryTable.status === 'merged') throw new Error('This table is already merged into another table');
 
       // Get current session
       const [sessions] = await connection.query(
@@ -941,6 +1199,8 @@ const tableService = {
         [primaryTableId]
       );
       const sessionId = sessions[0]?.id || null;
+
+      let addedCapacity = 0;
 
       for (const tableId of tableIdsToMerge) {
         const table = await this.getById(tableId);
@@ -958,8 +1218,18 @@ const tableService = {
           [primaryTableId, tableId, sessionId, userId]
         );
 
-        // Update merged table status
-        await connection.query('UPDATE tables SET status = "occupied" WHERE id = ?', [tableId]);
+        // Mark secondary table as "merged"
+        await connection.query('UPDATE tables SET status = "merged" WHERE id = ?', [tableId]);
+
+        addedCapacity += (table.capacity || 0);
+      }
+
+      // Update primary table: add merged capacity
+      if (addedCapacity > 0) {
+        await connection.query(
+          'UPDATE tables SET capacity = capacity + ? WHERE id = ?',
+          [addedCapacity, primaryTableId]
+        );
       }
 
       await connection.commit();
@@ -967,6 +1237,8 @@ const tableService = {
       // Log and broadcast
       await this.logHistory(primaryTableId, 'tables_merged', {
         mergedTableIds: tableIdsToMerge,
+        addedCapacity,
+        originalCapacity: primaryTable.capacity,
         mergedBy: userId
       });
 
@@ -989,6 +1261,8 @@ const tableService = {
 
   /**
    * Unmerge tables
+   * - Secondary tables restored to "available"
+   * - Primary table capacity reduced by the sum of merged table capacities
    */
   async unmergeTables(primaryTableId, userId) {
     const pool = getPool();
@@ -1000,32 +1274,47 @@ const tableService = {
       const primaryTable = await this.getById(primaryTableId);
       if (!primaryTable) throw new Error('Primary table not found');
 
-      // Get merged tables
+      // Get merged tables with their capacities
       const [merges] = await connection.query(
-        'SELECT merged_table_id FROM table_merges WHERE primary_table_id = ? AND unmerged_at IS NULL',
+        `SELECT tm.merged_table_id, t.capacity
+         FROM table_merges tm
+         JOIN tables t ON tm.merged_table_id = t.id
+         WHERE tm.primary_table_id = ? AND tm.unmerged_at IS NULL`,
         [primaryTableId]
       );
 
       if (merges.length === 0) throw new Error('No merged tables found');
 
-      // Unmerge all
+      // Calculate capacity to subtract
+      const capacityToRemove = merges.reduce((sum, m) => sum + (m.capacity || 0), 0);
+
+      // Unmerge all records
       await connection.query(
         'UPDATE table_merges SET unmerged_at = NOW(), unmerged_by = ? WHERE primary_table_id = ? AND unmerged_at IS NULL',
         [userId, primaryTableId]
       );
 
-      // Update merged tables to available
+      // Restore secondary tables to available
       const mergedIds = merges.map(m => m.merged_table_id);
       await connection.query(
         'UPDATE tables SET status = "available" WHERE id IN (?)',
         [mergedIds]
       );
 
+      // Restore primary table capacity
+      if (capacityToRemove > 0) {
+        await connection.query(
+          'UPDATE tables SET capacity = GREATEST(1, capacity - ?) WHERE id = ?',
+          [capacityToRemove, primaryTableId]
+        );
+      }
+
       await connection.commit();
 
       // Log and broadcast
       await this.logHistory(primaryTableId, 'tables_unmerged', {
         unmergedTableIds: mergedIds,
+        removedCapacity: capacityToRemove,
         unmergedBy: userId
       });
 

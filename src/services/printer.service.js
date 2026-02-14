@@ -358,74 +358,56 @@ const printerService = {
 
   formatKotContent(kotData) {
     const lines = [];
-    const width = 42;
-    const separator = '='.repeat(width);
-    const dash = '-'.repeat(width);
+    const w = 42;
+    const dash = '-'.repeat(w);
+    const cmd = this.getEscPosCommands();
 
-    // Header
-    lines.push(separator);
     const title = kotData.station === 'bar' ? 'BAR ORDER (BOT)' : 'KITCHEN ORDER (KOT)';
-    lines.push(this.centerText(title, width));
-    lines.push(separator);
-
-    // Order info
-    lines.push(`KOT #: ${kotData.kotNumber}`);
-    lines.push(`Table: ${kotData.tableNumber || 'Takeaway'}    Time: ${kotData.time}`);
+    lines.push(cmd.ALIGN_CENTER + cmd.BOLD_ON + title);
+    lines.push(cmd.BOLD_OFF + cmd.ALIGN_LEFT + 'KOT#: ' + kotData.kotNumber);
+    lines.push(this.padBetween('Table: ' + (kotData.tableNumber || 'Takeaway'), kotData.time || '', w));
     lines.push(dash);
 
-    // Items
     for (const item of kotData.items || []) {
-      const typeTag = item.itemType ? ` [${item.itemType.toUpperCase()}]` : '';
-      lines.push(`${item.quantity} x ${item.itemName}${typeTag}`);
-      if (item.variantName) {
-        lines.push(`   (${item.variantName})`);
-      }
-      if (item.addonsText) {
-        lines.push(`   + ${item.addonsText}`);
-      }
-      if (item.instructions) {
-        lines.push(`   >> ${item.instructions}`);
-      }
+      const tag = item.itemType ? ` [${item.itemType.toUpperCase()}]` : '';
+      lines.push(`${item.quantity} x ${item.itemName || ''}${tag}`);
+      if (item.variantName) lines.push(`  (${item.variantName})`);
+      if (item.addonsText) lines.push(`  + ${item.addonsText}`);
+      if (item.instructions) lines.push(`  >> ${item.instructions}`);
     }
 
     lines.push(dash);
-    lines.push(`Captain: ${kotData.captainName || 'N/A'}`);
-    lines.push(separator);
-    lines.push(''); // Empty line for paper feed
+    lines.push('Captain: ' + (kotData.captainName || 'N/A'));
+    lines.push(dash);
 
     return lines.join('\n');
   },
 
   formatCancelSlipContent(cancelData) {
     const lines = [];
-    const width = 42;
-    const separator = '='.repeat(width);
-    const dash = '-'.repeat(width);
+    const w = 42;
+    const dash = '-'.repeat(w);
+    const cmd = this.getEscPosCommands();
 
-    lines.push(separator);
-    lines.push(this.centerText('*** CANCEL ***', width));
-    lines.push(separator);
-
-    lines.push(`Order #: ${cancelData.orderNumber || 'N/A'}`);
-    lines.push(`Table: ${cancelData.tableNumber || 'Takeaway'}    Time: ${cancelData.time}`);
-    if (cancelData.kotNumber) {
-      lines.push(`KOT #: ${cancelData.kotNumber}`);
-    }
+    lines.push(cmd.ALIGN_CENTER + cmd.BOLD_ON + '*** CANCEL ***');
+    lines.push(cmd.BOLD_OFF + cmd.ALIGN_LEFT + 'Order#: ' + (cancelData.orderNumber || 'N/A'));
+    lines.push(this.padBetween(
+      'Table: ' + (cancelData.tableNumber || 'Takeaway'),
+      cancelData.kotNumber ? 'KOT#: ' + cancelData.kotNumber : '', w
+    ));
+    lines.push('Time: ' + (cancelData.time || ''));
     lines.push(dash);
 
     for (const item of cancelData.items || []) {
-      const typeTag = item.itemType ? ` [${item.itemType.toUpperCase()}]` : '';
-      lines.push(`${item.quantity} x ${item.itemName}${typeTag}`);
-      if (item.variantName) {
-        lines.push(`   (${item.variantName})`);
-      }
+      const tag = item.itemType ? ` [${item.itemType.toUpperCase()}]` : '';
+      lines.push(`${item.quantity} x ${item.itemName || ''}${tag}`);
+      if (item.variantName) lines.push(`  (${item.variantName})`);
     }
 
     lines.push(dash);
-    lines.push(`Reason: ${cancelData.reason || 'N/A'}`);
-    lines.push(`Cancelled by: ${cancelData.cancelledBy || 'Staff'}`);
-    lines.push(separator);
-    lines.push('');
+    lines.push('Reason: ' + (cancelData.reason || 'N/A'));
+    lines.push('Cancelled By: ' + (cancelData.cancelledBy || 'Staff'));
+    lines.push(dash);
 
     return lines.join('\n');
   },
@@ -464,68 +446,128 @@ const printerService = {
 
   formatBillContent(billData) {
     const lines = [];
-    const width = 48;
-    const separator = '='.repeat(width);
-    const dash = '-'.repeat(width);
+    const w = 42;
+    const dash = '-'.repeat(w);
+    const cmd = this.getEscPosCommands();
 
-    // Header with outlet info
-    lines.push(separator);
-    lines.push(this.centerText(billData.outletName, width));
-    if (billData.outletAddress) {
-      lines.push(this.centerText(billData.outletAddress, width));
+    // Duplicate header (centered)
+    if (billData.isDuplicate) {
+      lines.push(cmd.ALIGN_CENTER + 'Duplicate');
+      if (billData.duplicateNumber) {
+        lines.push('Copy #' + billData.duplicateNumber);
+      }
     }
-    if (billData.outletGstin) {
-      lines.push(this.centerText(`GSTIN: ${billData.outletGstin}`, width));
-    }
-    lines.push(separator);
 
-    // Invoice info
-    lines.push(`Invoice: ${billData.invoiceNumber}`);
-    lines.push(`Date: ${billData.date}    Time: ${billData.time}`);
-    if (billData.tableNumber) {
-      lines.push(`Table: ${billData.tableNumber}`);
+    // Restaurant name (bold + double height, centered)
+    lines.push(cmd.ALIGN_CENTER + cmd.BOLD_ON + cmd.DOUBLE_HEIGHT + (billData.outletName || 'Restaurant'));
+
+    // Address, phone, gstin (centered, normal size)
+    const infoLines = [];
+    if (billData.outletAddress) infoLines.push('Add.' + billData.outletAddress);
+    if (billData.outletPhone) infoLines.push('Mob.' + billData.outletPhone);
+    if (billData.outletGstin) infoLines.push('GSTIN: ' + billData.outletGstin);
+    if (infoLines.length > 0) {
+      lines.push(cmd.NORMAL + cmd.BOLD_OFF + infoLines[0]);
+      for (let i = 1; i < infoLines.length; i++) lines.push(infoLines[i]);
+    } else {
+      lines.push(cmd.NORMAL + cmd.BOLD_OFF);
+    }
+
+    // Switch to left alignment
+    lines.push(cmd.ALIGN_LEFT + dash);
+
+    // Date/time + order type/table (order label bold)
+    const orderLabel = billData.orderType === 'dine_in'
+      ? 'Dine In: ' + (billData.tableNumber || '')
+      : (billData.orderType === 'takeaway' ? 'Takeaway' : (billData.orderType || 'Takeaway'));
+    const datePart = 'Date: ' + (billData.date || '');
+    const dateSpace = Math.max(1, w - datePart.length - orderLabel.length);
+    lines.push(datePart + ' '.repeat(dateSpace) + cmd.BOLD_ON + orderLabel + cmd.BOLD_OFF);
+    lines.push(billData.time || '');
+
+    // Cashier + bill number
+    const cashier = 'Cashier: ' + (billData.cashierName || 'Staff');
+    const billNo = 'Bill No.: ' + (billData.invoiceNumber || '');
+    if (cashier.length + billNo.length + 1 <= w) {
+      lines.push(this.padBetween(cashier, billNo, w));
+    } else {
+      lines.push(cashier);
+      lines.push(billNo);
     }
     lines.push(dash);
 
-    // Items
+    // Item column header: Item | Qty | Price | Amount
+    const cQ = 4, cP = 8, cA = 9;
+    const cN = w - cQ - cP - cA;
+    lines.push(
+      'Item'.padEnd(cN) +
+      this.rAlign('Qty.', cQ) +
+      this.rAlign('Price', cP) +
+      this.rAlign('Amount', cA)
+    );
+    lines.push(dash);
+
+    // Items (preserve original case)
+    let totalQty = 0;
     for (const item of billData.items || []) {
-      lines.push(item.itemName);
-      const qtyPrice = `   ${item.quantity} x ${item.unitPrice}`;
-      const total = item.totalPrice.toString();
-      lines.push(this.padBetween(qtyPrice, total, width));
-    }
+      const qty = parseInt(item.quantity) || 0;
+      totalQty += qty;
+      const cols =
+        this.rAlign(qty.toString(), cQ) +
+        this.rAlign(parseFloat(item.unitPrice).toFixed(2), cP) +
+        this.rAlign(parseFloat(item.totalPrice).toFixed(2), cA);
+      const name = item.itemName || '';
 
+      if (name.length <= cN) {
+        lines.push(name.padEnd(cN) + cols);
+      } else {
+        const wrapped = this.wrapText(name, cN);
+        for (let i = 0; i < wrapped.length - 1; i++) lines.push(wrapped[i]);
+        const last = wrapped[wrapped.length - 1] || '';
+        lines.push(last.padEnd(cN) + cols);
+      }
+    }
     lines.push(dash);
 
-    // Totals
-    lines.push(this.padBetween('Subtotal:', billData.subtotal, width));
+    // Total qty + subtotal
+    lines.push(this.padBetween('Total Qty: ' + totalQty, 'Sub ' + billData.subtotal, w));
 
+    // Taxes (UPPERCASE base name, strip embedded rate)
     for (const tax of billData.taxes || []) {
-      lines.push(this.padBetween(`${tax.name} (${tax.rate}%):`, tax.amount, width));
+      const baseName = (tax.name || 'Tax').replace(/\s*[\d.]+%?/g, '').trim().toUpperCase();
+      const label = baseName + '@' + tax.rate + '%';
+      lines.push(this.padBetween(label, tax.amount, w));
     }
 
+    // Service charge
     if (billData.serviceCharge) {
-      lines.push(this.padBetween('Service Charge:', billData.serviceCharge, width));
+      lines.push(this.padBetween('Service Charge:', billData.serviceCharge, w));
     }
 
+    // Discount
     if (billData.discount) {
-      lines.push(this.padBetween('Discount:', `-${billData.discount}`, width));
+      lines.push(this.padBetween('Discount:', '-' + billData.discount, w));
     }
 
     lines.push(dash);
-    lines.push(this.padBetween('GRAND TOTAL:', billData.grandTotal, width, true));
-    lines.push(separator);
 
-    // Payment
+    // Round off
+    if (billData.roundOff && parseFloat(billData.roundOff) !== 0) {
+      lines.push(this.padBetween('Round Off', billData.roundOff, w));
+      lines.push(dash);
+    }
+
+    // Grand total (bold + double height, centered)
+    lines.push(cmd.ALIGN_CENTER + cmd.BOLD_ON + cmd.DOUBLE_HEIGHT + 'Grand Total \u20B9 ' + billData.grandTotal);
+    lines.push(cmd.NORMAL + cmd.BOLD_OFF + cmd.ALIGN_LEFT + dash);
+
+    // Payment mode
     if (billData.paymentMode) {
-      lines.push(`Payment: ${billData.paymentMode.toUpperCase()}`);
+      lines.push(cmd.ALIGN_CENTER + 'Paid: ' + billData.paymentMode.toUpperCase());
     }
 
     // Footer
-    lines.push('');
-    lines.push(this.centerText('Thank you for dining with us!', width));
-    lines.push(separator);
-    lines.push(''); // Paper feed
+    lines.push(cmd.ALIGN_CENTER + 'THANKS VISIT AGAIN');
 
     return lines.join('\n');
   },
@@ -535,10 +577,33 @@ const printerService = {
     return ' '.repeat(padding) + text;
   },
 
-  padBetween(left, right, width, bold = false) {
-    const rightStr = right.toString();
-    const padding = Math.max(1, width - left.length - rightStr.length);
-    return left + ' '.repeat(padding) + rightStr;
+  padBetween(left, right, width) {
+    const l = left.toString();
+    const r = right.toString();
+    const pad = Math.max(1, width - l.length - r.length);
+    return l + ' '.repeat(pad) + r;
+  },
+
+  rAlign(text, width) {
+    const s = text.toString();
+    return s.length >= width ? s : ' '.repeat(width - s.length) + s;
+  },
+
+  wrapText(text, maxWidth) {
+    if (text.length <= maxWidth) return [text];
+    const words = text.split(' ');
+    const result = [];
+    let line = '';
+    for (const word of words) {
+      if (line.length + word.length + (line ? 1 : 0) <= maxWidth) {
+        line += (line ? ' ' : '') + word;
+      } else {
+        if (line) result.push(line);
+        line = word.length > maxWidth ? word.substring(0, maxWidth) : word;
+      }
+    }
+    if (line) result.push(line);
+    return result.length ? result : [''];
   },
 
   // ========================
@@ -614,7 +679,7 @@ const printerService = {
     return this.createPrintJob({
       outletId: billData.outletId,
       jobType: billData.isDuplicate ? 'duplicate_bill' : 'bill',
-      station: 'cashier',
+      station: 'bill',
       orderId: billData.orderId,
       invoiceId: billData.invoiceId,
       content: this.wrapWithEscPos(content, { openDrawer: billData.openDrawer }),

@@ -27,6 +27,64 @@ const KOT_STATUS = {
   CANCELLED: 'cancelled'
 };
 
+// ========================
+// FORMAT HELPERS — clean camelCase output matching table details style
+// ========================
+
+function formatKotItem(item) {
+  return {
+    id: item.id,
+    kotId: item.kot_id,
+    orderItemId: item.order_item_id,
+    name: item.item_name,
+    variantName: item.variant_name || null,
+    itemType: item.item_type,
+    quantity: parseFloat(item.quantity) || 0,
+    addonsText: item.addons_text || null,
+    specialInstructions: item.special_instructions || null,
+    status: item.status,
+    createdAt: item.created_at,
+    addons: (item.addons || []).map(a => ({
+      name: a.addon_name,
+      price: parseFloat(a.unit_price) || 0,
+      quantity: a.quantity || 1
+    }))
+  };
+}
+
+function formatKot(kot) {
+  if (!kot) return null;
+  return {
+    id: kot.id,
+    outletId: kot.outlet_id,
+    orderId: kot.order_id,
+    kotNumber: kot.kot_number,
+    orderNumber: kot.order_number || null,
+    tableId: kot.table_id || null,
+    tableNumber: kot.table_number || null,
+    tableName: kot.table_name || null,
+    station: kot.station,
+    status: kot.status,
+    priority: kot.priority || 0,
+    notes: kot.notes || null,
+    itemCount: Number(kot.item_count) || (kot.items ? kot.items.filter(i => i.status !== 'cancelled').length : 0),
+    totalItemCount: Number(kot.total_item_count) || (kot.items ? kot.items.length : 0),
+    cancelledItemCount: Number(kot.cancelled_item_count) || 0,
+    readyCount: Number(kot.ready_count) || 0,
+    acceptedBy: kot.accepted_by_name || kot.accepted_by || null,
+    acceptedAt: kot.accepted_at || null,
+    readyAt: kot.ready_at || null,
+    servedAt: kot.served_at || null,
+    servedBy: kot.served_by || null,
+    cancelledBy: kot.cancelled_by || null,
+    cancelledAt: kot.cancelled_at || null,
+    cancelReason: kot.cancel_reason || null,
+    createdBy: kot.created_by,
+    createdAt: kot.created_at,
+    items: (kot.items || []).map(formatKotItem)
+  };
+}
+
 const kotService = {
   STATION_TYPES,
   KOT_STATUS,
@@ -174,6 +232,14 @@ const kotService = {
         );
       }
 
+      // Update table status to 'running' when KOT is sent (dine_in orders with a table)
+      if (order.table_id && order.order_type === 'dine_in') {
+        await connection.query(
+          `UPDATE tables SET status = 'running' WHERE id = ? AND status IN ('occupied', 'running')`,
+          [order.table_id]
+        );
+      }
+
       await connection.commit();
 
       // Emit realtime events for each station and print KOT
@@ -220,6 +286,18 @@ const kotService = {
             logger.error(`Fallback print job also failed for KOT ${ticket.kotNumber}:`, fallbackError);
           }
         }
+      }
+
+      // Emit table status update to 'running' for real-time floor view
+      if (order.table_id && order.order_type === 'dine_in') {
+        await publishMessage('table:update', {
+          outletId: order.outlet_id,
+          tableId: order.table_id,
+          floorId: order.floor_id,
+          status: 'running',
+          event: 'kot_sent',
+          timestamp: new Date().toISOString()
+        });
       }
 
       // Emit order update
@@ -301,7 +379,7 @@ const kotService = {
     );
 
     const kot = await this.getKotById(kotId);
-    await this.emitKotUpdate(kot.outlet_id, kot, 'kot:accepted');
+    if (kot) await this.emitKotUpdate(kot.outletId, kot, 'kot:accepted');
 
     return kot;
   },
@@ -338,12 +416,13 @@ const kotService = {
       const kot = await this.getKotById(kotId);
 
       // Update order status
-      await pool.query(
-        `UPDATE orders SET status = 'preparing' WHERE id = ? AND status != 'preparing'`,
-        [kot.order_id]
-      );
-
-      await this.emitKotUpdate(kot.outlet_id, kot, 'kot:preparing');
+      if (kot) {
+        await pool.query(
+          `UPDATE orders SET status = 'preparing' WHERE id = ? AND status != 'preparing'`,
+          [kot.orderId]
+        );
+        await this.emitKotUpdate(kot.outletId, kot, 'kot:preparing');
+      }
 
       return kot;
     } catch (error) {
@@ -406,7 +485,7 @@ const kotService = {
       await connection.commit();
 
       const kot = await this.getKotById(kotItem.kot_id);
-      await this.emitKotUpdate(kot.outlet_id, kot, 'kot:item_ready');
+      if (kot) await this.emitKotUpdate(kot.outletId, kot, 'kot:item_ready');
 
       // Emit to captain/waiter
       await publishMessage('order:update', {
@@ -462,10 +541,10 @@ const kotService = {
       await connection.commit();
 
       const kot = await this.getKotById(kotId);
-      await this.emitKotUpdate(kot.outlet_id, kot, 'kot:ready');
-
-      // Check if all order items are ready
-      await this.checkOrderReadyStatus(kot.order_id);
+      if (kot) {
+        await this.emitKotUpdate(kot.outletId, kot, 'kot:ready');
+        await this.checkOrderReadyStatus(kot.orderId);
+      }
 
       return kot;
     } catch (error) {
@@ -514,10 +593,10 @@ const kotService = {
       await connection.commit();
 
       const kot = await this.getKotById(kotId);
-      await this.emitKotUpdate(kot.outlet_id, kot, 'kot:served');
-
-      // Check if all order items are served
-      await this.checkOrderServedStatus(kot.order_id);
+      if (kot) {
+        await this.emitKotUpdate(kot.outletId, kot, 'kot:served');
+        await this.checkOrderServedStatus(kot.orderId);
+      }
 
       return kot;
     } catch (error) {
@@ -542,7 +621,7 @@ const kotService = {
 
     if (pending[0].count === 0) {
       await pool.query(
-        `UPDATE orders SET status = 'ready' WHERE id = ? AND status NOT IN ('ready', 'served', 'billed', 'paid')`,
+        `UPDATE orders SET status = 'ready' WHERE id = ? AND status NOT IN ('ready', 'served', 'billed', 'paid', 'completed')`,
         [orderId]
       );
 
@@ -570,7 +649,7 @@ const kotService = {
 
     if (pending[0].count === 0) {
       await pool.query(
-        `UPDATE orders SET status = 'served' WHERE id = ? AND status NOT IN ('served', 'billed', 'paid')`,
+        `UPDATE orders SET status = 'served' WHERE id = ? AND status NOT IN ('served', 'billed', 'paid', 'completed')`,
         [orderId]
       );
 
@@ -593,7 +672,7 @@ const kotService = {
     const [rows] = await pool.query(
       `SELECT kt.*, o.order_number, o.table_id, t.table_number
        FROM kot_tickets kt
-       JOIN orders o ON kt.order_id = o.id
+       LEFT JOIN orders o ON kt.order_id = o.id
        LEFT JOIN tables t ON o.table_id = t.id
        WHERE kt.id = ?`,
       [id]
@@ -609,18 +688,52 @@ const kotService = {
       [id]
     );
 
-    // Enrich items with addons from order_item_addons
+    // Batch-load addons for all items (avoids N+1)
+    const orderItemIds = items.map(i => i.order_item_id).filter(Boolean);
+    let addonsMap = {};
+    if (orderItemIds.length > 0) {
+      const [allAddons] = await pool.query(
+        'SELECT order_item_id, addon_name, unit_price, quantity FROM order_item_addons WHERE order_item_id IN (?)',
+        [orderItemIds]
+      );
+      for (const a of allAddons) {
+        if (!addonsMap[a.order_item_id]) addonsMap[a.order_item_id] = [];
+        addonsMap[a.order_item_id].push(a);
+      }
+    }
     for (const item of items) {
-      const [addons] = await pool.query(
+      item.addons = addonsMap[item.order_item_id] || [];
+    }
+
+    kot.items = items;
+
+    return formatKot(kot);
+  },
+
+  // Fallback: read KOT via a specific connection (avoids pool visibility lag)
+  async _getKotByIdViaConnection(connection, id) {
+    const [rows] = await connection.query(
+      `SELECT kt.*, o.order_number, o.table_id, t.table_number
+       FROM kot_tickets kt
+       LEFT JOIN orders o ON kt.order_id = o.id
+       LEFT JOIN tables t ON o.table_id = t.id
+       WHERE kt.id = ?`,
+      [id]
+    );
+    if (!rows[0]) return null;
+    const kot = rows[0];
+    const [items] = await connection.query(
+      'SELECT * FROM kot_items WHERE kot_id = ? ORDER BY id', [id]
+    );
+    for (const item of items) {
+      const [addons] = await connection.query(
         'SELECT addon_name, unit_price, quantity FROM order_item_addons WHERE order_item_id = ?',
         [item.order_item_id]
       );
       item.addons = addons;
     }
-
     kot.items = items;
-
-    return kot;
+    return formatKot(kot);
   },
 
   /**
@@ -628,8 +741,9 @@ const kotService = {
    * @param {number} outletId - Outlet ID
    * @param {string} station - Station filter (kitchen, bar, mocktail, dessert)
    * @param {string|string[]} status - Status filter (pending, accepted, preparing, ready) or array of statuses
+   * @param {number[]} floorIds - Floor restriction (empty = no restriction)
    */
-  async getActiveKots(outletId, station = null, status = null) {
+  async getActiveKots(outletId, station = null, status = null, floorIds = []) {
     const pool = getPool();
     let query = `
       SELECT kt.*, o.order_number, o.table_id,
@@ -644,6 +758,12 @@ const kotService = {
       WHERE kt.outlet_id = ?
     `;
     const params = [outletId];
+
+    // Floor restriction
+    if (floorIds && floorIds.length > 0) {
+      query += ` AND t.floor_id IN (${floorIds.map(() => '?').join(',')})`;
+      params.push(...floorIds);
+    }
 
     // Status filter - if provided, filter by specific status(es), otherwise exclude served/cancelled
     if (status) {
@@ -666,26 +786,36 @@ const kotService = {
 
     const [kots] = await pool.query(query, params);
 
-    // Get items for each KOT with addons
-    for (const kot of kots) {
-      const [items] = await pool.query(
-        'SELECT * FROM kot_items WHERE kot_id = ? ORDER BY id',
-        [kot.id]
+    // Batch-load all KOT items and addons (avoids N+1)
+    const kotIds = kots.map(k => k.id);
+    if (kotIds.length > 0) {
+      const [allItems] = await pool.query(
+        'SELECT * FROM kot_items WHERE kot_id IN (?) ORDER BY id',
+        [kotIds]
       );
-
-      // Enrich items with addons from order_item_addons
-      for (const item of items) {
-        const [addons] = await pool.query(
-          'SELECT addon_name, unit_price, quantity FROM order_item_addons WHERE order_item_id = ?',
-          [item.order_item_id]
+      const allOrderItemIds = allItems.map(i => i.order_item_id).filter(Boolean);
+      let addonsMap = {};
+      if (allOrderItemIds.length > 0) {
+        const [allAddons] = await pool.query(
+          'SELECT order_item_id, addon_name, unit_price, quantity FROM order_item_addons WHERE order_item_id IN (?)',
+          [allOrderItemIds]
         );
-        item.addons = addons;
+        for (const a of allAddons) {
+          if (!addonsMap[a.order_item_id]) addonsMap[a.order_item_id] = [];
+          addonsMap[a.order_item_id].push(a);
+        }
       }
-
-      kot.items = items;
+      for (const item of allItems) {
+        item.addons = addonsMap[item.order_item_id] || [];
+      }
+      for (const kot of kots) {
+        kot.items = allItems.filter(i => i.kot_id === kot.id);
+      }
+    } else {
+      for (const kot of kots) { kot.items = []; }
     }
 
-    return kots;
+    return kots.map(formatKot);
   },
 
   /**
@@ -698,25 +828,49 @@ const kotService = {
       [orderId]
     );
 
-    for (const kot of kots) {
-      const [items] = await pool.query(
-        'SELECT * FROM kot_items WHERE kot_id = ?',
-        [kot.id]
+    // Batch-load all KOT items and addons (avoids N+1)
+    const kotIds = kots.map(k => k.id);
+    if (kotIds.length > 0) {
+      const [allItems] = await pool.query(
+        'SELECT * FROM kot_items WHERE kot_id IN (?) ORDER BY id',
+        [kotIds]
       );
-      kot.items = items;
+      const allOrderItemIds = allItems.map(i => i.order_item_id).filter(Boolean);
+      let addonsMap = {};
+      if (allOrderItemIds.length > 0) {
+        const [allAddons] = await pool.query(
+          'SELECT order_item_id, addon_name, unit_price, quantity FROM order_item_addons WHERE order_item_id IN (?)',
+          [allOrderItemIds]
+        );
+        for (const a of allAddons) {
+          if (!addonsMap[a.order_item_id]) addonsMap[a.order_item_id] = [];
+          addonsMap[a.order_item_id].push(a);
+        }
+      }
+      for (const item of allItems) {
+        item.addons = addonsMap[item.order_item_id] || [];
+      }
+      for (const kot of kots) {
+        kot.items = allItems.filter(i => i.kot_id === kot.id);
+      }
+    } else {
+      for (const kot of kots) { kot.items = []; }
     }
 
-    return kots;
+    return kots.map(formatKot);
   },
 
   /**
    * Get station dashboard data
+   * @param {number} outletId
+   * @param {string} station
+   * @param {number[]} floorIds - Floor restriction (empty = no restriction)
    */
-  async getStationDashboard(outletId, station) {
+  async getStationDashboard(outletId, station, floorIds = []) {
     const pool = getPool();
 
-    // Get active KOTs
-    const activeKots = await this.getActiveKots(outletId, station);
+    // Get active KOTs (pass floor restriction)
+    const activeKots = await this.getActiveKots(outletId, station, null, floorIds);
 
     // Get stats
     const [stats] = await pool.query(
@@ -810,21 +964,21 @@ const kotService = {
 
     // Print the KOT with REPRINT label
     try {
-      const printer = await this.getPrinterForStation(kot.outlet_id, kot.station);
+      const printer = await this.getPrinterForStation(kot.outletId, kot.station);
       if (printer) {
         const printService = require('./print.service');
         await printService.printKot(updatedKot, printer, { isReprint: true });
-        logger.info(`KOT ${kot.kot_number} reprinted to ${printer.name}`);
+        logger.info(`KOT ${kot.kotNumber} reprinted to ${printer.name}`);
       }
     } catch (printError) {
       logger.error(`Failed to print KOT reprint: ${printError.message}`);
     }
 
     // Emit reprint event to kitchen for real-time update
-    await this.emitKotUpdate(kot.outlet_id, {
+    await this.emitKotUpdate(kot.outletId, {
       ...updatedKot,
-      reprinted_by: userId,
-      reprint_count: updatedKot.printed_count
+      reprintedBy: userId,
+      reprintCount: updatedKot.printedCount
     }, 'kot:reprinted');
 
     return updatedKot;

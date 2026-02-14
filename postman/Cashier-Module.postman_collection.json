@@ -1,0 +1,1496 @@
+{
+  "info": {
+    "name": "Cashier Module - Complete Workflow",
+    "description": "Comprehensive Postman collection for Cashier POS operations.\n\n## Workflow Order\n1. Authentication (Login + Start Shift)\n2. Dashboard & Tables\n3. Dine-In Order Flow\n4. Takeaway Order Flow\n5. Card Payment Flow\n6. Split Payment Flow\n7. Print Operations\n8. Reports\n9. Shift Close & Logout\n\n## Environment Variables Required\n- `baseUrl`: API base URL (e.g., http://localhost:3000/api/v1)\n- `outletId`: Target outlet ID\n- `cashierEmail`: Cashier email\n- `cashierPassword`: Cashier password\n- `cashierPin`: Cashier PIN (optional)\n\n## Auto-set Variables\n- `accessToken`: Set after login\n- `userId`: Set after login\n- `orderId`, `tableId`, `invoiceId`: Set during workflows\n\n---\n\n## WebSocket Realtime Events\n\n### Socket Rooms (Client Joins)\n| Role | Event | Room |\n|------|-------|------|\n| Cashier | `join:cashier` | `cashier:{outletId}` |\n| Captain | `join:captain` | `captain:{outletId}` |\n| Kitchen | `join:kitchen` | `kitchen:{outletId}` |\n\n### Bill Status Events (`bill:status`)\n| Status | Meaning |\n|--------|--------|\n| `pending` | Bill generated, awaiting payment |\n| `partial` | Split payment in progress |\n| `paid` | Payment complete |\n\n### Order Events (`order:updated`)\n| Type | Trigger |\n|------|--------|\n| `order:created` | New order |\n| `order:kot_sent` | KOT sent to kitchen |\n| `order:item_ready` | Item ready from kitchen |\n| `order:all_ready` | All items ready |\n| `order:all_served` | All items served |\n| `order:billed` | Bill generated |\n| `order:payment_received` | Payment collected |\n\n### KOT Events (`kot:updated`)\n| Type | Trigger |\n|------|--------|\n| `kot:sent` | New KOT created |\n| `kot:ready` | KOT fully ready |\n| `kot:item_ready` | Single item ready |\n| `kot:served` | KOT served |\n\n### Who Listens to What\n| Event | Cashier | Captain | Kitchen |\n|-------|---------|---------|--------|\n| `order:updated` | ✅ | ✅ | ❌ |\n| `bill:status` | ✅ | ✅ | ❌ |\n| `kot:updated` | ✅ | ✅ | ✅ |\n| `item:ready` | ❌ | ✅ | ❌ |\n| `table:updated` | ✅ | ❌ | ❌ |\n\nSee `/docs/REALTIME-EVENTS.md` for full documentation.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000/api/v1" },
+    { "key": "outletId", "value": "4" },
+    { "key": "cashierEmail", "value": "cashier@demo.com" },
+    { "key": "cashierPassword", "value": "password123" },
+    { "key": "cashierPin", "value": "1234" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "1. Authentication",
+      "description": "Login and start shift",
+      "item": [
+        {
+          "name": "1.1 Login (Email + Password)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Login successful', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.data.token).to.be.a('string');",
+                  "});",
+                  "",
+                  "pm.test('User has cashier role', function() {",
+                  "    const json = pm.response.json();",
+                  "    const roles = json.data.user.roles || [];",
+                  "    pm.expect(roles.some(r => r.slug === 'cashier' || r.slug === 'admin')).to.be.true;",
+                  "});",
+                  "",
+                  "// Set environment variables",
+                  "const json = pm.response.json();",
+                  "if (json.success) {",
+                  "    pm.collectionVariables.set('accessToken', json.data.token);",
+                  "    pm.collectionVariables.set('userId', json.data.user.id);",
+                  "    console.log('Token saved, User ID:', json.data.user.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{cashierEmail}}\",\n  \"password\": \"{{cashierPassword}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "1.2 Get Current User (Verify Permissions)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('User info retrieved', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('Has required cashier permissions', function() {",
+                  "    const json = pm.response.json();",
+                  "    const perms = json.data.permissions || [];",
+                  "    const required = ['ORDER_CREATE', 'BILL_GENERATE', 'PAYMENT_COLLECT'];",
+                  "    required.forEach(p => {",
+                  "        pm.expect(perms).to.include(p, 'Missing permission: ' + p);",
+                  "    });",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/auth/me", "host": ["{{baseUrl}}"], "path": ["auth", "me"] }
+          }
+        },
+        {
+          "name": "1.3 Start Shift (Open Cash Drawer)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Shift started successfully', function() {",
+                  "    const json = pm.response.json();",
+                  "    // Either new shift opened or already open",
+                  "    pm.expect(json.success || json.message.includes('already')).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('Opening cash recorded', function() {",
+                  "    const json = pm.response.json();",
+                  "    if (json.data && json.data.opening_cash !== undefined) {",
+                  "        pm.expect(json.data.opening_cash).to.equal(5000);",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"openingCash\": 5000\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/cash-drawer/{{outletId}}/open",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "cash-drawer", "{{outletId}}", "open"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Dashboard & Tables",
+      "description": "View live stats and table status",
+      "item": [
+        {
+          "name": "2.1 Live Dashboard",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Dashboard loaded', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('Has required metrics', function() {",
+                  "    const data = pm.response.json().data;",
+                  "    pm.expect(data).to.have.property('totalOrders');",
+                  "    pm.expect(data).to.have.property('totalRevenue');",
+                  "    pm.expect(data).to.have.property('activeOrders');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/reports/{{outletId}}/dashboard",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "reports", "{{outletId}}", "dashboard"]
+            }
+          }
+        },
+        {
+          "name": "2.2 List All Tables",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Tables retrieved', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.data).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('Table has required fields', function() {",
+                  "    const tables = pm.response.json().data;",
+                  "    if (tables.length > 0) {",
+                  "        const t = tables[0];",
+                  "        pm.expect(t).to.have.property('id');",
+                  "        pm.expect(t).to.have.property('table_number');",
+                  "        pm.expect(t).to.have.property('status');",
+                  "    }",
+                  "});",
+                  "",
+                  "// Save first available table",
+                  "const tables = pm.response.json().data || [];",
+                  "const available = tables.find(t => t.status === 'available');",
+                  "if (available) {",
+                  "    pm.collectionVariables.set('tableId', available.id);",
+                  "    console.log('Selected table:', available.table_number, 'ID:', available.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/tables/outlet/{{outletId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["tables", "outlet", "{{outletId}}"]
+            }
+          }
+        },
+        {
+          "name": "2.3 Get Table Detail",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Table detail retrieved', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('Has status info', function() {",
+                  "    const data = pm.response.json().data;",
+                  "    pm.expect(data).to.have.property('status');",
+                  "    pm.expect(data).to.have.property('table_number');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/tables/{{tableId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["tables", "{{tableId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Dine-In Order Flow",
+      "description": "Complete dine-in order: create → items → KOT → bill → payment",
+      "item": [
+        {
+          "name": "3.1 Create Dine-In Order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Order created', function() {",
+                  "    pm.response.to.have.status(201);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.data.id).to.be.a('number');",
+                  "});",
+                  "",
+                  "pm.test('Order type is dine_in', function() {",
+                  "    const data = pm.response.json().data;",
+                  "    pm.expect(data.order_type).to.equal('dine_in');",
+                  "});",
+                  "",
+                  "pm.test('Table assigned', function() {",
+                  "    const data = pm.response.json().data;",
+                  "    pm.expect(data.table_id).to.be.a('number');",
+                  "});",
+                  "",
+                  "// Save order ID",
+                  "const json = pm.response.json();",
+                  "if (json.success) {",
+                  "    pm.collectionVariables.set('orderId', json.data.id);",
+                  "    pm.collectionVariables.set('orderNumber', json.data.order_number);",
+                  "    console.log('Order created:', json.data.order_number);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"outletId\": {{outletId}},\n  \"tableId\": {{tableId}},\n  \"orderType\": \"dine_in\",\n  \"guestCount\": 2\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/orders", "host": ["{{baseUrl}}"], "path": ["orders"] }
+          }
+        },
+        {
+          "name": "3.2 Get Menu Items",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Menu items retrieved', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.data.items).to.be.an('array');",
+                  "});",
+                  "",
+                  "// Save first 2 available items",
+                  "const items = pm.response.json().data.items || [];",
+                  "const available = items.filter(i => i.is_available !== false).slice(0, 2);",
+                  "if (available.length >= 2) {",
+                  "    pm.collectionVariables.set('itemId1', available[0].id);",
+                  "    pm.collectionVariables.set('itemId2', available[1].id);",
+                  "    console.log('Items:', available[0].short_name, available[1].short_name);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/items/outlet/{{outletId}}?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["items", "outlet", "{{outletId}}"],
+              "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }]
+            }
+          }
+        },
+        {
+          "name": "3.3 Add Items to Order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Items added', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('Order has items', function() {",
+                  "    const data = pm.response.json().data;",
+                  "    pm.expect(data.items).to.be.an('array');",
+                  "    pm.expect(data.items.length).to.be.at.least(1);",
+                  "});",
+                  "",
+                  "// Save first item ID for modification tests",
+                  "const items = pm.response.json().data.items || [];",
+                  "if (items.length > 0) {",
+                  "    pm.collectionVariables.set('orderItemId', items[0].id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    { \"itemId\": {{itemId1}}, \"quantity\": 2 },\n    { \"itemId\": {{itemId2}}, \"quantity\": 1, \"instructions\": \"Extra spicy\" }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/items",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "items"]
+            }
+          }
+        },
+        {
+          "name": "3.4 Update Item Quantity (Pre-KOT)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Quantity updated', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('New quantity reflected', function() {",
+                  "    const item = pm.response.json().data;",
+                  "    pm.expect(item.quantity).to.equal(3);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 3\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/items/{{orderItemId}}/quantity",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "items", "{{orderItemId}}", "quantity"]
+            }
+          }
+        },
+        {
+          "name": "3.5 Send KOT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('KOT sent', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('KOT tickets created', function() {",
+                  "    const data = pm.response.json().data;",
+                  "    pm.expect(data.tickets).to.be.an('array');",
+                  "    pm.expect(data.tickets.length).to.be.at.least(1);",
+                  "});",
+                  "",
+                  "// Save first KOT ID",
+                  "const tickets = pm.response.json().data.tickets || [];",
+                  "if (tickets.length > 0) {",
+                  "    pm.collectionVariables.set('kotId', tickets[0].id);",
+                  "    console.log('KOT ID:', tickets[0].id, 'Token:', tickets[0].token_number);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/kot",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "kot"]
+            }
+          }
+        },
+        {
+          "name": "3.6 Get Order KOTs",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('KOTs retrieved', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.data).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/kots",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "kots"]
+            }
+          }
+        },
+        {
+          "name": "3.7 Mark KOT Ready (Kitchen)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('KOT marked ready', function() {",
+                  "    const json = pm.response.json();",
+                  "    // May fail if KOT already processed",
+                  "    pm.expect(json.success || json.message).to.be.ok;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/{{kotId}}/ready",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "{{kotId}}", "ready"]
+            }
+          }
+        },
+        {
+          "name": "3.8 Mark KOT Served",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('KOT marked served', function() {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success || json.message).to.be.ok;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/{{kotId}}/served",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "{{kotId}}", "served"]
+            }
+          }
+        },
+        {
+          "name": "3.9 Generate Bill",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Bill generated', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('Invoice has required fields', function() {",
+                  "    const inv = pm.response.json().data;",
+                  "    pm.expect(inv).to.have.property('invoice_number');",
+                  "    pm.expect(inv).to.have.property('grand_total');",
+                  "    pm.expect(parseFloat(inv.grand_total)).to.be.above(0);",
+                  "});",
+                  "",
+                  "// Save invoice details",
+                  "const inv = pm.response.json().data;",
+                  "if (inv) {",
+                  "    pm.collectionVariables.set('invoiceId', inv.id);",
+                  "    pm.collectionVariables.set('grandTotal', inv.grand_total);",
+                  "    console.log('Invoice:', inv.invoice_number, 'Total:', inv.grand_total);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerName\": \"John Doe\",\n  \"customerPhone\": \"9876543210\",\n  \"applyServiceCharge\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/bill",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "bill"]
+            }
+          }
+        },
+        {
+          "name": "3.10 Generate Bill (Idempotent - Same Invoice)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Returns existing invoice (idempotent)', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    // Should return same invoice ID",
+                  "    pm.expect(json.data.id).to.equal(parseInt(pm.collectionVariables.get('invoiceId')));",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/bill",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "bill"]
+            }
+          }
+        },
+        {
+          "name": "3.11 Cash Payment (with Tip)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Payment successful', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('Payment mode is cash', function() {",
+                  "    const data = pm.response.json().data;",
+                  "    pm.expect(data.payment_mode).to.equal('cash');",
+                  "});",
+                  "",
+                  "pm.test('Tip recorded', function() {",
+                  "    const data = pm.response.json().data;",
+                  "    pm.expect(parseFloat(data.tip_amount)).to.equal(50);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": {{orderId}},\n  \"invoiceId\": {{invoiceId}},\n  \"outletId\": {{outletId}},\n  \"paymentMode\": \"cash\",\n  \"amount\": {{grandTotal}},\n  \"tipAmount\": 50\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/payment",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "payment"]
+            }
+          }
+        },
+        {
+          "name": "3.12 Verify Table Released",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Table is available', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "    const data = pm.response.json().data;",
+                  "    pm.expect(data.status).to.equal('available');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/tables/{{tableId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["tables", "{{tableId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Takeaway Order Flow",
+      "description": "Takeaway order without table assignment",
+      "item": [
+        {
+          "name": "4.1 Create Takeaway Order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Takeaway order created', function() {",
+                  "    pm.response.to.have.status(201);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('Order type is takeaway', function() {",
+                  "    const data = pm.response.json().data;",
+                  "    pm.expect(data.order_type).to.equal('takeaway');",
+                  "});",
+                  "",
+                  "pm.test('No table assigned', function() {",
+                  "    const data = pm.response.json().data;",
+                  "    pm.expect(data.table_id).to.be.null;",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.success) {",
+                  "    pm.collectionVariables.set('takeawayOrderId', json.data.id);",
+                  "    console.log('Takeaway order:', json.data.order_number);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"outletId\": {{outletId}},\n  \"orderType\": \"takeaway\",\n  \"customerName\": \"Takeaway Customer\",\n  \"customerPhone\": \"9876543210\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/orders", "host": ["{{baseUrl}}"], "path": ["orders"] }
+          }
+        },
+        {
+          "name": "4.2 Add Items",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Items added', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    { \"itemId\": {{itemId1}}, \"quantity\": 1 }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{takeawayOrderId}}/items",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{takeawayOrderId}}", "items"]
+            }
+          }
+        },
+        {
+          "name": "4.3 Send KOT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('KOT sent', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const tickets = pm.response.json().data.tickets || [];",
+                  "if (tickets.length > 0) {",
+                  "    pm.collectionVariables.set('takeawayKotId', tickets[0].id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{takeawayOrderId}}/kot",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{takeawayOrderId}}", "kot"]
+            }
+          }
+        },
+        {
+          "name": "4.4 Mark KOT Served",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('KOT served', function() {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success || json.message).to.be.ok;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/{{takeawayKotId}}/served",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "{{takeawayKotId}}", "served"]
+            }
+          }
+        },
+        {
+          "name": "4.5 Generate Bill",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Bill generated', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "});",
+                  "",
+                  "const inv = pm.response.json().data;",
+                  "if (inv) {",
+                  "    pm.collectionVariables.set('takeawayInvoiceId', inv.id);",
+                  "    pm.collectionVariables.set('takeawayTotal', inv.grand_total);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{takeawayOrderId}}/bill",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{takeawayOrderId}}", "bill"]
+            }
+          }
+        },
+        {
+          "name": "4.6 UPI Payment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('UPI payment successful', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('Payment mode is upi', function() {",
+                  "    const data = pm.response.json().data;",
+                  "    pm.expect(data.payment_mode).to.equal('upi');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": {{takeawayOrderId}},\n  \"invoiceId\": {{takeawayInvoiceId}},\n  \"outletId\": {{outletId}},\n  \"paymentMode\": \"upi\",\n  \"amount\": {{takeawayTotal}},\n  \"transactionId\": \"UPI-{{$timestamp}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/payment",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "payment"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Card Payment Flow",
+      "description": "Card payment scenario",
+      "item": [
+        {
+          "name": "5.1 Create Order for Card Payment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Order created', function() {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.success) {",
+                  "    pm.collectionVariables.set('cardOrderId', json.data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"outletId\": {{outletId}},\n  \"orderType\": \"takeaway\",\n  \"customerName\": \"Card Customer\",\n  \"customerPhone\": \"9876543211\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/orders", "host": ["{{baseUrl}}"], "path": ["orders"] }
+          }
+        },
+        {
+          "name": "5.2 Add Items + Send KOT + Serve",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": ["// Delay to avoid order number collision", ""],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Items added', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [{ \"itemId\": {{itemId1}}, \"quantity\": 1 }]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{cardOrderId}}/items",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{cardOrderId}}", "items"]
+            }
+          }
+        },
+        {
+          "name": "5.3 Send KOT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const tickets = pm.response.json().data?.tickets || [];",
+                  "if (tickets.length > 0) {",
+                  "    pm.collectionVariables.set('cardKotId', tickets[0].id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{cardOrderId}}/kot",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{cardOrderId}}", "kot"]
+            }
+          }
+        },
+        {
+          "name": "5.4 Mark Served",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/{{cardKotId}}/served",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "{{cardKotId}}", "served"]
+            }
+          }
+        },
+        {
+          "name": "5.5 Generate Bill",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const inv = pm.response.json().data;",
+                  "if (inv) {",
+                  "    pm.collectionVariables.set('cardInvoiceId', inv.id);",
+                  "    pm.collectionVariables.set('cardTotal', inv.grand_total);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{cardOrderId}}/bill",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{cardOrderId}}", "bill"]
+            }
+          }
+        },
+        {
+          "name": "5.6 Card Payment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Card payment successful', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('Payment mode is card', function() {",
+                  "    const data = pm.response.json().data;",
+                  "    pm.expect(data.payment_mode).to.equal('card');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": {{cardOrderId}},\n  \"invoiceId\": {{cardInvoiceId}},\n  \"outletId\": {{outletId}},\n  \"paymentMode\": \"card\",\n  \"amount\": {{cardTotal}},\n  \"referenceNumber\": \"CARD-{{$timestamp}}\",\n  \"cardLastFour\": \"4242\",\n  \"cardType\": \"visa\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/payment",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "payment"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Split Payment Flow",
+      "description": "Split payment across multiple modes",
+      "item": [
+        {
+          "name": "6.1 Create Order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success) {",
+                  "    pm.collectionVariables.set('splitOrderId', json.data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"outletId\": {{outletId}},\n  \"tableId\": {{tableId}},\n  \"orderType\": \"dine_in\",\n  \"guestCount\": 4\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/orders", "host": ["{{baseUrl}}"], "path": ["orders"] }
+          }
+        },
+        {
+          "name": "6.2 Add Items",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    { \"itemId\": {{itemId1}}, \"quantity\": 2 },\n    { \"itemId\": {{itemId2}}, \"quantity\": 2 }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{splitOrderId}}/items",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{splitOrderId}}", "items"]
+            }
+          }
+        },
+        {
+          "name": "6.3 Send KOT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const tickets = pm.response.json().data?.tickets || [];",
+                  "if (tickets.length > 0) {",
+                  "    pm.collectionVariables.set('splitKotId', tickets[0].id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{splitOrderId}}/kot",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{splitOrderId}}", "kot"]
+            }
+          }
+        },
+        {
+          "name": "6.4 Mark Served",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/{{splitKotId}}/served",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "{{splitKotId}}", "served"]
+            }
+          }
+        },
+        {
+          "name": "6.5 Generate Bill",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const inv = pm.response.json().data;",
+                  "if (inv) {",
+                  "    pm.collectionVariables.set('splitInvoiceId', inv.id);",
+                  "    pm.collectionVariables.set('splitTotal', inv.grand_total);",
+                  "    pm.collectionVariables.set('splitHalf', Math.floor(parseFloat(inv.grand_total) / 2));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{splitOrderId}}/bill",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{splitOrderId}}", "bill"]
+            }
+          }
+        },
+        {
+          "name": "6.6 Split Payment (Cash + UPI)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Split payment successful', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('Payment mode is split', function() {",
+                  "    const data = pm.response.json().data;",
+                  "    pm.expect(data.payment_mode).to.equal('split');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": {{splitOrderId}},\n  \"invoiceId\": {{splitInvoiceId}},\n  \"outletId\": {{outletId}},\n  \"splits\": [\n    { \"paymentMode\": \"cash\", \"amount\": {{splitHalf}} },\n    { \"paymentMode\": \"upi\", \"amount\": {{splitHalf}}, \"transactionId\": \"UPI-SPLIT-{{$timestamp}}\" }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/payment/split",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "payment", "split"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Print Operations",
+      "description": "KOT reprint and duplicate bill",
+      "item": [
+        {
+          "name": "7.1 Reprint KOT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('KOT reprint requested', function() {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success || json.message).to.be.ok;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/orders/kot/{{kotId}}/reprint",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "kot", "{{kotId}}", "reprint"]
+            }
+          }
+        },
+        {
+          "name": "7.2 Print Duplicate Bill",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Duplicate bill generated', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('Marked as duplicate', function() {",
+                  "    const data = pm.response.json().data;",
+                  "    pm.expect(data.isDuplicate).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/orders/invoice/{{invoiceId}}/duplicate",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "invoice", "{{invoiceId}}", "duplicate"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Reports",
+      "description": "All cashier reports",
+      "item": [
+        {
+          "name": "8.1 Daily Sales Report",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Report retrieved', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/reports/{{outletId}}/daily-sales",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "reports", "{{outletId}}", "daily-sales"]
+            }
+          }
+        },
+        {
+          "name": "8.2 Item Sales Report",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Report retrieved', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/reports/{{outletId}}/item-sales",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "reports", "{{outletId}}", "item-sales"]
+            }
+          }
+        },
+        {
+          "name": "8.3 Category Sales Report",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/reports/{{outletId}}/category-sales",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "reports", "{{outletId}}", "category-sales"]
+            }
+          }
+        },
+        {
+          "name": "8.4 Payment Modes Report",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/reports/{{outletId}}/payment-modes",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "reports", "{{outletId}}", "payment-modes"]
+            }
+          }
+        },
+        {
+          "name": "8.5 Tax Report",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/reports/{{outletId}}/tax",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "reports", "{{outletId}}", "tax"]
+            }
+          }
+        },
+        {
+          "name": "8.6 Hourly Sales Report",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/reports/{{outletId}}/hourly",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "reports", "{{outletId}}", "hourly"]
+            }
+          }
+        },
+        {
+          "name": "8.7 Staff Performance Report",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/reports/{{outletId}}/staff",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "reports", "{{outletId}}", "staff"]
+            }
+          }
+        },
+        {
+          "name": "8.8 Cancellations Report",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/reports/{{outletId}}/cancellations",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "reports", "{{outletId}}", "cancellations"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Cash Drawer & Shift Close",
+      "description": "End of day operations",
+      "item": [
+        {
+          "name": "9.1 Get Cash Drawer Status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status retrieved', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('Has balance info', function() {",
+                  "    const data = pm.response.json().data;",
+                  "    pm.expect(data).to.have.property('expectedCash');",
+                  "});",
+                  "",
+                  "// Save expected cash for close",
+                  "const data = pm.response.json().data;",
+                  "if (data && data.expectedCash !== undefined) {",
+                  "    pm.collectionVariables.set('expectedCash', data.expectedCash);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/cash-drawer/{{outletId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "cash-drawer", "{{outletId}}", "status"]
+            }
+          }
+        },
+        {
+          "name": "9.2 Close Shift (End of Day)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Shift closed', function() {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success || json.message).to.be.ok;",
+                  "});",
+                  "",
+                  "pm.test('Shows variance', function() {",
+                  "    const data = pm.response.json().data;",
+                  "    if (data) {",
+                  "        pm.expect(data).to.have.property('variance');",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actualCash\": {{expectedCash}},\n  \"notes\": \"Shift closed via Postman test\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/cash-drawer/{{outletId}}/close",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "cash-drawer", "{{outletId}}", "close"]
+            }
+          }
+        },
+        {
+          "name": "9.3 Logout",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Logged out', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "logout"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

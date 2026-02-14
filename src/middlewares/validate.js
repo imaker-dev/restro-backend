@@ -20,8 +20,16 @@ const validate = (schema, property = 'body') => {
         field: detail.path.join('.'),
         message: detail.message,
       }));
-      
-      return next(new ValidationError('Validation failed', errors));
+
+      // Build a human-readable summary from field errors
+      const summary = errors.map(e => `${e.field}: ${e.message}`).join('; ');
+
+      return res.status(422).json({
+        success: false,
+        status: 'fail',
+        message: `Validation failed — ${summary}`,
+        errors,
+      });
     }
 
     req[property] = value;

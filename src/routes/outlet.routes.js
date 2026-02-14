@@ -140,6 +140,13 @@ router.post('/floors/:id/sections', authorize('super_admin', 'admin', 'manager')
  */
 router.delete('/floors/:id/sections/:sectionId', authorize('super_admin', 'admin', 'manager'), outletController.unlinkSectionFromFloor);
 
+/**
+ * @route   GET /api/v1/outlets/floors/:floorId/sections
+ * @desc    Get all sections for a floor
+ * @access  Private (admin, manager)
+ */
+router.get('/floors/:floorId/sections', authorize('super_admin', 'admin', 'manager'), outletController.getSectionsByFloor);
+
 // ========================
 // Section Routes
 // ========================

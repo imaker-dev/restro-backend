@@ -215,8 +215,20 @@ const priceRuleService = {
 
   /**
    * Calculate final price after applying rules
+   * NOTE: Price rules are currently disabled — returns base price only (menu total + tax).
+   * To re-enable, uncomment the rule application logic below.
    */
   async calculatePrice(basePrice, outletId, itemId, variantId = null, context = {}) {
+    // ── Price rules DISABLED — return base price with no adjustments ──
+    const parsed = parseFloat(basePrice);
+    return {
+      basePrice: parsed,
+      finalPrice: Math.max(0, parseFloat(parsed.toFixed(2))),
+      appliedRules: [],
+      hasDiscount: false
+    };
+
+    /* ── ORIGINAL RULE LOGIC (disabled) ──
     const rules = await this.getApplicableRules(outletId, itemId, variantId, context);
 
     let finalPrice = parseFloat(basePrice);
@@ -259,6 +271,7 @@ const priceRuleService = {
       appliedRules,
       hasDiscount: finalPrice < basePrice
     };
+    */
   },
 
   // ========================

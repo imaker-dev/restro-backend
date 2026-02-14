@@ -20,7 +20,11 @@ const app = express();
 const server = http.createServer(app);
 
 // Security middleware
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  crossOriginOpenerPolicy: false,
+  crossOriginEmbedderPolicy: false,
+}));
 app.use(cors(config.cors));
 
 // Request parsing
@@ -34,6 +38,10 @@ app.use(compression());
 if (config.app.env !== 'test') {
   app.use(morgan('combined', { stream: logger.stream }));
 }
+
+// Serve uploaded files statically (with CORS headers)
+const path = require('path');
+app.use('/uploads', cors(config.cors), express.static(path.resolve(config.app.uploadPath || './uploads')));
 
 // Health check
 app.get('/health', (req, res) => {
@@ -60,7 +68,7 @@ app.use((req, res) => {
 app.use((err, req, res, next) => {
   logger.error('Unhandled error:', err);
   
-  res.status(err.status || 500).json({
+  res.status(err.statusCode || 500).json({
     success: false,
     message: config.app.env === 'production' 
       ? 'Internal server error' 

@@ -69,14 +69,26 @@ class AuthService {
     // Reset login attempts and update last login
     await this.resetLoginAttempts(user.id, deviceInfo.ip);
 
-    // Generate tokens
-    const tokens = await this.generateTokens(user, deviceInfo);
+    // Get user's outlets
+    const { outlets, outletId, outletName } = await this._getUserOutlets(user.id);
+
+    // Get assigned floors for the active outlet
+    const assignedFloors = await this._getUserFloors(user.id, outletId);
+
+    // Generate tokens with outletId
+    const tokens = await this.generateTokens(user, { ...deviceInfo, outletId });
 
     // Log successful login
     await this.logAuthActivity(user.id, 'login', deviceInfo, { method: 'email' });
 
     return {
-      user: this.sanitizeUser(user),
+      user: {
+        ...this.sanitizeUser(user),
+        outletId,
+        outletName,
+        outlets,
+        assignedFloors,
+      },
       ...tokens,
     };
   }
@@ -133,14 +145,32 @@ class AuthService {
     // Reset login attempts
     await this.resetLoginAttempts(user.id, deviceInfo.ip);
 
+    // Get user's outlets (PIN login passes a specific outletId)
+    const userOutlets = await this._getUserOutlets(user.id);
+
+    // For PIN login the outletId passed by caller is the active one
+    let activeOutletId = outletId || userOutlets.outletId;
+    let activeOutletName = null;
+    const match = userOutlets.outlets.find(o => o.id === activeOutletId);
+    activeOutletName = match ? match.name : userOutlets.outletName;
+
+    // Get assigned floors for the active outlet
+    const assignedFloors = await this._getUserFloors(user.id, activeOutletId);
+
     // Generate tokens (shorter expiry for PIN login)
-    const tokens = await this.generateTokens(user, { ...deviceInfo, outletId }, true);
+    const tokens = await this.generateTokens(user, { ...deviceInfo, outletId: activeOutletId }, true);
 
     // Log successful login
-    await this.logAuthActivity(user.id, 'login', deviceInfo, { method: 'pin', outletId });
+    await this.logAuthActivity(user.id, 'login', deviceInfo, { method: 'pin', outletId: activeOutletId });
 
     return {
-      user: this.sanitizeUser(user),
+      user: {
+        ...this.sanitizeUser(user),
+        outletId: activeOutletId,
+        outletName: activeOutletName,
+        outlets: userOutlets.outlets,
+        assignedFloors,
+      },
       ...tokens,
     };
   }
@@ -274,15 +304,23 @@ class AuthService {
 
     const user = users[0];
 
-    // Get roles with outlet info
-    const [roles] = await pool.query(
-      `SELECT r.id, r.name, r.slug, ur.outlet_id, o.name as outlet_name
+    // Get roles with outlet info (deduplicate by role slug + outlet_id)
+    const [rawRoles] = await pool.query(
+      `SELECT DISTINCT r.id, r.name, r.slug, ur.outlet_id, o.name as outlet_name
        FROM user_roles ur
        JOIN roles r ON ur.role_id = r.id
        LEFT JOIN outlets o ON ur.outlet_id = o.id
        WHERE ur.user_id = ? AND ur.is_active = 1 AND r.is_active = 1`,
       [userId]
     );
+    // Deduplicate roles by slug + outlet_id
+    const seen = new Set();
+    const roles = rawRoles.filter(r => {
+      const key = `${r.slug}:${r.outlet_id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 
     // Get permissions
     const [permissions] = await pool.query(
@@ -294,8 +332,18 @@ class AuthService {
       [userId]
     );
 
+    // Get user's outlets (array + primary)
+    const { outlets, outletId, outletName } = await this._getUserOutlets(userId);
+
+    // Get assigned floors for the active outlet
+    const assignedFloors = await this._getUserFloors(userId, outletId);
+
     const result = {
       ...this.sanitizeUser(user),
+      outletId,
+      outletName,
+      outlets,
+      assignedFloors,
       roles: roles.map(r => ({
         id: r.id,
         name: r.name,
@@ -562,6 +610,94 @@ class AuthService {
     } catch (error) {
       logger.error('Failed to log auth activity:', error);
     }
+  }
+
+  /**
+   * Get all outlets a user has access to + determine primary outlet.
+   * Staff: outlets from user_roles. Admin/global: all active outlets.
+   * Primary outlet: from most recent session, else first in list.
+   */
+  async _getUserOutlets(userId) {
+    const pool = getPool();
+
+    // Get outlets assigned via roles
+    const [roleOutlets] = await pool.query(
+      `SELECT DISTINCT o.id, o.name
+       FROM user_roles ur
+       JOIN outlets o ON ur.outlet_id = o.id AND o.is_active = 1
+       WHERE ur.user_id = ? AND ur.is_active = 1 AND ur.outlet_id IS NOT NULL
+       ORDER BY o.id`,
+      [userId]
+    );
+
+    let outlets;
+    if (roleOutlets.length > 0) {
+      outlets = roleOutlets;
+    } else {
+      // Global role (super_admin) — all active outlets
+      const [allOutlets] = await pool.query(
+        `SELECT id, name FROM outlets WHERE is_active = 1 ORDER BY id`
+      );
+      outlets = allOutlets;
+    }
+
+    if (outlets.length === 0) {
+      return { outlets: [], outletId: null, outletName: null };
+    }
+
+    // Determine primary outlet from most recent session
+    let outletId = outlets[0].id;
+    let outletName = outlets[0].name;
+
+    const [lastSession] = await pool.query(
+      `SELECT us.outlet_id, o.name as outlet_name
+       FROM user_sessions us
+       JOIN outlets o ON us.outlet_id = o.id AND o.is_active = 1
+       WHERE us.user_id = ? AND us.outlet_id IS NOT NULL
+       ORDER BY us.created_at DESC LIMIT 1`,
+      [userId]
+    );
+    if (lastSession.length > 0) {
+      // Use last session outlet only if it's in the user's allowed list
+      const match = outlets.find(o => o.id === lastSession[0].outlet_id);
+      if (match) {
+        outletId = match.id;
+        outletName = match.name;
+      }
+    }
+
+    return {
+      outlets: outlets.map(o => ({ id: o.id, name: o.name })),
+      outletId,
+      outletName,
+    };
+  }
+
+  /**
+   * Get assigned floors for a user (for login / me responses)
+   */
+  async _getUserFloors(userId, outletId = null) {
+    const pool = getPool();
+    let query = `SELECT uf.floor_id, uf.outlet_id, uf.is_primary,
+                        f.name as floor_name, f.floor_number, f.code as floor_code
+                 FROM user_floors uf
+                 JOIN floors f ON uf.floor_id = f.id AND f.is_active = 1
+                 WHERE uf.user_id = ? AND uf.is_active = 1`;
+    const params = [userId];
+    if (outletId) {
+      query += ' AND uf.outlet_id = ?';
+      params.push(outletId);
+    }
+    query += ' ORDER BY uf.is_primary DESC, f.display_order, f.floor_number';
+    const [rows] = await pool.query(query, params);
+    return rows.map(r => ({
+      floorId: r.floor_id,
+      floorName: r.floor_name,
+      floorNumber: r.floor_number,
+      floorCode: r.floor_code,
+      outletId: r.outlet_id,
+      isPrimary: !!r.is_primary,
+    }));
   }
 
   sanitizeUser(user) {

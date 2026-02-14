@@ -9,6 +9,7 @@ const billingService = require('../services/billing.service');
 const paymentService = require('../services/payment.service');
 const reportsService = require('../services/reports.service');
 const userService = require('../services/user.service');
+const { getUserFloorIds } = require('../utils/helpers');
 const logger = require('../utils/logger');
 
 const orderController = {
@@ -45,8 +46,10 @@ const orderController = {
   async getActiveOrders(req, res) {
     try {
       const { outletId } = req.params;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
       const filters = {
         floorId: req.query.floorId,
+        floorIds: !req.query.floorId && floorIds.length > 0 ? floorIds : undefined,
         status: req.query.status,
         tableId: req.query.tableId,
         createdBy: req.query.createdBy
@@ -56,6 +59,35 @@ const orderController = {
     } catch (error) {
       logger.error('Get active orders error:', error);
       res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  async getPendingTakeawayOrders(req, res) {
+    try {
+      const filters = {
+        search: req.query.search,
+        sortBy: req.query.sortBy,
+        sortOrder: req.query.sortOrder,
+        page: req.query.page,
+        limit: req.query.limit,
+        status: req.query.status
+      };
+      const result = await orderService.getPendingTakeawayOrders(req.params.outletId, filters);
+      res.json({ success: true, data: result.data, pagination: result.pagination });
+    } catch (error) {
+      logger.error('Get pending takeaway orders error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  async getTakeawayOrderDetail(req, res) {
+    try {
+      const result = await orderService.getTakeawayOrderDetail(req.params.id);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      logger.error('Get takeaway order detail error:', error);
+      const status = error.message.includes('not found') ? 404 : 500;
+      res.status(status).json({ success: false, message: error.message });
     }
   },
 
@@ -193,10 +225,11 @@ const orderController = {
         return res.status(400).json({ success: false, message: 'User not assigned to any outlet' });
       }
       
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
       const { station, status, includeStats } = req.query;
       // Support comma-separated status: ?status=pending,cancelled
       const statusFilter = status ? status.split(',').map(s => s.trim()) : null;
-      const kots = await kotService.getActiveKots(outletId, station, statusFilter);
+      const kots = await kotService.getActiveKots(outletId, station, statusFilter, floorIds);
       
       // Include stats if requested or if station filter is provided
       if (includeStats === 'true' || station) {
@@ -214,9 +247,10 @@ const orderController = {
   async getActiveKots(req, res) {
     try {
       const { outletId } = req.params;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
       const { station, status } = req.query;
       const statusFilter = status ? status.split(',').map(s => s.trim()) : null;
-      const kots = await kotService.getActiveKots(outletId, station, statusFilter);
+      const kots = await kotService.getActiveKots(outletId, station, statusFilter, floorIds);
       res.json({ success: true, data: kots });
     } catch (error) {
       logger.error('Get active KOTs error:', error);
@@ -311,8 +345,9 @@ const orderController = {
         return res.status(400).json({ success: false, message: 'User not assigned to any outlet' });
       }
       
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
       const { station } = req.params;
-      const dashboard = await kotService.getStationDashboard(outletId, station);
+      const dashboard = await kotService.getStationDashboard(outletId, station, floorIds);
       res.json({ success: true, data: dashboard });
     } catch (error) {
       logger.error('Get station dashboard error:', error);
@@ -323,7 +358,8 @@ const orderController = {
   async getStationDashboard(req, res) {
     try {
       const { outletId, station } = req.params;
-      const dashboard = await kotService.getStationDashboard(outletId, station);
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const dashboard = await kotService.getStationDashboard(outletId, station, floorIds);
       res.json({ success: true, data: dashboard });
     } catch (error) {
       logger.error('Get station dashboard error:', error);
@@ -347,8 +383,11 @@ const orderController = {
 
   async generateBill(req, res) {
     try {
+      const { applyServiceCharge: _sc, ...rest } = req.body || {};
       const invoice = await billingService.generateBill(req.params.id, {
-        ...req.body,
+        ...rest,
+        // Service charge always OFF — override any client value
+        applyServiceCharge: false,
         generatedBy: req.user.userId
       });
       res.json({ success: true, message: 'Bill generated', data: invoice });
@@ -381,6 +420,31 @@ const orderController = {
     } catch (error) {
       logger.error('Get invoice by order error:', error);
       res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  async downloadInvoicePDF(req, res) {
+    try {
+      const { pdfStream, invoice, filename } = await billingService.generateInvoicePDF(req.params.id);
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      pdfStream.pipe(res);
+    } catch (error) {
+      logger.error('Download invoice PDF error:', error);
+      const status = error.message === 'Invoice not found' ? 404 : 500;
+      res.status(status).json({ success: false, message: error.message });
+    }
+  },
+
+  async printInvoice(req, res) {
+    try {
+      const invoice = await billingService.printInvoice(req.params.id, req.user.userId);
+      res.json({ success: true, message: 'Invoice sent to printer', data: invoice });
+    } catch (error) {
+      logger.error('Print invoice error:', error);
+      const status = error.message === 'Invoice not found' ? 404 : 500;
+      res.status(status).json({ success: false, message: error.message });
     }
   },
 
@@ -426,17 +490,109 @@ const orderController = {
     }
   },
 
+  async getOrderDiscounts(req, res) {
+    try {
+      const result = await billingService.getOrderDiscounts(req.params.id);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      logger.error('Get order discounts error:', error);
+      const status = error.message.includes('not found') ? 404 : 500;
+      res.status(status).json({ success: false, message: error.message });
+    }
+  },
+
   async applyDiscount(req, res) {
     try {
-      const order = await billingService.applyDiscount(
+      const result = await billingService.applyDiscount(
         req.params.id,
         req.body,
         req.user.userId
       );
-      res.json({ success: true, message: 'Discount applied', data: order });
+      res.json({ success: true, message: 'Discount applied successfully', data: result });
     } catch (error) {
       logger.error('Apply discount error:', error);
+      const msg = error.message;
+      const status = msg.includes('not found') ? 404
+        : msg.includes('Cannot apply') || msg.includes('exceed') || msg.includes('no billable') ? 400
+        : 500;
+      res.status(status).json({ success: false, message: msg });
+    }
+  },
+
+  async applyDiscountByCode(req, res) {
+    try {
+      const result = await billingService.applyDiscountByCode(
+        req.params.id,
+        req.body.discountCode,
+        req.user.userId
+      );
+      res.json({ success: true, message: 'Discount code applied successfully', data: result });
+    } catch (error) {
+      logger.error('Apply discount by code error:', error);
+      const msg = error.message;
+      const status = msg.includes('not found') ? 404
+        : msg.includes('Invalid') || msg.includes('expired') || msg.includes('limit')
+          || msg.includes('already') || msg.includes('Minimum') || msg.includes('Cannot') ? 400
+        : 500;
+      res.status(status).json({ success: false, message: msg });
+    }
+  },
+
+  async removeDiscount(req, res) {
+    try {
+      const result = await billingService.removeDiscount(
+        req.params.id,
+        req.params.discountId,
+        req.user.userId
+      );
+      res.json({ success: true, message: 'Discount removed successfully', data: result });
+    } catch (error) {
+      logger.error('Remove discount error:', error);
+      const msg = error.message;
+      const status = msg.includes('not found') ? 404
+        : msg.includes('Cannot remove') ? 400
+        : 500;
+      res.status(status).json({ success: false, message: msg });
+    }
+  },
+
+  async getPendingBills(req, res) {
+    try {
+      const outletId = parseInt(req.params.outletId);
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const filters = {
+        floorId: req.query.floorId,
+        floorIds: !req.query.floorId && floorIds.length > 0 ? floorIds : undefined,
+        search: req.query.search,
+        sortBy: req.query.sortBy,
+        sortOrder: req.query.sortOrder,
+        page: req.query.page,
+        limit: req.query.limit,
+        status: req.query.status
+      };
+      const result = await billingService.getPendingBills(outletId, filters, {
+        userId: req.user.userId,
+        roles: req.user.roles || []
+      });
+      res.json({ success: true, data: result.data, pagination: result.pagination });
+    } catch (error) {
+      logger.error('Get pending bills error:', error);
       res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  async updateInvoiceCharges(req, res) {
+    try {
+      const invoice = await billingService.updateInvoiceCharges(
+        req.params.id,
+        req.body,
+        req.user.userId
+      );
+      res.json({ success: true, message: 'Invoice updated', data: invoice });
+    } catch (error) {
+      logger.error('Update invoice charges error:', error);
+      const status = error.message.includes('Cannot modify') || error.message.includes('GSTIN is required') ? 400 : 500;
+      res.status(status).json({ success: false, message: error.message });
     }
   },
 
@@ -446,29 +602,54 @@ const orderController = {
 
   async processPayment(req, res) {
     try {
-      const payment = await paymentService.processPayment({
+      const result = await paymentService.processPayment({
         ...req.body,
         outletId: req.body.outletId || req.user.outletId,
         receivedBy: req.user.userId
       });
-      res.json({ success: true, message: 'Payment processed', data: payment });
+
+      // Scenario-specific message
+      let message;
+      const ps = result.paymentStatus;
+      const due = result.paymentSummary?.dueAmount || 0;
+      if (ps === 'completed') {
+        message = 'Payment successful — order fully paid. Table released, KOTs served.';
+      } else if (ps === 'partial') {
+        message = `Partial payment recorded. Due amount: ₹${due.toFixed(2)}`;
+      } else {
+        message = 'Payment recorded';
+      }
+
+      res.json({ success: true, message, data: result });
     } catch (error) {
       logger.error('Process payment error:', error);
-      res.status(500).json({ success: false, message: error.message });
+      const msg = error.message;
+      const status = msg.includes('not found') ? 404
+        : msg.includes('already paid') ? 400
+        : 500;
+      res.status(status).json({ success: false, message: msg });
     }
   },
 
   async processSplitPayment(req, res) {
     try {
-      const payment = await paymentService.processSplitPayment({
+      const result = await paymentService.processSplitPayment({
         ...req.body,
         outletId: req.body.outletId || req.user.outletId,
         receivedBy: req.user.userId
       });
-      res.json({ success: true, message: 'Split payment processed', data: payment });
+      res.json({
+        success: true,
+        message: 'Split payment successful — order fully paid. Table released, KOTs served.',
+        data: result
+      });
     } catch (error) {
       logger.error('Process split payment error:', error);
-      res.status(500).json({ success: false, message: error.message });
+      const msg = error.message;
+      const status = msg.includes('not found') ? 404
+        : msg.includes('already paid') ? 400
+        : 500;
+      res.status(status).json({ success: false, message: msg });
     }
   },
 
@@ -559,7 +740,8 @@ const orderController = {
   async getLiveDashboard(req, res) {
     try {
       const { outletId } = req.params;
-      const dashboard = await reportsService.getLiveDashboard(outletId);
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const dashboard = await reportsService.getLiveDashboard(outletId, floorIds);
       res.json({ success: true, data: dashboard });
     } catch (error) {
       logger.error('Get live dashboard error:', error);
@@ -571,10 +753,33 @@ const orderController = {
     try {
       const { outletId } = req.params;
       const { startDate, endDate } = req.query;
-      const report = await reportsService.getDailySalesReport(outletId, startDate, endDate);
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const report = await reportsService.getDailySalesReport(outletId, startDate, endDate, floorIds);
       res.json({ success: true, data: report });
     } catch (error) {
       logger.error('Get daily sales report error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  async getDailySalesDetail(req, res) {
+    try {
+      const { outletId } = req.params;
+      const { startDate, endDate, page, limit, search,
+              orderType, status, paymentStatus,
+              captainName, cashierName, floorName, tableNumber,
+              sortBy, sortOrder } = req.query;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const report = await reportsService.getDailySalesDetail(outletId, startDate, endDate, {
+        page, limit, search,
+        orderType, status, paymentStatus,
+        captainName, cashierName, floorName, tableNumber,
+        sortBy, sortOrder,
+        floorIds: floorIds.length > 0 ? floorIds : undefined
+      });
+      res.json({ success: true, data: report });
+    } catch (error) {
+      logger.error('Get daily sales detail error:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   },
@@ -583,10 +788,39 @@ const orderController = {
     try {
       const { outletId } = req.params;
       const { startDate, endDate, limit } = req.query;
-      const report = await reportsService.getItemSalesReport(outletId, startDate, endDate, parseInt(limit) || 20);
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const report = await reportsService.getItemSalesReport(outletId, startDate, endDate, parseInt(limit) || 20, floorIds);
       res.json({ success: true, data: report });
     } catch (error) {
       logger.error('Get item sales report error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  async getItemSalesDetail(req, res) {
+    try {
+      const { outletId } = req.params;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const options = {
+        page: req.query.page,
+        limit: req.query.limit,
+        search: req.query.search,
+        itemType: req.query.itemType,
+        categoryName: req.query.categoryName,
+        status: req.query.status,
+        orderType: req.query.orderType,
+        floorName: req.query.floorName,
+        tableNumber: req.query.tableNumber,
+        captainName: req.query.captainName,
+        cashierName: req.query.cashierName,
+        sortBy: req.query.sortBy,
+        sortOrder: req.query.sortOrder,
+        floorIds: floorIds.length > 0 ? floorIds : undefined
+      };
+      const report = await reportsService.getItemSalesDetail(outletId, req.query.startDate, req.query.endDate, options);
+      res.json({ success: true, data: report });
+    } catch (error) {
+      logger.error('Get item sales detail error:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   },
@@ -595,7 +829,8 @@ const orderController = {
     try {
       const { outletId } = req.params;
       const { startDate, endDate } = req.query;
-      const report = await reportsService.getStaffReport(outletId, startDate, endDate);
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const report = await reportsService.getStaffReport(outletId, startDate, endDate, floorIds);
       res.json({ success: true, data: report });
     } catch (error) {
       logger.error('Get staff report error:', error);
@@ -607,10 +842,39 @@ const orderController = {
     try {
       const { outletId } = req.params;
       const { startDate, endDate } = req.query;
-      const report = await reportsService.getCategorySalesReport(outletId, startDate, endDate);
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const report = await reportsService.getCategorySalesReport(outletId, startDate, endDate, floorIds);
       res.json({ success: true, data: report });
     } catch (error) {
       logger.error('Get category sales report error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  async getCategorySalesDetail(req, res) {
+    try {
+      const { outletId } = req.params;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const options = {
+        page: req.query.page,
+        limit: req.query.limit,
+        search: req.query.search,
+        itemType: req.query.itemType,
+        categoryName: req.query.categoryName,
+        status: req.query.status,
+        orderType: req.query.orderType,
+        floorName: req.query.floorName,
+        tableNumber: req.query.tableNumber,
+        captainName: req.query.captainName,
+        cashierName: req.query.cashierName,
+        sortBy: req.query.sortBy,
+        sortOrder: req.query.sortOrder,
+        floorIds: floorIds.length > 0 ? floorIds : undefined
+      };
+      const report = await reportsService.getCategorySalesDetail(outletId, req.query.startDate, req.query.endDate, options);
+      res.json({ success: true, data: report });
+    } catch (error) {
+      logger.error('Get category sales detail error:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   },
@@ -619,10 +883,37 @@ const orderController = {
     try {
       const { outletId } = req.params;
       const { startDate, endDate } = req.query;
-      const report = await reportsService.getPaymentModeReport(outletId, startDate, endDate);
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const report = await reportsService.getPaymentModeReport(outletId, startDate, endDate, floorIds);
       res.json({ success: true, data: report });
     } catch (error) {
       logger.error('Get payment mode report error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  async getPaymentModeDetail(req, res) {
+    try {
+      const { outletId } = req.params;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const options = {
+        page: req.query.page,
+        limit: req.query.limit,
+        search: req.query.search,
+        paymentMode: req.query.paymentMode,
+        orderType: req.query.orderType,
+        floorName: req.query.floorName,
+        tableNumber: req.query.tableNumber,
+        captainName: req.query.captainName,
+        cashierName: req.query.cashierName,
+        sortBy: req.query.sortBy,
+        sortOrder: req.query.sortOrder,
+        floorIds: floorIds.length > 0 ? floorIds : undefined
+      };
+      const report = await reportsService.getPaymentModeDetail(outletId, req.query.startDate, req.query.endDate, options);
+      res.json({ success: true, data: report });
+    } catch (error) {
+      logger.error('Get payment mode detail error:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   },
@@ -631,10 +922,37 @@ const orderController = {
     try {
       const { outletId } = req.params;
       const { startDate, endDate } = req.query;
-      const report = await reportsService.getTaxReport(outletId, startDate, endDate);
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const report = await reportsService.getTaxReport(outletId, startDate, endDate, floorIds);
       res.json({ success: true, data: report });
     } catch (error) {
       logger.error('Get tax report error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  async getTaxDetail(req, res) {
+    try {
+      const { outletId } = req.params;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const options = {
+        page: req.query.page,
+        limit: req.query.limit,
+        search: req.query.search,
+        paymentStatus: req.query.paymentStatus,
+        orderType: req.query.orderType,
+        floorName: req.query.floorName,
+        tableNumber: req.query.tableNumber,
+        captainName: req.query.captainName,
+        cashierName: req.query.cashierName,
+        sortBy: req.query.sortBy,
+        sortOrder: req.query.sortOrder,
+        floorIds: floorIds.length > 0 ? floorIds : undefined
+      };
+      const report = await reportsService.getTaxDetail(outletId, req.query.startDate, req.query.endDate, options);
+      res.json({ success: true, data: report });
+    } catch (error) {
+      logger.error('Get tax detail error:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   },
@@ -643,7 +961,8 @@ const orderController = {
     try {
       const { outletId } = req.params;
       const { date } = req.query;
-      const report = await reportsService.getHourlySalesReport(outletId, date);
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const report = await reportsService.getHourlySalesReport(outletId, date, floorIds);
       res.json({ success: true, data: report });
     } catch (error) {
       logger.error('Get hourly sales report error:', error);
@@ -655,7 +974,8 @@ const orderController = {
     try {
       const { outletId } = req.params;
       const { startDate, endDate } = req.query;
-      const report = await reportsService.getFloorSectionReport(outletId, startDate, endDate);
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const report = await reportsService.getFloorSectionReport(outletId, startDate, endDate, floorIds);
       res.json({ success: true, data: report });
     } catch (error) {
       logger.error('Get floor section report error:', error);
@@ -667,10 +987,37 @@ const orderController = {
     try {
       const { outletId } = req.params;
       const { startDate, endDate } = req.query;
-      const report = await reportsService.getCounterSalesReport(outletId, startDate, endDate);
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const report = await reportsService.getCounterSalesReport(outletId, startDate, endDate, floorIds);
       res.json({ success: true, data: report });
     } catch (error) {
       logger.error('Get counter sales report error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  async getCounterSalesDetail(req, res) {
+    try {
+      const { outletId } = req.params;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const options = {
+        page: req.query.page,
+        limit: req.query.limit,
+        search: req.query.search,
+        station: req.query.station,
+        status: req.query.status,
+        orderType: req.query.orderType,
+        captainName: req.query.captainName,
+        floorName: req.query.floorName,
+        tableNumber: req.query.tableNumber,
+        sortBy: req.query.sortBy,
+        sortOrder: req.query.sortOrder,
+        floorIds: floorIds.length > 0 ? floorIds : undefined
+      };
+      const report = await reportsService.getCounterSalesDetail(outletId, req.query.startDate, req.query.endDate, options);
+      res.json({ success: true, data: report });
+    } catch (error) {
+      logger.error('Get counter sales detail error:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   },
@@ -679,10 +1026,39 @@ const orderController = {
     try {
       const { outletId } = req.params;
       const { startDate, endDate } = req.query;
-      const report = await reportsService.getCancellationReport(outletId, startDate, endDate);
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const report = await reportsService.getCancellationReport(outletId, startDate, endDate, floorIds);
       res.json({ success: true, data: report });
     } catch (error) {
       logger.error('Get cancellation report error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  async getCancellationDetail(req, res) {
+    try {
+      const { outletId } = req.params;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const options = {
+        page: req.query.page,
+        limit: req.query.limit,
+        search: req.query.search,
+        cancelType: req.query.cancelType,
+        cancelledByName: req.query.cancelledByName,
+        approvedByName: req.query.approvedByName,
+        captainName: req.query.captainName,
+        cashierName: req.query.cashierName,
+        orderType: req.query.orderType,
+        floorName: req.query.floorName,
+        tableNumber: req.query.tableNumber,
+        sortBy: req.query.sortBy,
+        sortOrder: req.query.sortOrder,
+        floorIds: floorIds.length > 0 ? floorIds : undefined
+      };
+      const report = await reportsService.getCancellationDetail(outletId, req.query.startDate, req.query.endDate, options);
+      res.json({ success: true, data: report });
+    } catch (error) {
+      logger.error('Get cancellation detail error:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   },
@@ -702,12 +1078,42 @@ const orderController = {
   },
 
   // ========================
+  // CAPTAIN BILLS
+  // ========================
+
+  async getCaptainBills(req, res) {
+    try {
+      const { outletId } = req.params;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const filters = {
+        status: req.query.status,
+        search: req.query.search,
+        page: req.query.page,
+        limit: req.query.limit,
+        sortBy: req.query.sortBy,
+        sortOrder: req.query.sortOrder,
+        floorIds: floorIds.length > 0 ? floorIds : undefined
+      };
+      const result = await billingService.getCaptainBills(
+        req.user.userId,
+        outletId,
+        filters
+      );
+      res.json({ success: true, data: result.data, pagination: result.pagination });
+    } catch (error) {
+      logger.error('Get captain bills error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  // ========================
   // CAPTAIN ORDER HISTORY
   // ========================
 
   async getCaptainOrderHistory(req, res) {
     try {
       const { outletId } = req.params;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
       const filters = {
         status: req.query.status,
         search: req.query.search || req.query.q,
@@ -716,7 +1122,8 @@ const orderController = {
         page: req.query.page,
         limit: req.query.limit,
         sortBy: req.query.sortBy,
-        sortOrder: req.query.sortOrder
+        sortOrder: req.query.sortOrder,
+        floorIds: floorIds.length > 0 ? floorIds : undefined
       };
       
       const result = await orderService.getCaptainOrderHistory(
@@ -754,9 +1161,11 @@ const orderController = {
   async getCaptainOrderStats(req, res) {
     try {
       const { outletId } = req.params;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
       const dateRange = {
         startDate: req.query.startDate,
-        endDate: req.query.endDate
+        endDate: req.query.endDate,
+        floorIds: floorIds.length > 0 ? floorIds : undefined
       };
       
       const stats = await orderService.getCaptainOrderStats(

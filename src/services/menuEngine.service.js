@@ -13,6 +13,7 @@ const addonService = require('./addon.service');
 const priceRuleService = require('./priceRule.service');
 const timeSlotService = require('./timeSlot.service');
 const taxService = require('./tax.service');
+const { prefixImageUrl } = require('../utils/helpers');
 
 const CACHE_TTL = 900; // 15 minutes
 
@@ -120,7 +121,7 @@ const menuEngineService = {
           name: item.name,
           shortName: item.short_name,
           description: item.description,
-          imageUrl: item.image_url,
+          imageUrl: prefixImageUrl(item.image_url),
           itemType: item.item_type,
           basePrice: priceResult.basePrice,
           price: priceResult.finalPrice,
@@ -175,7 +176,7 @@ const menuEngineService = {
           id: category.id,
           name: category.name,
           description: category.description,
-          imageUrl: category.image_url,
+          imageUrl: prefixImageUrl(category.image_url),
           icon: category.icon,
           colorCode: category.color_code,
           itemCount: categoryItems.length,
@@ -315,7 +316,7 @@ const menuEngineService = {
                 name: a.name,
                 price: parseFloat(a.price) || 0,
                 type: a.item_type || 'veg',
-                img: a.image_url || null
+                img: prefixImageUrl(a.image_url)
               })) || []
             }));
           }
@@ -605,7 +606,7 @@ const menuEngineService = {
         description: item.description,
         price: parseFloat(item.base_price),
         type: item.item_type,
-        img: item.image_url,
+        img: prefixImageUrl(item.image_url),
         categoryId: item.category_id,
         categoryName: item.category_name,
         taxGroupId: item.tax_group_id
@@ -703,7 +704,7 @@ const menuEngineService = {
           description: item.description,
           price: parseFloat(item.base_price),
           type: item.item_type,
-          img: item.image_url,
+          img: prefixImageUrl(item.image_url),
           taxGroupId: item.tax_group_id
         };
 
@@ -757,7 +758,7 @@ const menuEngineService = {
         description: cat.description,
         icon: cat.icon,
         color: cat.color_code,
-        img: cat.image_url,
+        img: prefixImageUrl(cat.image_url),
         matchType: 'category',
         itemCount: itemsDetail.length,
         items: itemsDetail

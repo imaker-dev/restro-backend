@@ -8,6 +8,14 @@ const itemService = require('../services/item.service');
 const addonService = require('../services/addon.service');
 const menuEngineService = require('../services/menuEngine.service');
 const logger = require('../utils/logger');
+const { prefixImageUrl } = require('../utils/helpers');
+
+// Prefix APP_URL on raw DB row(s) image_url field
+function withImageUrl(data) {
+  if (!data) return data;
+  if (Array.isArray(data)) return data.map(r => ({ ...r, image_url: prefixImageUrl(r.image_url) }));
+  return { ...data, image_url: prefixImageUrl(data.image_url) };
+}
 
 const menuController = {
   // ========================
@@ -17,7 +25,7 @@ const menuController = {
   async createCategory(req, res) {
     try {
       const category = await categoryService.create(req.body);
-      res.status(201).json({ success: true, message: 'Category created', data: category });
+      res.status(201).json({ success: true, message: 'Category created', data: withImageUrl(category) });
     } catch (error) {
       logger.error('Create category error:', error);
       res.status(500).json({ success: false, message: error.message });
@@ -29,7 +37,7 @@ const menuController = {
       const { outletId } = req.params;
       const { includeInactive } = req.query;
       const categories = await categoryService.getByOutlet(outletId, includeInactive === 'true');
-      res.json({ success: true, data: categories });
+      res.json({ success: true, data: withImageUrl(categories) });
     } catch (error) {
       logger.error('Get categories error:', error);
       res.status(500).json({ success: false, message: error.message });
@@ -42,7 +50,7 @@ const menuController = {
       if (!category) {
         return res.status(404).json({ success: false, message: 'Category not found' });
       }
-      res.json({ success: true, data: category });
+      res.json({ success: true, data: withImageUrl(category) });
     } catch (error) {
       logger.error('Get category error:', error);
       res.status(500).json({ success: false, message: error.message });
@@ -53,7 +61,7 @@ const menuController = {
     try {
       const { outletId } = req.params;
       const tree = await categoryService.getTree(outletId);
-      res.json({ success: true, data: tree });
+      res.json({ success: true, data: withImageUrl(tree) });
     } catch (error) {
       logger.error('Get category tree error:', error);
       res.status(500).json({ success: false, message: error.message });
@@ -66,7 +74,7 @@ const menuController = {
       if (!category) {
         return res.status(404).json({ success: false, message: 'Category not found' });
       }
-      res.json({ success: true, message: 'Category updated', data: category });
+      res.json({ success: true, message: 'Category updated', data: withImageUrl(category) });
     } catch (error) {
       logger.error('Update category error:', error);
       res.status(500).json({ success: false, message: error.message });
@@ -93,7 +101,7 @@ const menuController = {
   async createItem(req, res) {
     try {
       const item = await itemService.create(req.body);
-      res.status(201).json({ success: true, message: 'Item created', data: item });
+      res.status(201).json({ success: true, message: 'Item created', data: withImageUrl(item) });
     } catch (error) {
       logger.error('Create item error:', error);
       res.status(500).json({ success: false, message: error.message });
@@ -113,7 +121,7 @@ const menuController = {
         limit: req.query.limit
       };
       const items = await itemService.getByOutlet(outletId, filters);
-      res.json({ success: true, data: items });
+      res.json({ success: true, data: withImageUrl(items) });
     } catch (error) {
       logger.error('Get items error:', error);
       res.status(500).json({ success: false, message: error.message });
@@ -125,7 +133,7 @@ const menuController = {
       const { categoryId } = req.params;
       const { includeInactive } = req.query;
       const items = await itemService.getByCategory(categoryId, includeInactive === 'true');
-      res.json({ success: true, data: items });
+      res.json({ success: true, data: withImageUrl(items) });
     } catch (error) {
       logger.error('Get items by category error:', error);
       res.status(500).json({ success: false, message: error.message });
@@ -138,7 +146,7 @@ const menuController = {
       if (!item) {
         return res.status(404).json({ success: false, message: 'Item not found' });
       }
-      res.json({ success: true, data: item });
+      res.json({ success: true, data: withImageUrl(item) });
     } catch (error) {
       logger.error('Get item error:', error);
       res.status(500).json({ success: false, message: error.message });
@@ -151,7 +159,7 @@ const menuController = {
       if (!item) {
         return res.status(404).json({ success: false, message: 'Item not found' });
       }
-      res.json({ success: true, data: item });
+      res.json({ success: true, data: withImageUrl(item) });
     } catch (error) {
       logger.error('Get item details error:', error);
       res.status(500).json({ success: false, message: error.message });
@@ -164,7 +172,7 @@ const menuController = {
       if (!item) {
         return res.status(404).json({ success: false, message: 'Item not found' });
       }
-      res.json({ success: true, message: 'Item updated', data: item });
+      res.json({ success: true, message: 'Item updated', data: withImageUrl(item) });
     } catch (error) {
       logger.error('Update item error:', error);
       res.status(500).json({ success: false, message: error.message });
@@ -525,6 +533,10 @@ const menuController = {
     try {
       const { outletId } = req.params;
       const featured = await menuEngineService.getFeaturedItems(outletId, req.query);
+      // Prefix image_url on raw items in each category
+      if (featured.bestsellers) featured.bestsellers = withImageUrl(featured.bestsellers);
+      if (featured.recommended) featured.recommended = withImageUrl(featured.recommended);
+      if (featured.newItems) featured.newItems = withImageUrl(featured.newItems);
       res.json({ success: true, data: featured });
     } catch (error) {
       logger.error('Get featured items error:', error);

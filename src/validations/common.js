@@ -57,7 +57,7 @@ const kotStatus = Joi.string().valid(
 );
 
 const tableStatus = Joi.string().valid(
-  'available', 'occupied', 'running', 'reserved', 'billing', 'cleaning', 'blocked'
+  'available', 'occupied', 'running', 'reserved', 'billing', 'cleaning', 'blocked', 'merged'
 );
 
 const paymentMode = Joi.string().valid(

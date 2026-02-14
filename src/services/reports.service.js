@@ -8,6 +8,20 @@ const { getPool } = require('../database');
 const { cache } = require('../config/redis');
 const logger = require('../utils/logger');
 
+/**
+ * Build SQL snippet + params for floor restriction.
+ * @param {number[]} floorIds - array of allowed floor IDs (empty = no restriction)
+ * @param {string} alias - table alias for orders, default 'o'
+ * @returns {{ sql: string, params: number[] }}
+ */
+function floorFilter(floorIds, alias = 'o') {
+  if (!floorIds || floorIds.length === 0) return { sql: '', params: [] };
+  return {
+    sql: ` AND ${alias}.floor_id IN (${floorIds.map(() => '?').join(',')})`,
+    params: [...floorIds]
+  };
+}
+
 const reportsService = {
   // ========================
   // DAILY SALES AGGREGATION
@@ -30,7 +44,7 @@ const reportsService = {
         COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled_orders,
         SUM(guest_count) as total_guests,
         SUM(subtotal) as gross_sales,
-        SUM(CASE WHEN status = 'paid' THEN total_amount ELSE 0 END) as net_sales,
+        SUM(CASE WHEN status IN ('paid', 'completed') THEN total_amount ELSE 0 END) as net_sales,
         SUM(discount_amount) as discount_amount,
         SUM(tax_amount) as tax_amount,
         SUM(service_charge) as service_charge,
@@ -72,7 +86,7 @@ const reportsService = {
         HOUR(created_at) as hour,
         SUM(total_amount) as sales
        FROM orders 
-       WHERE outlet_id = ? AND DATE(created_at) = ? AND status = 'paid'
+       WHERE outlet_id = ? AND DATE(created_at) = ? AND status IN ('paid', 'completed')
        GROUP BY HOUR(created_at)
        ORDER BY sales DESC
        LIMIT 1`,
@@ -197,7 +211,7 @@ const reportsService = {
         o.created_by as user_id, u.name as user_name,
         COUNT(*) as order_count,
         SUM(o.guest_count) as guest_count,
-        SUM(CASE WHEN o.status = 'paid' THEN o.total_amount ELSE 0 END) as net_sales,
+        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN o.total_amount ELSE 0 END) as net_sales,
         SUM(o.discount_amount) as discount_given,
         SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_orders,
         SUM(CASE WHEN o.status = 'cancelled' THEN o.total_amount ELSE 0 END) as cancelled_amount
@@ -246,235 +260,1316 @@ const reportsService = {
   },
 
   // ========================
-  // REPORTS RETRIEVAL
+  // REPORTS RETRIEVAL (live data queries)
   // ========================
 
   /**
-   * Get daily sales report
+   * Helper: default date range (today if not provided)
    */
-  async getDailySalesReport(outletId, startDate, endDate) {
-    const pool = getPool();
-    const [rows] = await pool.query(
-      `SELECT * FROM daily_sales 
-       WHERE outlet_id = ? AND report_date BETWEEN ? AND ?
-       ORDER BY report_date DESC`,
-      [outletId, startDate, endDate]
-    );
-    return rows;
+  _dateRange(startDate, endDate) {
+    const today = new Date().toISOString().slice(0, 10);
+    return {
+      start: startDate || today,
+      end: endDate || startDate || today
+    };
   },
 
   /**
-   * Get item sales report (top selling)
+   * 8.1 Daily Sales Report — live from orders + payments
    */
-  async getItemSalesReport(outletId, startDate, endDate, limit = 20) {
+  async getDailySalesReport(outletId, startDate, endDate, floorIds = []) {
     const pool = getPool();
+    const { start, end } = this._dateRange(startDate, endDate);
+    const ff = floorFilter(floorIds);
+
     const [rows] = await pool.query(
       `SELECT 
-        item_id, item_name, variant_name, category_name,
-        SUM(quantity_sold) as total_quantity,
-        SUM(net_amount) as total_revenue,
-        SUM(order_count) as total_orders,
-        AVG(average_price) as avg_price
-       FROM item_sales 
-       WHERE outlet_id = ? AND report_date BETWEEN ? AND ?
-       GROUP BY item_id, item_name, variant_name, category_name
+        DATE(o.created_at) as report_date,
+        COUNT(*) as total_orders,
+        COUNT(CASE WHEN o.order_type = 'dine_in' THEN 1 END) as dine_in_orders,
+        COUNT(CASE WHEN o.order_type = 'takeaway' THEN 1 END) as takeaway_orders,
+        COUNT(CASE WHEN o.order_type = 'delivery' THEN 1 END) as delivery_orders,
+        COUNT(CASE WHEN o.status = 'cancelled' THEN 1 END) as cancelled_orders,
+        SUM(o.guest_count) as total_guests,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.subtotal ELSE 0 END) as gross_sales,
+        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN o.total_amount ELSE 0 END) as net_sales,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as discount_amount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.tax_amount ELSE 0 END) as tax_amount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.service_charge ELSE 0 END) as service_charge,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.packaging_charge ELSE 0 END) as packaging_charge,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.delivery_charge ELSE 0 END) as delivery_charge,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.round_off ELSE 0 END) as round_off
+       FROM orders o
+       WHERE o.outlet_id = ? AND DATE(o.created_at) BETWEEN ? AND ?${ff.sql}
+       GROUP BY DATE(o.created_at)
+       ORDER BY report_date DESC`,
+      [outletId, start, end, ...ff.params]
+    );
+
+    // Attach payment breakdown per day
+    const [payRows] = await pool.query(
+      `SELECT 
+        DATE(p.created_at) as report_date,
+        SUM(p.total_amount) as total_collection,
+        SUM(CASE WHEN p.payment_mode = 'cash' THEN p.total_amount ELSE 0 END) as cash_collection,
+        SUM(CASE WHEN p.payment_mode = 'card' THEN p.total_amount ELSE 0 END) as card_collection,
+        SUM(CASE WHEN p.payment_mode = 'upi' THEN p.total_amount ELSE 0 END) as upi_collection,
+        SUM(CASE WHEN p.payment_mode = 'wallet' THEN p.total_amount ELSE 0 END) as wallet_collection,
+        SUM(CASE WHEN p.payment_mode = 'credit' THEN p.total_amount ELSE 0 END) as credit_collection,
+        SUM(p.tip_amount) as tip_amount
+       FROM payments p
+       JOIN orders o ON p.order_id = o.id
+       WHERE p.outlet_id = ? AND DATE(p.created_at) BETWEEN ? AND ? AND p.status = 'completed'${ff.sql}
+       GROUP BY DATE(p.created_at)`,
+      [outletId, start, end, ...ff.params]
+    );
+    const payMap = {};
+    payRows.forEach(r => { payMap[r.report_date instanceof Date ? r.report_date.toISOString().slice(0, 10) : r.report_date] = r; });
+
+    return rows.map(r => {
+      const dateKey = r.report_date instanceof Date ? r.report_date.toISOString().slice(0, 10) : r.report_date;
+      const pay = payMap[dateKey] || {};
+      const avgOrderValue = r.total_orders > 0 ? (parseFloat(r.net_sales) / r.total_orders).toFixed(2) : '0.00';
+      const avgGuestSpend = r.total_guests > 0 ? (parseFloat(r.net_sales) / r.total_guests).toFixed(2) : '0.00';
+      return {
+        ...r,
+        total_collection: pay.total_collection || 0,
+        cash_collection: pay.cash_collection || 0,
+        card_collection: pay.card_collection || 0,
+        upi_collection: pay.upi_collection || 0,
+        wallet_collection: pay.wallet_collection || 0,
+        credit_collection: pay.credit_collection || 0,
+        tip_amount: pay.tip_amount || 0,
+        average_order_value: avgOrderValue,
+        average_guest_spend: avgGuestSpend
+      };
+    });
+  },
+
+  /**
+   * 8.2 Item Sales Report — live from order_items + orders
+   */
+  async getItemSalesReport(outletId, startDate, endDate, limit = 50, floorIds = []) {
+    const pool = getPool();
+    const { start, end } = this._dateRange(startDate, endDate);
+    const ff = floorFilter(floorIds);
+
+    const [rows] = await pool.query(
+      `SELECT 
+        oi.item_id, oi.item_name, oi.variant_name,
+        c.name as category_name, i.category_id,
+        SUM(CASE WHEN oi.status != 'cancelled' THEN oi.quantity ELSE 0 END) as total_quantity,
+        SUM(CASE WHEN oi.status = 'cancelled' THEN oi.quantity ELSE 0 END) as cancelled_quantity,
+        SUM(CASE WHEN oi.status != 'cancelled' THEN oi.total_price ELSE 0 END) as gross_revenue,
+        SUM(CASE WHEN oi.status != 'cancelled' THEN oi.discount_amount ELSE 0 END) as discount_amount,
+        SUM(CASE WHEN oi.status != 'cancelled' THEN oi.tax_amount ELSE 0 END) as tax_amount,
+        SUM(CASE WHEN oi.status != 'cancelled' THEN (oi.total_price - oi.discount_amount) ELSE 0 END) as net_revenue,
+        COUNT(DISTINCT oi.order_id) as order_count,
+        AVG(CASE WHEN oi.status != 'cancelled' THEN oi.unit_price ELSE NULL END) as avg_price
+       FROM order_items oi
+       JOIN orders o ON oi.order_id = o.id
+       LEFT JOIN items i ON oi.item_id = i.id
+       LEFT JOIN categories c ON i.category_id = c.id
+       WHERE o.outlet_id = ? AND DATE(o.created_at) BETWEEN ? AND ?${ff.sql}
+       GROUP BY oi.item_id, oi.item_name, oi.variant_name, c.name, i.category_id
        ORDER BY total_quantity DESC
        LIMIT ?`,
-      [outletId, startDate, endDate, limit]
+      [outletId, start, end, ...ff.params, limit]
     );
     return rows;
   },
 
   /**
-   * Get staff performance report
+   * 8.3 Category Sales Report — live from order_items + items + categories
    */
-  async getStaffReport(outletId, startDate, endDate) {
+  async getCategorySalesReport(outletId, startDate, endDate, floorIds = []) {
     const pool = getPool();
+    const { start, end } = this._dateRange(startDate, endDate);
+    const ff = floorFilter(floorIds);
+
     const [rows] = await pool.query(
       `SELECT 
-        user_id, user_name,
-        SUM(order_count) as total_orders,
-        SUM(guest_count) as total_guests,
-        SUM(net_sales) as total_sales,
-        SUM(discount_given) as total_discounts,
-        SUM(tips_received) as total_tips,
-        SUM(cancelled_orders) as total_cancellations,
-        AVG(average_order_value) as avg_order_value
-       FROM staff_sales 
-       WHERE outlet_id = ? AND report_date BETWEEN ? AND ?
-       GROUP BY user_id, user_name
-       ORDER BY total_sales DESC`,
-      [outletId, startDate, endDate]
-    );
-    return rows;
-  },
-
-  /**
-   * Get category sales report
-   */
-  async getCategorySalesReport(outletId, startDate, endDate) {
-    const pool = getPool();
-    const [rows] = await pool.query(
-      `SELECT 
-        category_id, category_name,
-        SUM(quantity_sold) as total_quantity,
-        SUM(net_amount) as total_revenue,
-        COUNT(DISTINCT item_id) as item_count
-       FROM item_sales 
-       WHERE outlet_id = ? AND report_date BETWEEN ? AND ?
-       GROUP BY category_id, category_name
-       ORDER BY total_revenue DESC`,
-      [outletId, startDate, endDate]
+        i.category_id, c.name as category_name,
+        SUM(CASE WHEN oi.status != 'cancelled' THEN oi.quantity ELSE 0 END) as total_quantity,
+        SUM(CASE WHEN oi.status != 'cancelled' THEN oi.total_price ELSE 0 END) as gross_revenue,
+        SUM(CASE WHEN oi.status != 'cancelled' THEN oi.discount_amount ELSE 0 END) as discount_amount,
+        SUM(CASE WHEN oi.status != 'cancelled' THEN (oi.total_price - oi.discount_amount) ELSE 0 END) as net_revenue,
+        COUNT(DISTINCT oi.item_id) as item_count,
+        COUNT(DISTINCT oi.order_id) as order_count
+       FROM order_items oi
+       JOIN orders o ON oi.order_id = o.id
+       LEFT JOIN items i ON oi.item_id = i.id
+       LEFT JOIN categories c ON i.category_id = c.id
+       WHERE o.outlet_id = ? AND DATE(o.created_at) BETWEEN ? AND ?${ff.sql}
+       GROUP BY i.category_id, c.name
+       ORDER BY net_revenue DESC`,
+      [outletId, start, end, ...ff.params]
     );
 
-    // Calculate contribution percentage
-    const totalRevenue = rows.reduce((sum, r) => sum + parseFloat(r.total_revenue), 0);
+    const totalRevenue = rows.reduce((sum, r) => sum + parseFloat(r.net_revenue || 0), 0);
     return rows.map(r => ({
       ...r,
-      contributionPercent: totalRevenue > 0 ? ((r.total_revenue / totalRevenue) * 100).toFixed(2) : 0
+      contribution_percent: totalRevenue > 0 ? ((parseFloat(r.net_revenue) / totalRevenue) * 100).toFixed(2) : '0.00'
     }));
   },
 
   /**
-   * Get payment mode report
+   * 8.4 Payment Modes Report — live from payments
    */
-  async getPaymentModeReport(outletId, startDate, endDate) {
+  async getPaymentModeReport(outletId, startDate, endDate, floorIds = []) {
     const pool = getPool();
+    const { start, end } = this._dateRange(startDate, endDate);
+    const ff = floorFilter(floorIds);
+
     const [rows] = await pool.query(
       `SELECT 
-        payment_mode,
+        p.payment_mode,
         COUNT(*) as transaction_count,
-        SUM(total_amount) as total_amount,
-        SUM(tip_amount) as tip_amount
-       FROM payments 
-       WHERE outlet_id = ? AND DATE(created_at) BETWEEN ? AND ? AND status = 'completed'
-       GROUP BY payment_mode
+        SUM(p.total_amount) as total_amount,
+        SUM(p.amount) as base_amount,
+        SUM(p.tip_amount) as tip_amount
+       FROM payments p
+       JOIN orders o ON p.order_id = o.id
+       WHERE p.outlet_id = ? AND DATE(p.created_at) BETWEEN ? AND ? AND p.status = 'completed'${ff.sql}
+       GROUP BY p.payment_mode
        ORDER BY total_amount DESC`,
-      [outletId, startDate, endDate]
+      [outletId, start, end, ...ff.params]
     );
 
-    const totalAmount = rows.reduce((sum, r) => sum + parseFloat(r.total_amount), 0);
-    return rows.map(r => ({
-      ...r,
-      percentageShare: totalAmount > 0 ? ((r.total_amount / totalAmount) * 100).toFixed(2) : 0
-    }));
+    const totalAmount = rows.reduce((sum, r) => sum + parseFloat(r.total_amount || 0), 0);
+    return {
+      modes: rows.map(r => ({
+        ...r,
+        percentage_share: totalAmount > 0 ? ((parseFloat(r.total_amount) / totalAmount) * 100).toFixed(2) : '0.00'
+      })),
+      summary: {
+        total_transactions: rows.reduce((sum, r) => sum + r.transaction_count, 0),
+        total_collected: totalAmount.toFixed(2),
+        total_tips: rows.reduce((sum, r) => sum + parseFloat(r.tip_amount || 0), 0).toFixed(2)
+      }
+    };
   },
 
   /**
-   * Get tax summary report
+   * 8.5 Tax Report — live from invoices + tax_breakup JSON for accurate per-component data
    */
-  async getTaxReport(outletId, startDate, endDate) {
+  async getTaxReport(outletId, startDate, endDate, floorIds = []) {
     const pool = getPool();
+    const { start, end } = this._dateRange(startDate, endDate);
+    const ff = floorFilter(floorIds);
+
+    // Daily aggregated from invoice columns
     const [rows] = await pool.query(
       `SELECT 
-        i.invoice_date as report_date,
+        DATE(i.created_at) as report_date,
+        SUM(i.subtotal) as subtotal,
+        SUM(i.discount_amount) as discount_amount,
         SUM(i.taxable_amount) as taxable_amount,
         SUM(i.cgst_amount) as cgst_amount,
         SUM(i.sgst_amount) as sgst_amount,
         SUM(i.igst_amount) as igst_amount,
         SUM(i.vat_amount) as vat_amount,
+        SUM(i.cess_amount) as cess_amount,
         SUM(i.total_tax) as total_tax,
+        SUM(i.service_charge) as service_charge,
+        SUM(i.grand_total) as grand_total,
         COUNT(*) as invoice_count
        FROM invoices i
-       WHERE i.outlet_id = ? AND i.invoice_date BETWEEN ? AND ? AND i.is_cancelled = 0
-       GROUP BY i.invoice_date
-       ORDER BY i.invoice_date DESC`,
-      [outletId, startDate, endDate]
+       JOIN orders o ON i.order_id = o.id
+       WHERE i.outlet_id = ? AND DATE(i.created_at) BETWEEN ? AND ? AND i.is_cancelled = 0${ff.sql}
+       GROUP BY DATE(i.created_at)
+       ORDER BY report_date DESC`,
+      [outletId, start, end, ...ff.params]
     );
-    return rows;
+
+    // Parse tax_breakup JSON from each invoice for accurate per-component breakdown
+    const [invoices] = await pool.query(
+      `SELECT i.tax_breakup FROM invoices i
+       JOIN orders o ON i.order_id = o.id
+       WHERE i.outlet_id = ? AND DATE(i.created_at) BETWEEN ? AND ? AND i.is_cancelled = 0${ff.sql}`,
+      [outletId, start, end, ...ff.params]
+    );
+
+    const componentTotals = {};
+    for (const inv of invoices) {
+      if (!inv.tax_breakup) continue;
+      let breakup;
+      try {
+        breakup = typeof inv.tax_breakup === 'string' ? JSON.parse(inv.tax_breakup) : inv.tax_breakup;
+      } catch (e) { continue; }
+      if (!breakup || typeof breakup !== 'object') continue;
+      for (const [code, detail] of Object.entries(breakup)) {
+        if (!detail || typeof detail !== 'object') continue;
+        const compName = detail.name || detail.componentName || code;
+        if (!componentTotals[code]) {
+          componentTotals[code] = {
+            code,
+            name: compName,
+            rate: detail.rate || 0,
+            taxableAmount: 0,
+            taxAmount: 0,
+            invoiceCount: 0
+          };
+        }
+        componentTotals[code].taxableAmount += parseFloat(detail.taxableAmount || 0);
+        componentTotals[code].taxAmount += parseFloat(detail.taxAmount || 0);
+        componentTotals[code].invoiceCount += 1;
+      }
+    }
+
+    // Round component totals
+    const taxComponents = Object.values(componentTotals).map(c => ({
+      ...c,
+      taxableAmount: parseFloat(c.taxableAmount.toFixed(2)),
+      taxAmount: parseFloat(c.taxAmount.toFixed(2))
+    })).sort((a, b) => b.taxAmount - a.taxAmount);
+
+    // Summary totals
+    const summary = {
+      total_subtotal: rows.reduce((s, r) => s + parseFloat(r.subtotal || 0), 0).toFixed(2),
+      total_discount: rows.reduce((s, r) => s + parseFloat(r.discount_amount || 0), 0).toFixed(2),
+      total_taxable: rows.reduce((s, r) => s + parseFloat(r.taxable_amount || 0), 0).toFixed(2),
+      total_cgst: rows.reduce((s, r) => s + parseFloat(r.cgst_amount || 0), 0).toFixed(2),
+      total_sgst: rows.reduce((s, r) => s + parseFloat(r.sgst_amount || 0), 0).toFixed(2),
+      total_igst: rows.reduce((s, r) => s + parseFloat(r.igst_amount || 0), 0).toFixed(2),
+      total_vat: rows.reduce((s, r) => s + parseFloat(r.vat_amount || 0), 0).toFixed(2),
+      total_cess: rows.reduce((s, r) => s + parseFloat(r.cess_amount || 0), 0).toFixed(2),
+      total_tax: rows.reduce((s, r) => s + parseFloat(r.total_tax || 0), 0).toFixed(2),
+      total_service_charge: rows.reduce((s, r) => s + parseFloat(r.service_charge || 0), 0).toFixed(2),
+      total_grand: rows.reduce((s, r) => s + parseFloat(r.grand_total || 0), 0).toFixed(2),
+      total_invoices: rows.reduce((s, r) => s + r.invoice_count, 0)
+    };
+
+    return { daily: rows, taxComponents, summary };
   },
 
   /**
-   * Get hourly sales report
+   * 8.6 Hourly Sales Report — live from orders
    */
-  async getHourlySalesReport(outletId, reportDate) {
+  async getHourlySalesReport(outletId, reportDate, floorIds = []) {
     const pool = getPool();
+    const date = reportDate || new Date().toISOString().slice(0, 10);
+    const ff = floorFilter(floorIds);
+
     const [rows] = await pool.query(
       `SELECT 
-        HOUR(created_at) as hour,
+        HOUR(o.created_at) as hour,
         COUNT(*) as order_count,
-        SUM(guest_count) as guest_count,
-        SUM(total_amount) as net_sales
-       FROM orders 
-       WHERE outlet_id = ? AND DATE(created_at) = ? AND status = 'paid'
-       GROUP BY HOUR(created_at)
+        SUM(o.guest_count) as guest_count,
+        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN o.total_amount ELSE 0 END) as net_sales,
+        COUNT(CASE WHEN o.order_type = 'dine_in' THEN 1 END) as dine_in_count,
+        COUNT(CASE WHEN o.order_type = 'takeaway' THEN 1 END) as takeaway_count
+       FROM orders o
+       WHERE o.outlet_id = ? AND DATE(o.created_at) = ? AND o.status != 'cancelled'${ff.sql}
+       GROUP BY HOUR(o.created_at)
        ORDER BY hour`,
-      [outletId, reportDate]
+      [outletId, date, ...ff.params]
     );
-    return rows;
+
+    // Fill all 24 hours (0-23) for chart-friendly output
+    const hourMap = {};
+    rows.forEach(r => { hourMap[r.hour] = r; });
+    const fullDay = [];
+    for (let h = 0; h < 24; h++) {
+      fullDay.push(hourMap[h] || {
+        hour: h, order_count: 0, guest_count: 0, net_sales: 0,
+        dine_in_count: 0, takeaway_count: 0
+      });
+    }
+
+    // Peak hour
+    const peak = rows.length > 0 ? rows.reduce((a, b) => parseFloat(a.net_sales) > parseFloat(b.net_sales) ? a : b) : null;
+
+    return {
+      date,
+      hourly: fullDay,
+      summary: {
+        total_orders: rows.reduce((s, r) => s + r.order_count, 0),
+        total_sales: rows.reduce((s, r) => s + parseFloat(r.net_sales || 0), 0).toFixed(2),
+        peak_hour: peak ? `${peak.hour}:00` : null,
+        peak_hour_sales: peak ? peak.net_sales : 0
+      }
+    };
   },
 
   /**
-   * Get floor/section sales report
+   * 8.7 Staff Performance Report — live from orders + payments
    */
-  async getFloorSectionReport(outletId, startDate, endDate) {
+  async getStaffReport(outletId, startDate, endDate, floorIds = []) {
     const pool = getPool();
+    const { start, end } = this._dateRange(startDate, endDate);
+    const ff = floorFilter(floorIds);
+
+    const [rows] = await pool.query(
+      `SELECT 
+        o.created_by as user_id, u.name as user_name,
+        COUNT(*) as total_orders,
+        SUM(o.guest_count) as total_guests,
+        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN o.total_amount ELSE 0 END) as total_sales,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as total_discounts,
+        COUNT(CASE WHEN o.status = 'cancelled' THEN 1 END) as cancelled_orders,
+        SUM(CASE WHEN o.status = 'cancelled' THEN o.total_amount ELSE 0 END) as cancelled_amount
+       FROM orders o
+       JOIN users u ON o.created_by = u.id
+       WHERE o.outlet_id = ? AND DATE(o.created_at) BETWEEN ? AND ?${ff.sql}
+       GROUP BY o.created_by, u.name
+       ORDER BY total_sales DESC`,
+      [outletId, start, end, ...ff.params]
+    );
+
+    // Get tips per staff
+    const [tips] = await pool.query(
+      `SELECT p.received_by as user_id, SUM(p.tip_amount) as tips
+       FROM payments p
+       JOIN orders o ON p.order_id = o.id
+       WHERE p.outlet_id = ? AND DATE(p.created_at) BETWEEN ? AND ? AND p.status = 'completed' AND p.tip_amount > 0${ff.sql}
+       GROUP BY p.received_by`,
+      [outletId, start, end, ...ff.params]
+    );
+    const tipMap = {};
+    tips.forEach(t => { tipMap[t.user_id] = parseFloat(t.tips); });
+
+    return rows.map(r => ({
+      ...r,
+      total_tips: tipMap[r.user_id] || 0,
+      avg_order_value: r.total_orders > 0 ? (parseFloat(r.total_sales) / r.total_orders).toFixed(2) : '0.00',
+      avg_guest_spend: r.total_guests > 0 ? (parseFloat(r.total_sales) / r.total_guests).toFixed(2) : '0.00'
+    }));
+  },
+
+  /**
+   * Floor/Section Sales Report — live from orders
+   */
+  async getFloorSectionReport(outletId, startDate, endDate, floorIds = []) {
+    const pool = getPool();
+    const { start, end } = this._dateRange(startDate, endDate);
+    const ff = floorFilter(floorIds);
+
     const [rows] = await pool.query(
       `SELECT 
         o.floor_id, f.name as floor_name,
         o.section_id, s.name as section_name,
         COUNT(*) as order_count,
         SUM(o.guest_count) as guest_count,
-        SUM(CASE WHEN o.status = 'paid' THEN o.total_amount ELSE 0 END) as net_sales
+        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN o.total_amount ELSE 0 END) as net_sales,
+        COUNT(CASE WHEN o.status = 'cancelled' THEN 1 END) as cancelled_orders
        FROM orders o
        LEFT JOIN floors f ON o.floor_id = f.id
        LEFT JOIN sections s ON o.section_id = s.id
-       WHERE o.outlet_id = ? AND DATE(o.created_at) BETWEEN ? AND ? AND o.status != 'cancelled'
+       WHERE o.outlet_id = ? AND DATE(o.created_at) BETWEEN ? AND ? AND o.status != 'cancelled'${ff.sql}
        GROUP BY o.floor_id, f.name, o.section_id, s.name
        ORDER BY net_sales DESC`,
-      [outletId, startDate, endDate]
+      [outletId, start, end, ...ff.params]
     );
 
     return rows.map(r => ({
       ...r,
-      avgOrderValue: r.order_count > 0 ? (r.net_sales / r.order_count).toFixed(2) : 0
+      avg_order_value: r.order_count > 0 ? (parseFloat(r.net_sales) / r.order_count).toFixed(2) : '0.00'
     }));
   },
 
   /**
-   * Get counter/station sales report (Kitchen vs Bar)
+   * Counter/Station Sales Report — live from KOT tickets
    */
-  async getCounterSalesReport(outletId, startDate, endDate) {
+  async getCounterSalesReport(outletId, startDate, endDate, floorIds = []) {
     const pool = getPool();
+    const { start, end } = this._dateRange(startDate, endDate);
+    const ff = floorFilter(floorIds);
+
     const [rows] = await pool.query(
       `SELECT 
         kt.station,
         COUNT(DISTINCT kt.id) as ticket_count,
         COUNT(ki.id) as item_count,
         SUM(ki.quantity) as total_quantity,
-        AVG(TIMESTAMPDIFF(MINUTE, kt.created_at, kt.ready_at)) as avg_prep_time
+        AVG(CASE WHEN kt.ready_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, kt.created_at, kt.ready_at) ELSE NULL END) as avg_prep_time_mins,
+        COUNT(CASE WHEN kt.status = 'served' THEN 1 END) as served_count,
+        COUNT(CASE WHEN kt.status = 'cancelled' THEN 1 END) as cancelled_count
        FROM kot_tickets kt
-       JOIN kot_items ki ON kt.id = ki.kot_id
-       WHERE kt.outlet_id = ? AND DATE(kt.created_at) BETWEEN ? AND ?
+       LEFT JOIN kot_items ki ON kt.id = ki.kot_id
+       JOIN orders o ON kt.order_id = o.id
+       WHERE kt.outlet_id = ? AND DATE(kt.created_at) BETWEEN ? AND ?${ff.sql}
        GROUP BY kt.station
        ORDER BY ticket_count DESC`,
-      [outletId, startDate, endDate]
+      [outletId, start, end, ...ff.params]
     );
     return rows;
   },
 
   /**
-   * Get cancellation report
+   * Counter Sales Detail — per-KOT ticket breakdown with item details
+   * Supports: filters, search, pagination, sorting
+   *
+   * @param {number} outletId
+   * @param {string} startDate
+   * @param {string} endDate
+   * @param {Object} options
+   * @param {number}  options.page          - 1-indexed page (default 1)
+   * @param {number}  options.limit         - items per page (default 50, max 200)
+   * @param {string}  options.search        - search in kot_number, order_number, item_name
+   * @param {string}  options.station       - kitchen | bar | dessert | other
+   * @param {string}  options.status        - pending | accepted | preparing | ready | served | cancelled
+   * @param {string}  options.orderType     - dine_in | takeaway | delivery
+   * @param {string}  options.captainName   - partial match on captain (order creator)
+   * @param {string}  options.floorName     - partial match on floor name
+   * @param {string}  options.tableNumber   - exact table number
+   * @param {string}  options.sortBy        - created_at | kot_number | item_count | station (default created_at)
+   * @param {string}  options.sortOrder     - ASC | DESC (default DESC)
+   * @param {Array}   options.floorIds      - floor restriction
    */
-  async getCancellationReport(outletId, startDate, endDate) {
+  async getCounterSalesDetail(outletId, startDate, endDate, options = {}) {
     const pool = getPool();
-    const [rows] = await pool.query(
+    const { start, end } = this._dateRange(startDate, endDate);
+
+    const page = Math.max(1, parseInt(options.page) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(options.limit) || 50));
+    const offset = (page - 1) * limit;
+    const search = (options.search || '').trim();
+    const station = (options.station || '').trim();
+    const status = (options.status || '').trim();
+    const orderType = (options.orderType || '').trim();
+    const captainName = (options.captainName || '').trim();
+    const floorName = (options.floorName || '').trim();
+    const tableNumber = (options.tableNumber || '').trim() || null;
+    const floorIds = options.floorIds || [];
+
+    const allowedSort = ['created_at', 'kot_number', 'item_count', 'station'];
+    const sortBy = allowedSort.includes(options.sortBy) ? options.sortBy : 'created_at';
+    const sortOrder = (options.sortOrder || '').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    // ─── Build base query ───
+    const baseFrom = `FROM kot_tickets kt
+       JOIN orders o ON kt.order_id = o.id
+       LEFT JOIN tables t ON o.table_id = t.id
+       LEFT JOIN floors f ON o.floor_id = f.id
+       LEFT JOIN users u_captain ON o.created_by = u_captain.id
+       LEFT JOIN users u_accepted ON kt.accepted_by = u_accepted.id
+       LEFT JOIN users u_served ON kt.served_by = u_served.id`;
+
+    let conditions = ['kt.outlet_id = ?', 'DATE(kt.created_at) BETWEEN ? AND ?'];
+    let params = [outletId, start, end];
+
+    if (floorIds.length > 0) {
+      conditions.push(`o.floor_id IN (${floorIds.map(() => '?').join(',')})`);
+      params.push(...floorIds);
+    }
+    if (station) { conditions.push('kt.station = ?'); params.push(station); }
+    if (status) { conditions.push('kt.status = ?'); params.push(status); }
+    if (orderType) { conditions.push('o.order_type = ?'); params.push(orderType); }
+    if (captainName) { conditions.push('u_captain.name LIKE ?'); params.push(`%${captainName}%`); }
+    if (floorName) { conditions.push('f.name LIKE ?'); params.push(`%${floorName}%`); }
+    if (tableNumber) { conditions.push('t.table_number = ?'); params.push(tableNumber); }
+    if (search) {
+      conditions.push('(kt.kot_number LIKE ? OR o.order_number LIKE ?)');
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    const whereClause = 'WHERE ' + conditions.join(' AND ');
+
+    // ─── 0. Total count ───
+    const [countResult] = await pool.query(
+      `SELECT COUNT(*) as total ${baseFrom} ${whereClause}`,
+      params
+    );
+    const totalCount = countResult[0].total;
+
+    const emptyFilters = {};
+    if (search) emptyFilters.search = search;
+    if (station) emptyFilters.station = station;
+    if (status) emptyFilters.status = status;
+    if (orderType) emptyFilters.orderType = orderType;
+    if (captainName) emptyFilters.captainName = captainName;
+    if (floorName) emptyFilters.floorName = floorName;
+    if (tableNumber) emptyFilters.tableNumber = tableNumber;
+    if (options.sortBy) emptyFilters.sortBy = options.sortBy;
+    if (options.sortOrder) emptyFilters.sortOrder = options.sortOrder;
+
+    if (totalCount === 0) {
+      return {
+        dateRange: { start, end },
+        tickets: [],
+        pagination: { page, limit, totalCount: 0, totalPages: 0, hasNext: false, hasPrev: false },
+        filters: emptyFilters,
+        summary: {
+          totalTickets: 0, totalItemsSent: 0, totalQuantity: 0,
+          byStation: [], byStatus: [], byHour: [],
+          avgPrepTimeMins: 0, servedCount: 0, cancelledCount: 0, pendingCount: 0
+        }
+      };
+    }
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    // ─── 1. Summary aggregation (all filtered, not paginated) ───
+    const [summaryRows] = await pool.query(
+      `SELECT
+        COUNT(*) as total_tickets,
+        SUM(CASE WHEN kt.status = 'served' THEN 1 ELSE 0 END) as served_count,
+        SUM(CASE WHEN kt.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_count,
+        SUM(CASE WHEN kt.status NOT IN ('served','cancelled') THEN 1 ELSE 0 END) as pending_count,
+        AVG(CASE WHEN kt.ready_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, kt.created_at, kt.ready_at) ELSE NULL END) as avg_prep_time_mins
+       ${baseFrom} ${whereClause}`,
+      params
+    );
+    const sr = summaryRows[0];
+
+    // Item-level aggregation
+    const [itemSummary] = await pool.query(
+      `SELECT
+        COUNT(ki.id) as total_items_sent,
+        SUM(ki.quantity) as total_quantity
+       FROM kot_items ki
+       JOIN kot_tickets kt ON ki.kot_id = kt.id
+       JOIN orders o ON kt.order_id = o.id
+       LEFT JOIN tables t ON o.table_id = t.id
+       LEFT JOIN floors f ON o.floor_id = f.id
+       LEFT JOIN users u_captain ON o.created_by = u_captain.id
+       LEFT JOIN users u_accepted ON kt.accepted_by = u_accepted.id
+       LEFT JOIN users u_served ON kt.served_by = u_served.id
+       ${whereClause}`,
+      params
+    );
+    const isr = itemSummary[0];
+
+    // By station breakdown
+    const [stationBreakdown] = await pool.query(
+      `SELECT 
+        kt.station,
+        COUNT(*) as ticket_count,
+        SUM(CASE WHEN kt.status = 'served' THEN 1 ELSE 0 END) as served,
+        SUM(CASE WHEN kt.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled,
+        AVG(CASE WHEN kt.ready_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, kt.created_at, kt.ready_at) ELSE NULL END) as avg_prep_mins
+       ${baseFrom} ${whereClause}
+       GROUP BY kt.station ORDER BY ticket_count DESC`,
+      params
+    );
+
+    // By status breakdown
+    const [statusBreakdown] = await pool.query(
+      `SELECT kt.status, COUNT(*) as count
+       ${baseFrom} ${whereClause}
+       GROUP BY kt.status ORDER BY count DESC`,
+      params
+    );
+
+    // Hourly distribution
+    const [hourlyBreakdown] = await pool.query(
+      `SELECT HOUR(kt.created_at) as hour, COUNT(*) as count
+       ${baseFrom} ${whereClause}
+       GROUP BY HOUR(kt.created_at) ORDER BY hour`,
+      params
+    );
+
+    const summary = {
+      totalTickets: parseInt(sr.total_tickets) || 0,
+      totalItemsSent: parseInt(isr.total_items_sent) || 0,
+      totalQuantity: parseFloat(isr.total_quantity) || 0,
+      avgPrepTimeMins: sr.avg_prep_time_mins !== null ? parseFloat(parseFloat(sr.avg_prep_time_mins).toFixed(1)) : 0,
+      servedCount: parseInt(sr.served_count) || 0,
+      cancelledCount: parseInt(sr.cancelled_count) || 0,
+      pendingCount: parseInt(sr.pending_count) || 0,
+      byStation: stationBreakdown.map(r => ({
+        station: r.station,
+        ticketCount: parseInt(r.ticket_count),
+        served: parseInt(r.served),
+        cancelled: parseInt(r.cancelled),
+        avgPrepMins: r.avg_prep_mins !== null ? parseFloat(parseFloat(r.avg_prep_mins).toFixed(1)) : 0
+      })),
+      byStatus: statusBreakdown.map(r => ({
+        status: r.status,
+        count: parseInt(r.count)
+      })),
+      byHour: hourlyBreakdown.map(r => ({
+        hour: parseInt(r.hour),
+        count: parseInt(r.count)
+      }))
+    };
+
+    // ─── 2. Paginated KOT tickets ───
+    const sortColumn = sortBy === 'item_count' ? '(SELECT COUNT(*) FROM kot_items ki2 WHERE ki2.kot_id = kt.id)'
+      : sortBy === 'kot_number' ? 'kt.kot_number' : sortBy === 'station' ? 'kt.station' : 'kt.created_at';
+
+    const [tickets] = await pool.query(
+      `SELECT 
+        kt.id as kot_id, kt.kot_number, kt.station, kt.status as kot_status,
+        kt.priority, kt.notes as kot_notes,
+        kt.table_number as kot_table_number,
+        kt.printed_count, kt.last_printed_at,
+        kt.created_at as kot_created_at,
+        kt.accepted_at, kt.ready_at, kt.served_at, kt.cancelled_at as kot_cancelled_at,
+        kt.cancel_reason as kot_cancel_reason,
+        o.id as order_id, o.order_number, o.order_type, o.status as order_status,
+        o.total_amount as order_total, o.customer_name, o.customer_phone,
+        t.table_number, t.name as table_name,
+        f.name as floor_name,
+        u_captain.name as captain_name,
+        u_accepted.name as accepted_by_name,
+        u_served.name as served_by_name
+       ${baseFrom} ${whereClause}
+       ORDER BY ${sortColumn} ${sortOrder}
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+
+    if (tickets.length === 0) {
+      return {
+        dateRange: { start, end },
+        tickets: [],
+        pagination: { page, limit, totalCount, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
+        filters: emptyFilters,
+        summary
+      };
+    }
+
+    // ─── 3. Batch-fetch items for all tickets on this page ───
+    const kotIds = tickets.map(t => t.kot_id);
+    let kotItemsMap = {};
+    if (kotIds.length > 0) {
+      const [items] = await pool.query(
+        `SELECT 
+          ki.kot_id, ki.item_name, ki.variant_name, ki.quantity,
+          ki.addons_text, ki.special_instructions, ki.status as item_status,
+          oi.item_type, oi.unit_price, oi.total_price, oi.tax_amount,
+          oi.discount_amount, oi.status as order_item_status
+         FROM kot_items ki
+         LEFT JOIN order_items oi ON ki.order_item_id = oi.id
+         WHERE ki.kot_id IN (?)
+         ORDER BY ki.kot_id, ki.created_at`,
+        [kotIds]
+      );
+      for (const item of items) {
+        if (!kotItemsMap[item.kot_id]) kotItemsMap[item.kot_id] = [];
+        kotItemsMap[item.kot_id].push({
+          itemName: item.item_name,
+          variantName: item.variant_name || null,
+          itemType: item.item_type || null,
+          quantity: parseFloat(item.quantity) || 0,
+          unitPrice: parseFloat(item.unit_price) || 0,
+          totalPrice: parseFloat(item.total_price) || 0,
+          taxAmount: parseFloat(item.tax_amount) || 0,
+          discountAmount: parseFloat(item.discount_amount) || 0,
+          addonsText: item.addons_text || null,
+          specialInstructions: item.special_instructions || null,
+          itemStatus: item.item_status,
+          orderItemStatus: item.order_item_status
+        });
+      }
+    }
+
+    // ─── 4. Build response ───
+    const ticketList = tickets.map(tk => {
+      const items = kotItemsMap[tk.kot_id] || [];
+      const prepTimeMins = tk.ready_at && tk.kot_created_at
+        ? Math.round((new Date(tk.ready_at) - new Date(tk.kot_created_at)) / 60000)
+        : null;
+
+      return {
+        kotId: tk.kot_id,
+        kotNumber: tk.kot_number,
+        station: tk.station,
+        kotStatus: tk.kot_status,
+        priority: tk.priority,
+        kotNotes: tk.kot_notes || null,
+        printedCount: tk.printed_count || 0,
+
+        // Timestamps
+        createdAt: tk.kot_created_at,
+        acceptedAt: tk.accepted_at || null,
+        readyAt: tk.ready_at || null,
+        servedAt: tk.served_at || null,
+        cancelledAt: tk.kot_cancelled_at || null,
+        cancelReason: tk.kot_cancel_reason || null,
+        prepTimeMins,
+
+        // People
+        captainName: tk.captain_name || null,
+        acceptedByName: tk.accepted_by_name || null,
+        servedByName: tk.served_by_name || null,
+
+        // Order context
+        orderId: tk.order_id,
+        orderNumber: tk.order_number,
+        orderType: tk.order_type,
+        orderStatus: tk.order_status,
+        orderTotal: parseFloat(tk.order_total) || 0,
+        customerName: tk.customer_name || null,
+        customerPhone: tk.customer_phone || null,
+
+        // Location
+        tableNumber: tk.table_number || tk.kot_table_number || null,
+        tableName: tk.table_name || null,
+        floorName: tk.floor_name || null,
+
+        // Items
+        itemCount: items.length,
+        totalQuantity: items.reduce((s, i) => s + i.quantity, 0),
+        itemsValue: parseFloat(items.reduce((s, i) => s + i.totalPrice, 0).toFixed(2)),
+        items
+      };
+    });
+
+    return {
+      dateRange: { start, end },
+      tickets: ticketList,
+      pagination: {
+        page, limit, totalCount, totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      },
+      filters: emptyFilters,
+      summary
+    };
+  },
+
+  /**
+   * 8.8 Cancellation Report — live from order_cancel_logs + cancelled items
+   */
+  async getCancellationReport(outletId, startDate, endDate, floorIds = []) {
+    const pool = getPool();
+    const { start, end } = this._dateRange(startDate, endDate);
+    const ff = floorFilter(floorIds);
+
+    // Order-level cancellations
+    const [orderCancels] = await pool.query(
+      `SELECT 
+        'full_order' as cancel_type,
+        o.order_number, o.order_type, o.total_amount,
+        o.cancel_reason as reason,
+        u.name as cancelled_by_name,
+        o.cancelled_at
+       FROM orders o
+       LEFT JOIN users u ON o.cancelled_by = u.id
+       WHERE o.outlet_id = ? AND DATE(o.cancelled_at) BETWEEN ? AND ? AND o.status = 'cancelled'${ff.sql}
+       ORDER BY o.cancelled_at DESC`,
+      [outletId, start, end, ...ff.params]
+    );
+
+    // Item-level cancellations
+    const [itemCancels] = await pool.query(
+      `SELECT 
+        'item' as cancel_type,
+        o.order_number, oi.item_name, oi.variant_name,
+        oi.quantity as cancelled_quantity,
+        oi.total_price as cancelled_amount,
+        oi.cancel_reason as reason,
+        u.name as cancelled_by_name,
+        oi.cancelled_at
+       FROM order_items oi
+       JOIN orders o ON oi.order_id = o.id
+       LEFT JOIN users u ON oi.cancelled_by = u.id
+       WHERE o.outlet_id = ? AND DATE(oi.cancelled_at) BETWEEN ? AND ? AND oi.status = 'cancelled'${ff.sql}
+       ORDER BY oi.cancelled_at DESC`,
+      [outletId, start, end, ...ff.params]
+    );
+
+    // Summary by reason
+    const [reasonSummary] = await pool.query(
+      `SELECT 
+        COALESCE(ocl.reason_text, o.cancel_reason, 'No reason') as reason,
+        COUNT(*) as count,
+        SUM(o.total_amount) as total_amount
+       FROM order_cancel_logs ocl
+       JOIN orders o ON ocl.order_id = o.id
+       WHERE o.outlet_id = ? AND DATE(ocl.created_at) BETWEEN ? AND ?${ff.sql}
+       GROUP BY COALESCE(ocl.reason_text, o.cancel_reason, 'No reason')
+       ORDER BY count DESC`,
+      [outletId, start, end, ...ff.params]
+    );
+
+    return {
+      order_cancellations: orderCancels,
+      item_cancellations: itemCancels,
+      summary: {
+        total_order_cancellations: orderCancels.length,
+        total_item_cancellations: itemCancels.length,
+        total_order_cancel_amount: orderCancels.reduce((s, r) => s + parseFloat(r.total_amount || 0), 0).toFixed(2),
+        total_item_cancel_amount: itemCancels.reduce((s, r) => s + parseFloat(r.cancelled_amount || 0), 0).toFixed(2),
+        by_reason: reasonSummary
+      }
+    };
+  },
+
+  // ========================
+  // DETAILED CANCELLATION REPORT
+  // ========================
+
+  /**
+   * Detailed cancellation report — comprehensive per-cancellation breakdown
+   * Covers: full order cancellations, individual item cancellations, partial quantity reductions
+   * Includes: order context, items, captain/cashier, floor/table, KOT info, cancel logs, approval, timestamps
+   * Supports: filters, search, pagination, sorting
+   *
+   * @param {number} outletId
+   * @param {string} startDate
+   * @param {string} endDate
+   * @param {Object} options
+   * @param {number}  options.page          - 1-indexed page (default 1)
+   * @param {number}  options.limit         - items per page (default 50, max 200)
+   * @param {string}  options.search        - search in order_number, item_name, reason_text
+   * @param {string}  options.cancelType    - full_order | full_item | quantity_reduce
+   * @param {string}  options.cancelledByName - partial match on who cancelled
+   * @param {string}  options.approvedByName  - partial match on who approved
+   * @param {string}  options.orderType     - dine_in | takeaway | delivery
+   * @param {string}  options.floorName     - partial match on floor name
+   * @param {number}  options.tableNumber   - exact table number
+   * @param {string}  options.sortBy        - created_at | cancelled_amount | order_number (default created_at)
+   * @param {string}  options.sortOrder     - ASC | DESC (default DESC)
+   * @param {Array}   options.floorIds      - floor restriction for assigned-floor users
+   */
+  async getCancellationDetail(outletId, startDate, endDate, options = {}) {
+    const pool = getPool();
+    const { start, end } = this._dateRange(startDate, endDate);
+
+    // Parse options
+    const page = Math.max(1, parseInt(options.page) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(options.limit) || 50));
+    const offset = (page - 1) * limit;
+    const search = (options.search || '').trim();
+    const cancelType = (options.cancelType || '').trim();
+    const cancelledByName = (options.cancelledByName || '').trim();
+    const approvedByName = (options.approvedByName || '').trim();
+    const captainName = (options.captainName || '').trim();
+    const cashierName = (options.cashierName || '').trim();
+    const orderType = (options.orderType || '').trim();
+    const floorName = (options.floorName || '').trim();
+    const tableNumber = (options.tableNumber || '').trim() || null;
+
+    const allowedSort = ['created_at', 'cancelled_amount', 'order_number'];
+    const sortBy = allowedSort.includes(options.sortBy) ? options.sortBy : 'created_at';
+    const sortOrder = (options.sortOrder || '').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    // Floor restriction
+    const floorIds = options.floorIds || [];
+
+    // ─── Build unified cancellation log query ───
+    // We query from order_cancel_logs as the primary source since it captures all cancel actions
+    const baseFrom = `FROM order_cancel_logs ocl
+       JOIN orders o ON ocl.order_id = o.id
+       LEFT JOIN order_items oi ON ocl.order_item_id = oi.id
+       LEFT JOIN tables t ON o.table_id = t.id
+       LEFT JOIN floors f ON o.floor_id = f.id
+       LEFT JOIN users u_cancel ON ocl.cancelled_by = u_cancel.id
+       LEFT JOIN users u_approve ON ocl.approved_by = u_approve.id
+       LEFT JOIN users u_captain ON o.created_by = u_captain.id
+       LEFT JOIN users u_cashier ON o.billed_by = u_cashier.id`;
+
+    let conditions = ['o.outlet_id = ?', 'DATE(ocl.created_at) BETWEEN ? AND ?'];
+    let params = [outletId, start, end];
+
+    if (floorIds.length > 0) {
+      conditions.push(`o.floor_id IN (${floorIds.map(() => '?').join(',')})`);
+      params.push(...floorIds);
+    }
+    if (cancelType) { conditions.push('ocl.cancel_type = ?'); params.push(cancelType); }
+    if (orderType) { conditions.push('o.order_type = ?'); params.push(orderType); }
+    if (cancelledByName) { conditions.push('u_cancel.name LIKE ?'); params.push(`%${cancelledByName}%`); }
+    if (approvedByName) { conditions.push('u_approve.name LIKE ?'); params.push(`%${approvedByName}%`); }
+    if (captainName) { conditions.push('u_captain.name LIKE ?'); params.push(`%${captainName}%`); }
+    if (cashierName) { conditions.push('u_cashier.name LIKE ?'); params.push(`%${cashierName}%`); }
+    if (floorName) { conditions.push('f.name LIKE ?'); params.push(`%${floorName}%`); }
+    if (tableNumber) { conditions.push('t.table_number = ?'); params.push(tableNumber); }
+    if (search) {
+      conditions.push('(o.order_number LIKE ? OR oi.item_name LIKE ? OR ocl.reason_text LIKE ?)');
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
+    const whereClause = 'WHERE ' + conditions.join(' AND ');
+
+    // ─── 0. Total count for pagination ───
+    const [countResult] = await pool.query(
+      `SELECT COUNT(*) as total ${baseFrom} ${whereClause}`,
+      params
+    );
+    const totalCount = countResult[0].total;
+
+    if (totalCount === 0) {
+      return {
+        dateRange: { start, end },
+        cancellations: [],
+        pagination: { page, limit, totalCount: 0, totalPages: 0, hasNext: false, hasPrev: false },
+        filters: this._cancelDetailFilters(options),
+        summary: this._emptyCancelDetailSummary()
+      };
+    }
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    // ─── 1. Summary aggregation over ALL filtered logs (not paginated) ───
+    const [summaryRows] = await pool.query(
+      `SELECT
+        COUNT(*) as total_cancellations,
+        SUM(CASE WHEN ocl.cancel_type = 'full_order' THEN 1 ELSE 0 END) as full_order_cancellations,
+        SUM(CASE WHEN ocl.cancel_type IN ('full_item','partial_item') THEN 1 ELSE 0 END) as item_cancellations,
+        SUM(CASE WHEN ocl.cancel_type = 'quantity_reduce' THEN 1 ELSE 0 END) as quantity_reductions,
+        COUNT(DISTINCT ocl.order_id) as unique_orders_affected,
+        SUM(CASE WHEN ocl.cancel_type = 'full_order' THEN o.total_amount ELSE 0 END) as full_order_cancel_amount,
+        SUM(CASE WHEN ocl.cancel_type IN ('full_item','partial_item') AND oi.id IS NOT NULL THEN oi.total_price ELSE 0 END) as item_cancel_amount,
+        SUM(CASE WHEN ocl.cancel_type = 'quantity_reduce' AND oi.id IS NOT NULL 
+             THEN (ocl.cancelled_quantity * oi.unit_price) ELSE 0 END) as quantity_reduce_amount,
+        SUM(ocl.refund_amount) as total_refund_amount,
+        COUNT(DISTINCT ocl.cancelled_by) as unique_cancellers,
+        SUM(CASE WHEN ocl.approved_by IS NOT NULL THEN 1 ELSE 0 END) as approved_cancellations
+       ${baseFrom} ${whereClause}`,
+      params
+    );
+    const sr = summaryRows[0];
+
+    // ─── 2. By-reason breakdown (over all filtered) ───
+    const [reasonBreakdown] = await pool.query(
+      `SELECT 
+        COALESCE(ocl.reason_text, 'No reason provided') as reason,
+        COUNT(*) as count,
+        SUM(CASE WHEN ocl.cancel_type = 'full_order' THEN o.total_amount 
+             WHEN oi.id IS NOT NULL THEN oi.total_price ELSE 0 END) as total_amount
+       ${baseFrom} ${whereClause}
+       GROUP BY COALESCE(ocl.reason_text, 'No reason provided')
+       ORDER BY count DESC`,
+      params
+    );
+
+    // ─── 3. By-staff breakdown (who cancelled the most) ───
+    const [staffBreakdown] = await pool.query(
+      `SELECT 
+        u_cancel.name as staff_name,
+        COUNT(*) as cancel_count,
+        SUM(CASE WHEN ocl.cancel_type = 'full_order' THEN 1 ELSE 0 END) as order_cancels,
+        SUM(CASE WHEN ocl.cancel_type != 'full_order' THEN 1 ELSE 0 END) as item_cancels,
+        SUM(CASE WHEN ocl.cancel_type = 'full_order' THEN o.total_amount
+             WHEN oi.id IS NOT NULL THEN oi.total_price ELSE 0 END) as total_amount
+       ${baseFrom} ${whereClause}
+       GROUP BY ocl.cancelled_by, u_cancel.name
+       ORDER BY cancel_count DESC`,
+      params
+    );
+
+    // ─── 4. By cancel_type breakdown ───
+    const [typeBreakdown] = await pool.query(
       `SELECT 
         ocl.cancel_type,
-        cr.reason as reason_text,
-        COUNT(*) as cancel_count,
-        u.name as cancelled_by_name,
-        COUNT(DISTINCT ocl.order_id) as affected_orders
-       FROM order_cancel_logs ocl
-       LEFT JOIN cancel_reasons cr ON ocl.reason_id = cr.id
-       JOIN orders o ON ocl.order_id = o.id
-       LEFT JOIN users u ON ocl.cancelled_by = u.id
-       WHERE o.outlet_id = ? AND DATE(ocl.created_at) BETWEEN ? AND ?
-       GROUP BY ocl.cancel_type, cr.reason, u.name
-       ORDER BY cancel_count DESC`,
-      [outletId, startDate, endDate]
+        COUNT(*) as count,
+        SUM(CASE WHEN ocl.cancel_type = 'full_order' THEN o.total_amount
+             WHEN oi.id IS NOT NULL THEN oi.total_price ELSE 0 END) as total_amount
+       ${baseFrom} ${whereClause}
+       GROUP BY ocl.cancel_type
+       ORDER BY count DESC`,
+      params
     );
-    return rows;
+
+    // ─── 5. Hourly distribution ───
+    const [hourlyBreakdown] = await pool.query(
+      `SELECT 
+        HOUR(ocl.created_at) as hour,
+        COUNT(*) as count
+       ${baseFrom} ${whereClause}
+       GROUP BY HOUR(ocl.created_at)
+       ORDER BY hour`,
+      params
+    );
+
+    // ─── 6. Daily distribution ───
+    const [dailyBreakdown] = await pool.query(
+      `SELECT 
+        DATE(ocl.created_at) as date,
+        COUNT(*) as count,
+        SUM(CASE WHEN ocl.cancel_type = 'full_order' THEN 1 ELSE 0 END) as order_cancels,
+        SUM(CASE WHEN ocl.cancel_type != 'full_order' THEN 1 ELSE 0 END) as item_cancels,
+        SUM(CASE WHEN ocl.cancel_type = 'full_order' THEN o.total_amount
+             WHEN oi.id IS NOT NULL THEN oi.total_price ELSE 0 END) as total_amount
+       ${baseFrom} ${whereClause}
+       GROUP BY DATE(ocl.created_at)
+       ORDER BY date`,
+      params
+    );
+
+    // ─── 7. Floor-wise breakdown ───
+    const [floorBreakdown] = await pool.query(
+      `SELECT 
+        COALESCE(f.name, 'No Floor') as floor_name,
+        COUNT(*) as count,
+        SUM(CASE WHEN ocl.cancel_type = 'full_order' THEN o.total_amount
+             WHEN oi.id IS NOT NULL THEN oi.total_price ELSE 0 END) as total_amount
+       ${baseFrom} ${whereClause}
+       GROUP BY f.name
+       ORDER BY count DESC`,
+      params
+    );
+
+    const fullOrderAmt = parseFloat(sr.full_order_cancel_amount) || 0;
+    const itemCancelAmt = parseFloat(sr.item_cancel_amount) || 0;
+    const qtyReduceAmt = parseFloat(sr.quantity_reduce_amount) || 0;
+
+    const summary = {
+      dateRange: { start, end },
+      totalCancellations: parseInt(sr.total_cancellations) || 0,
+      fullOrderCancellations: parseInt(sr.full_order_cancellations) || 0,
+      itemCancellations: parseInt(sr.item_cancellations) || 0,
+      quantityReductions: parseInt(sr.quantity_reductions) || 0,
+      uniqueOrdersAffected: parseInt(sr.unique_orders_affected) || 0,
+      totalCancelAmount: parseFloat((fullOrderAmt + itemCancelAmt + qtyReduceAmt).toFixed(2)),
+      fullOrderCancelAmount: parseFloat(fullOrderAmt.toFixed(2)),
+      itemCancelAmount: parseFloat(itemCancelAmt.toFixed(2)),
+      quantityReduceAmount: parseFloat(qtyReduceAmt.toFixed(2)),
+      totalRefundAmount: parseFloat((parseFloat(sr.total_refund_amount) || 0).toFixed(2)),
+      uniqueCancellers: parseInt(sr.unique_cancellers) || 0,
+      approvedCancellations: parseInt(sr.approved_cancellations) || 0,
+      byReason: reasonBreakdown.map(r => ({
+        reason: r.reason,
+        count: parseInt(r.count),
+        totalAmount: parseFloat((parseFloat(r.total_amount) || 0).toFixed(2))
+      })),
+      byStaff: staffBreakdown.map(r => ({
+        staffName: r.staff_name || 'Unknown',
+        cancelCount: parseInt(r.cancel_count),
+        orderCancels: parseInt(r.order_cancels),
+        itemCancels: parseInt(r.item_cancels),
+        totalAmount: parseFloat((parseFloat(r.total_amount) || 0).toFixed(2))
+      })),
+      byType: typeBreakdown.map(r => ({
+        cancelType: r.cancel_type,
+        count: parseInt(r.count),
+        totalAmount: parseFloat((parseFloat(r.total_amount) || 0).toFixed(2))
+      })),
+      byHour: hourlyBreakdown.map(r => ({
+        hour: parseInt(r.hour),
+        count: parseInt(r.count)
+      })),
+      byDate: dailyBreakdown.map(r => ({
+        date: r.date,
+        count: parseInt(r.count),
+        orderCancels: parseInt(r.order_cancels),
+        itemCancels: parseInt(r.item_cancels),
+        totalAmount: parseFloat((parseFloat(r.total_amount) || 0).toFixed(2))
+      })),
+      byFloor: floorBreakdown.map(r => ({
+        floorName: r.floor_name,
+        count: parseInt(r.count),
+        totalAmount: parseFloat((parseFloat(r.total_amount) || 0).toFixed(2))
+      }))
+    };
+
+    // ─── 8. Paginated cancel log entries ───
+    const sortColumn = sortBy === 'cancelled_amount'
+      ? 'CASE WHEN ocl.cancel_type = \'full_order\' THEN o.total_amount WHEN oi.id IS NOT NULL THEN oi.total_price ELSE 0 END'
+      : sortBy === 'order_number' ? 'o.order_number' : 'ocl.created_at';
+
+    const [logs] = await pool.query(
+      `SELECT 
+        ocl.id as log_id,
+        ocl.order_id, ocl.order_item_id, ocl.cancel_type,
+        ocl.original_quantity, ocl.cancelled_quantity,
+        ocl.reason_id, ocl.reason_text, ocl.refund_amount,
+        ocl.created_at as cancelled_at,
+        o.order_number, o.order_type, o.status as order_status,
+        o.total_amount as order_total, o.subtotal as order_subtotal,
+        o.tax_amount as order_tax, o.discount_amount as order_discount,
+        o.guest_count, o.customer_name, o.customer_phone,
+        o.created_at as order_created_at, o.cancelled_at as order_cancelled_at,
+        o.cancel_reason as order_cancel_reason,
+        t.table_number, t.name as table_name,
+        f.name as floor_name,
+        u_cancel.name as cancelled_by_name,
+        u_approve.name as approved_by_name,
+        u_captain.name as captain_name,
+        u_cashier.name as cashier_name,
+        oi.item_name, oi.variant_name, oi.item_type,
+        oi.quantity as current_quantity, oi.unit_price, oi.base_price,
+        oi.total_price as item_total_price, oi.tax_amount as item_tax,
+        oi.discount_amount as item_discount, oi.status as item_status,
+        oi.cancel_reason as item_cancel_reason, oi.cancel_quantity as item_cancel_quantity,
+        oi.kot_id
+       ${baseFrom} ${whereClause}
+       ORDER BY ${sortColumn} ${sortOrder}
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+
+    if (logs.length === 0) {
+      return {
+        dateRange: { start, end },
+        cancellations: [],
+        pagination: { page, limit, totalCount, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
+        filters: this._cancelDetailFilters(options),
+        summary
+      };
+    }
+
+    // ─── 9. Batch-fetch KOT details for item cancellations ───
+    const kotIds = [...new Set(logs.filter(l => l.kot_id).map(l => l.kot_id))];
+    let kotMap = {};
+    if (kotIds.length > 0) {
+      const [kots] = await pool.query(
+        `SELECT id, kot_number, station, status, created_at FROM kot_tickets WHERE id IN (?)`,
+        [kotIds]
+      );
+      for (const k of kots) {
+        kotMap[k.id] = {
+          kotNumber: k.kot_number,
+          station: k.station,
+          status: k.status,
+          createdAt: k.created_at
+        };
+      }
+    }
+
+    // ─── 10. For full_order cancellations, batch-fetch items that were in those orders ───
+    const fullOrderIds = [...new Set(logs.filter(l => l.cancel_type === 'full_order').map(l => l.order_id))];
+    let orderItemsMap = {};
+    if (fullOrderIds.length > 0) {
+      const [orderItems] = await pool.query(
+        `SELECT 
+          oi.order_id, oi.item_name, oi.variant_name, oi.item_type,
+          oi.quantity, oi.unit_price, oi.total_price, oi.tax_amount,
+          oi.status, oi.cancel_reason,
+          c.name as category_name
+         FROM order_items oi
+         LEFT JOIN items i ON oi.item_id = i.id
+         LEFT JOIN categories c ON i.category_id = c.id
+         WHERE oi.order_id IN (?)
+         ORDER BY oi.order_id, oi.created_at`,
+        [fullOrderIds]
+      );
+      for (const item of orderItems) {
+        if (!orderItemsMap[item.order_id]) orderItemsMap[item.order_id] = [];
+        orderItemsMap[item.order_id].push({
+          itemName: item.item_name,
+          variantName: item.variant_name || null,
+          itemType: item.item_type,
+          categoryName: item.category_name || null,
+          quantity: parseFloat(item.quantity),
+          unitPrice: parseFloat(item.unit_price) || 0,
+          totalPrice: parseFloat(item.total_price) || 0,
+          taxAmount: parseFloat(item.tax_amount) || 0,
+          status: item.status,
+          cancelReason: item.cancel_reason || null
+        });
+      }
+    }
+
+    // ─── 11. Build detailed cancellation list ───
+    const cancellations = logs.map(log => {
+      const cancelledAmount = log.cancel_type === 'full_order'
+        ? parseFloat(log.order_total) || 0
+        : log.cancel_type === 'quantity_reduce'
+          ? (parseFloat(log.cancelled_quantity) || 0) * (parseFloat(log.unit_price) || 0)
+          : parseFloat(log.item_total_price) || 0;
+
+      const entry = {
+        logId: log.log_id,
+        cancelType: log.cancel_type,
+        cancelledAt: log.cancelled_at,
+        cancelledAmount: parseFloat(cancelledAmount.toFixed(2)),
+        reasonText: log.reason_text || log.item_cancel_reason || log.order_cancel_reason || null,
+        refundAmount: parseFloat(log.refund_amount) || 0,
+
+        // Who
+        cancelledByName: log.cancelled_by_name || null,
+        approvedByName: log.approved_by_name || null,
+        captainName: log.captain_name || null,
+        cashierName: log.cashier_name || null,
+
+        // Order context
+        orderId: log.order_id,
+        orderNumber: log.order_number,
+        orderType: log.order_type,
+        orderStatus: log.order_status,
+        orderTotal: parseFloat(log.order_total) || 0,
+        orderCreatedAt: log.order_created_at,
+        customerName: log.customer_name || null,
+        customerPhone: log.customer_phone || null,
+        guestCount: log.guest_count || 0,
+
+        // Location
+        floorName: log.floor_name || null,
+        tableNumber: log.table_number || null,
+        tableName: log.table_name || null
+      };
+
+      if (log.cancel_type === 'full_order') {
+        // Full order cancellation — include all items that were in the order
+        entry.orderCancelReason = log.order_cancel_reason || null;
+        entry.orderCancelledAt = log.order_cancelled_at || null;
+        entry.orderSubtotal = parseFloat(log.order_subtotal) || 0;
+        entry.orderTax = parseFloat(log.order_tax) || 0;
+        entry.orderDiscount = parseFloat(log.order_discount) || 0;
+        entry.items = orderItemsMap[log.order_id] || [];
+        entry.itemCount = entry.items.length;
+      } else {
+        // Item-level cancellation
+        entry.itemName = log.item_name || null;
+        entry.variantName = log.variant_name || null;
+        entry.itemType = log.item_type || null;
+        entry.originalQuantity = parseFloat(log.original_quantity) || 0;
+        entry.cancelledQuantity = parseFloat(log.cancelled_quantity) || 0;
+        entry.currentQuantity = parseFloat(log.current_quantity) || 0;
+        entry.unitPrice = parseFloat(log.unit_price) || 0;
+        entry.itemTotalPrice = parseFloat(log.item_total_price) || 0;
+        entry.itemTax = parseFloat(log.item_tax) || 0;
+        entry.itemDiscount = parseFloat(log.item_discount) || 0;
+        entry.itemStatus = log.item_status || null;
+
+        // KOT info
+        if (log.kot_id && kotMap[log.kot_id]) {
+          entry.kot = kotMap[log.kot_id];
+        }
+      }
+
+      return entry;
+    });
+
+    return {
+      dateRange: { start, end },
+      cancellations,
+      pagination: {
+        page,
+        limit,
+        totalCount,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      },
+      filters: this._cancelDetailFilters(options),
+      summary
+    };
+  },
+
+  _cancelDetailFilters(options = {}) {
+    const f = {};
+    if (options.search) f.search = options.search;
+    if (options.cancelType) f.cancelType = options.cancelType;
+    if (options.cancelledByName) f.cancelledByName = options.cancelledByName;
+    if (options.approvedByName) f.approvedByName = options.approvedByName;
+    if (options.captainName) f.captainName = options.captainName;
+    if (options.cashierName) f.cashierName = options.cashierName;
+    if (options.orderType) f.orderType = options.orderType;
+    if (options.floorName) f.floorName = options.floorName;
+    if (options.tableNumber) f.tableNumber = options.tableNumber;
+    if (options.sortBy) f.sortBy = options.sortBy;
+    if (options.sortOrder) f.sortOrder = options.sortOrder;
+    return f;
+  },
+
+  _emptyCancelDetailSummary() {
+    return {
+      dateRange: { start: null, end: null },
+      totalCancellations: 0,
+      fullOrderCancellations: 0,
+      itemCancellations: 0,
+      quantityReductions: 0,
+      uniqueOrdersAffected: 0,
+      totalCancelAmount: 0,
+      fullOrderCancelAmount: 0,
+      itemCancelAmount: 0,
+      quantityReduceAmount: 0,
+      totalRefundAmount: 0,
+      uniqueCancellers: 0,
+      approvedCancellations: 0,
+      byReason: [],
+      byStaff: [],
+      byType: [],
+      byHour: [],
+      byDate: [],
+      byFloor: []
+    };
   },
 
   // ========================
@@ -484,48 +1579,52 @@ const reportsService = {
   /**
    * Get live dashboard stats
    */
-  async getLiveDashboard(outletId) {
+  async getLiveDashboard(outletId, floorIds = []) {
     const pool = getPool();
     const today = new Date().toISOString().slice(0, 10);
+    const ff = floorFilter(floorIds);
+    const ffT = floorFilter(floorIds, 't');
 
     // Today's sales
     const [todaySales] = await pool.query(
       `SELECT 
         COUNT(*) as total_orders,
         SUM(guest_count) as total_guests,
-        SUM(CASE WHEN status = 'paid' THEN total_amount ELSE 0 END) as net_sales,
-        COUNT(CASE WHEN status NOT IN ('paid', 'cancelled') THEN 1 END) as active_orders
-       FROM orders 
-       WHERE outlet_id = ? AND DATE(created_at) = ?`,
-      [outletId, today]
+        SUM(CASE WHEN status IN ('paid', 'completed') THEN total_amount ELSE 0 END) as net_sales,
+        COUNT(CASE WHEN status NOT IN ('paid', 'completed', 'cancelled') THEN 1 END) as active_orders
+       FROM orders o
+       WHERE o.outlet_id = ? AND DATE(o.created_at) = ?${ff.sql}`,
+      [outletId, today, ...ff.params]
     );
 
     // Active tables
     const [activeTables] = await pool.query(
-      `SELECT COUNT(*) as count FROM tables WHERE outlet_id = ? AND status = 'occupied'`,
-      [outletId]
+      `SELECT COUNT(*) as count FROM tables t WHERE t.outlet_id = ? AND t.status = 'occupied'${ffT.sql}`,
+      [outletId, ...ffT.params]
     );
 
     // Pending KOTs by station
     const [pendingKots] = await pool.query(
       `SELECT 
-        station,
+        kt.station,
         COUNT(*) as count
-       FROM kot_tickets 
-       WHERE outlet_id = ? AND status NOT IN ('served', 'cancelled') AND DATE(created_at) = ?
-       GROUP BY station`,
-      [outletId, today]
+       FROM kot_tickets kt
+       JOIN orders o ON kt.order_id = o.id
+       WHERE kt.outlet_id = ? AND kt.status NOT IN ('served', 'cancelled') AND DATE(kt.created_at) = ?${ff.sql}
+       GROUP BY kt.station`,
+      [outletId, today, ...ff.params]
     );
 
     // Payment breakdown
     const [payments] = await pool.query(
       `SELECT 
-        payment_mode,
-        SUM(total_amount) as amount
-       FROM payments 
-       WHERE outlet_id = ? AND DATE(created_at) = ? AND status = 'completed'
-       GROUP BY payment_mode`,
-      [outletId, today]
+        p.payment_mode,
+        SUM(p.total_amount) as amount
+       FROM payments p
+       JOIN orders o ON p.order_id = o.id
+       WHERE p.outlet_id = ? AND DATE(p.created_at) = ? AND p.status = 'completed'${ff.sql}
+       GROUP BY p.payment_mode`,
+      [outletId, today, ...ff.params]
     );
 
     return {
@@ -534,6 +1633,2243 @@ const reportsService = {
       activeTables: activeTables[0].count,
       pendingKots: pendingKots.reduce((obj, k) => { obj[k.station] = k.count; return obj; }, {}),
       paymentBreakdown: payments.reduce((obj, p) => { obj[p.payment_mode] = p.amount; return obj; }, {})
+    };
+  },
+
+  // ========================
+  // DETAILED DAILY SALES REPORT
+  // ========================
+
+  /**
+   * Detailed daily sales — per-order breakdown with items, captain, cashier, tax, payments, timestamps
+   * Supports: filters, search, pagination, sorting
+   *
+   * @param {number} outletId
+   * @param {string} startDate
+   * @param {string} endDate
+   * @param {Object} options
+   * @param {number}  options.page          - 1-indexed page (default 1)
+   * @param {number}  options.limit         - items per page (default 50, max 200)
+   * @param {string}  options.search        - search in order_number, customer_name, customer_phone
+   * @param {string}  options.orderType     - dine_in | takeaway | delivery
+   * @param {string}  options.status        - pending|confirmed|preparing|ready|served|billed|paid|completed|cancelled
+   * @param {string}  options.paymentStatus - pending | partial | paid
+   * @param {string}  options.captainName   - partial match on captain name
+   * @param {string}  options.cashierName   - partial match on cashier name
+   * @param {string}  options.floorName     - partial match on floor name
+   * @param {number}  options.tableNumber   - exact table number
+   * @param {string}  options.sortBy        - created_at | total_amount | order_number (default created_at)
+   * @param {string}  options.sortOrder     - ASC | DESC (default DESC)
+   */
+  async getDailySalesDetail(outletId, startDate, endDate, options = {}) {
+    const pool = getPool();
+    const { start, end } = this._dateRange(startDate, endDate);
+
+    // Parse options
+    const page = Math.max(1, parseInt(options.page) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(options.limit) || 50));
+    const offset = (page - 1) * limit;
+    const search = (options.search || '').trim();
+    const orderType = (options.orderType || '').trim();
+    const status = (options.status || '').trim();
+    const paymentStatus = (options.paymentStatus || '').trim();
+    const captainName = (options.captainName || '').trim();
+    const cashierName = (options.cashierName || '').trim();
+    const floorName = (options.floorName || '').trim();
+    const tableNumber = (options.tableNumber || '').trim() || null;
+
+    const allowedSort = ['created_at', 'total_amount', 'order_number', 'subtotal', 'tax_amount'];
+    const sortBy = allowedSort.includes(options.sortBy) ? options.sortBy : 'created_at';
+    const sortOrder = (options.sortOrder || '').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    // Build dynamic WHERE
+    const baseFrom = `FROM orders o
+       LEFT JOIN tables t ON o.table_id = t.id
+       LEFT JOIN floors f ON o.floor_id = f.id
+       LEFT JOIN users u_captain ON o.created_by = u_captain.id
+       LEFT JOIN users u_biller ON o.billed_by = u_biller.id
+       LEFT JOIN users u_cancel ON o.cancelled_by = u_cancel.id`;
+
+    let conditions = ['o.outlet_id = ?', 'DATE(o.created_at) BETWEEN ? AND ?'];
+    let params = [outletId, start, end];
+
+    // Floor restriction for assigned-floor users
+    if (options.floorIds && options.floorIds.length > 0) {
+      conditions.push(`o.floor_id IN (${options.floorIds.map(() => '?').join(',')})`);
+      params.push(...options.floorIds);
+    }
+
+    if (orderType) { conditions.push('o.order_type = ?'); params.push(orderType); }
+    if (status) { conditions.push('o.status = ?'); params.push(status); }
+    if (paymentStatus) { conditions.push('o.payment_status = ?'); params.push(paymentStatus); }
+    if (captainName) { conditions.push('u_captain.name LIKE ?'); params.push(`%${captainName}%`); }
+    if (cashierName) { conditions.push('u_biller.name LIKE ?'); params.push(`%${cashierName}%`); }
+    if (floorName) { conditions.push('f.name LIKE ?'); params.push(`%${floorName}%`); }
+    if (tableNumber) { conditions.push('t.table_number = ?'); params.push(tableNumber); }
+    if (search) {
+      conditions.push('(o.order_number LIKE ? OR o.customer_name LIKE ? OR o.customer_phone LIKE ?)');
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
+    const whereClause = 'WHERE ' + conditions.join(' AND ');
+
+    // 0. Total count (for pagination metadata)
+    const [countResult] = await pool.query(
+      `SELECT COUNT(*) as total ${baseFrom} ${whereClause}`,
+      params
+    );
+    const totalCount = countResult[0].total;
+
+    if (totalCount === 0) {
+      return {
+        dateRange: { start, end },
+        orders: [],
+        pagination: { page, limit, totalCount: 0, totalPages: 0, hasNext: false, hasPrev: false },
+        filters: this._activeFilters(options),
+        summary: this._emptyDetailSummary()
+      };
+    }
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    // 1. Summary aggregation over ALL filtered orders (not paginated)
+    const [summaryRows] = await pool.query(
+      `SELECT
+        COUNT(*) as total_orders,
+        SUM(CASE WHEN o.status IN ('paid','completed') THEN 1 ELSE 0 END) as completed_orders,
+        SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_orders,
+        SUM(CASE WHEN o.status NOT IN ('paid','completed','cancelled') THEN 1 ELSE 0 END) as active_orders,
+        SUM(CASE WHEN o.order_type = 'dine_in' THEN 1 ELSE 0 END) as dine_in_count,
+        SUM(CASE WHEN o.order_type = 'takeaway' THEN 1 ELSE 0 END) as takeaway_count,
+        SUM(CASE WHEN o.order_type = 'delivery' THEN 1 ELSE 0 END) as delivery_count,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.subtotal ELSE 0 END) as gross_sales,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as total_discount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.tax_amount ELSE 0 END) as total_tax,
+        SUM(CASE WHEN o.status IN ('paid','completed') THEN o.total_amount ELSE 0 END) as net_sales
+       ${baseFrom} ${whereClause}`,
+      params
+    );
+    const sr = summaryRows[0];
+
+    // Payment summary over all filtered orders
+    const [paymentSummary] = await pool.query(
+      `SELECT p.payment_mode, SUM(p.total_amount) as total, SUM(p.tip_amount) as tips
+       FROM payments p
+       JOIN orders o ON p.order_id = o.id
+       LEFT JOIN tables t ON o.table_id = t.id
+       LEFT JOIN floors f ON o.floor_id = f.id
+       LEFT JOIN users u_captain ON o.created_by = u_captain.id
+       LEFT JOIN users u_biller ON o.billed_by = u_biller.id
+       LEFT JOIN users u_cancel ON o.cancelled_by = u_cancel.id
+       ${whereClause} AND p.status = 'completed'
+       GROUP BY p.payment_mode`,
+      params
+    );
+    const paymentModeBreakdown = {};
+    let totalPaidAll = 0, totalTipsAll = 0;
+    for (const pm of paymentSummary) {
+      const amt = parseFloat(pm.total) || 0;
+      paymentModeBreakdown[pm.payment_mode] = parseFloat(amt.toFixed(2));
+      totalPaidAll += amt;
+      totalTipsAll += parseFloat(pm.tips) || 0;
+    }
+
+    const completedCount = parseInt(sr.completed_orders) || 0;
+    const netSales = parseFloat(sr.net_sales) || 0;
+
+    const summary = {
+      dateRange: { start, end },
+      totalOrders: parseInt(sr.total_orders) || 0,
+      completedOrders: completedCount,
+      cancelledOrders: parseInt(sr.cancelled_orders) || 0,
+      activeOrders: parseInt(sr.active_orders) || 0,
+      orderTypeBreakdown: {
+        dine_in: parseInt(sr.dine_in_count) || 0,
+        takeaway: parseInt(sr.takeaway_count) || 0,
+        delivery: parseInt(sr.delivery_count) || 0
+      },
+      grossSales: parseFloat((parseFloat(sr.gross_sales) || 0).toFixed(2)),
+      totalDiscount: parseFloat((parseFloat(sr.total_discount) || 0).toFixed(2)),
+      totalTax: parseFloat((parseFloat(sr.total_tax) || 0).toFixed(2)),
+      netSales: parseFloat(netSales.toFixed(2)),
+      totalPaid: parseFloat(totalPaidAll.toFixed(2)),
+      totalTips: parseFloat(totalTipsAll.toFixed(2)),
+      averageOrderValue: completedCount > 0 ? parseFloat((netSales / completedCount).toFixed(2)) : 0,
+      paymentModeBreakdown
+    };
+
+    // 2. Paginated orders
+    const orderSelect = `SELECT 
+        o.id, o.order_number, o.order_type, o.status, o.payment_status,
+        o.subtotal, o.discount_amount, o.tax_amount, o.service_charge,
+        o.packaging_charge, o.delivery_charge, o.round_off,
+        o.total_amount, o.paid_amount, o.due_amount,
+        o.guest_count, o.customer_name, o.customer_phone,
+        o.table_id, o.is_complimentary, o.is_priority,
+        o.special_instructions, o.cancel_reason,
+        o.created_by, o.billed_by, o.cancelled_by,
+        o.created_at, o.billed_at, o.cancelled_at, o.updated_at,
+        t.table_number, t.name as table_name,
+        f.name as floor_name,
+        u_captain.name as captain_name,
+        u_biller.name as cashier_name,
+        u_cancel.name as cancelled_by_name`;
+
+    const [orders] = await pool.query(
+      `${orderSelect} ${baseFrom} ${whereClause} ORDER BY o.${sortBy} ${sortOrder} LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+
+    if (orders.length === 0) {
+      return {
+        dateRange: { start, end },
+        orders: [],
+        pagination: { page, limit, totalCount, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
+        filters: this._activeFilters(options),
+        summary
+      };
+    }
+
+    const orderIds = orders.map(o => o.id);
+
+    // 3. All items for these orders (batch)
+    const [items] = await pool.query(
+      `SELECT 
+        oi.id, oi.order_id, oi.item_id, oi.item_name, oi.variant_name,
+        oi.item_type, oi.quantity, oi.unit_price, oi.base_price,
+        oi.discount_amount, oi.tax_amount, oi.total_price,
+        oi.status, oi.special_instructions, oi.tax_details,
+        oi.is_complimentary, oi.complimentary_reason,
+        oi.cancelled_by, oi.cancelled_at, oi.cancel_reason,
+        oi.created_at,
+        u.name as cancelled_by_name,
+        c.name as category_name,
+        ks.name as station_name
+       FROM order_items oi
+       LEFT JOIN users u ON oi.cancelled_by = u.id
+       LEFT JOIN items i ON oi.item_id = i.id
+       LEFT JOIN categories c ON i.category_id = c.id
+       LEFT JOIN kitchen_stations ks ON i.kitchen_station_id = ks.id
+       WHERE oi.order_id IN (?)
+       ORDER BY oi.order_id, oi.created_at`,
+      [orderIds]
+    );
+
+    // 4. All addons for these items (batch)
+    const itemIds = items.map(i => i.id);
+    let addonsMap = {};
+    if (itemIds.length > 0) {
+      const [addons] = await pool.query(
+        `SELECT oia.order_item_id, oia.addon_name, oia.unit_price, oia.total_price, oia.quantity
+         FROM order_item_addons oia
+         WHERE oia.order_item_id IN (?)`,
+        [itemIds]
+      );
+      for (const a of addons) {
+        if (!addonsMap[a.order_item_id]) addonsMap[a.order_item_id] = [];
+        addonsMap[a.order_item_id].push({
+          addonName: a.addon_name,
+          unitPrice: parseFloat(a.unit_price) || 0,
+          totalPrice: parseFloat(a.total_price) || 0,
+          quantity: parseInt(a.quantity) || 1
+        });
+      }
+    }
+
+    // 5. All payments for these orders (batch)
+    const [payments] = await pool.query(
+      `SELECT 
+        p.order_id, p.payment_mode, p.amount, p.tip_amount, p.total_amount,
+        p.status, p.transaction_id, p.reference_number,
+        p.card_last_four, p.card_type, p.upi_id, p.wallet_name,
+        p.created_at,
+        u.name as received_by_name
+       FROM payments p
+       LEFT JOIN users u ON p.received_by = u.id
+       WHERE p.order_id IN (?) AND p.status = 'completed'
+       ORDER BY p.created_at`,
+      [orderIds]
+    );
+
+    // 6. All invoices for these orders (batch)
+    const [invoices] = await pool.query(
+      `SELECT 
+        inv.order_id, inv.invoice_number, inv.invoice_date, inv.invoice_time,
+        inv.subtotal, inv.discount_amount, inv.taxable_amount,
+        inv.cgst_amount, inv.sgst_amount, inv.igst_amount, inv.vat_amount,
+        inv.cess_amount, inv.total_tax, inv.service_charge,
+        inv.packaging_charge, inv.delivery_charge, inv.round_off,
+        inv.grand_total, inv.payment_status, inv.tax_breakup,
+        inv.is_cancelled
+       FROM invoices inv
+       WHERE inv.order_id IN (?) AND inv.is_cancelled = 0`,
+      [orderIds]
+    );
+
+    // 7. All discounts for these orders (batch)
+    const [discounts] = await pool.query(
+      `SELECT 
+        od.order_id, od.discount_name, od.discount_type, od.discount_value,
+        od.discount_amount, od.discount_code, od.applied_on,
+        u.name as created_by_name
+       FROM order_discounts od
+       LEFT JOIN users u ON od.created_by = u.id
+       WHERE od.order_id IN (?)`,
+      [orderIds]
+    );
+
+    // Build lookup maps
+    const itemsByOrder = {};
+    for (const it of items) {
+      if (!itemsByOrder[it.order_id]) itemsByOrder[it.order_id] = [];
+
+      let taxDetails = null;
+      if (it.tax_details) {
+        try {
+          taxDetails = typeof it.tax_details === 'string' ? JSON.parse(it.tax_details) : it.tax_details;
+        } catch (e) { /* ignore */ }
+      }
+
+      itemsByOrder[it.order_id].push({
+        id: it.id,
+        itemName: it.item_name,
+        variantName: it.variant_name || null,
+        itemType: it.item_type,
+        categoryName: it.category_name || null,
+        stationName: it.station_name || null,
+        quantity: parseFloat(it.quantity),
+        unitPrice: parseFloat(it.unit_price) || 0,
+        discountAmount: parseFloat(it.discount_amount) || 0,
+        taxAmount: parseFloat(it.tax_amount) || 0,
+        totalPrice: parseFloat(it.total_price) || 0,
+        status: it.status,
+        specialInstructions: it.special_instructions || null,
+        taxDetails,
+        isComplimentary: !!it.is_complimentary,
+        complimentaryReason: it.complimentary_reason || null,
+        cancelReason: it.cancel_reason || null,
+        cancelledByName: it.cancelled_by_name || null,
+        cancelledAt: it.cancelled_at || null,
+        addons: addonsMap[it.id] || [],
+        createdAt: it.created_at
+      });
+    }
+
+    const paymentsByOrder = {};
+    for (const p of payments) {
+      if (!paymentsByOrder[p.order_id]) paymentsByOrder[p.order_id] = [];
+      paymentsByOrder[p.order_id].push({
+        paymentMode: p.payment_mode,
+        amount: parseFloat(p.amount) || 0,
+        tipAmount: parseFloat(p.tip_amount) || 0,
+        totalAmount: parseFloat(p.total_amount) || 0,
+        transactionId: p.transaction_id || null,
+        referenceNumber: p.reference_number || null,
+        cardLastFour: p.card_last_four || null,
+        cardType: p.card_type || null,
+        upiId: p.upi_id || null,
+        walletName: p.wallet_name || null,
+        receivedByName: p.received_by_name || null,
+        createdAt: p.created_at
+      });
+    }
+
+    const invoiceByOrder = {};
+    for (const inv of invoices) {
+      let taxBreakup = null;
+      if (inv.tax_breakup) {
+        try {
+          taxBreakup = typeof inv.tax_breakup === 'string' ? JSON.parse(inv.tax_breakup) : inv.tax_breakup;
+        } catch (e) { /* ignore */ }
+      }
+      invoiceByOrder[inv.order_id] = {
+        invoiceNumber: inv.invoice_number,
+        invoiceDate: inv.invoice_date,
+        invoiceTime: inv.invoice_time,
+        subtotal: parseFloat(inv.subtotal) || 0,
+        discountAmount: parseFloat(inv.discount_amount) || 0,
+        taxableAmount: parseFloat(inv.taxable_amount) || 0,
+        cgstAmount: parseFloat(inv.cgst_amount) || 0,
+        sgstAmount: parseFloat(inv.sgst_amount) || 0,
+        igstAmount: parseFloat(inv.igst_amount) || 0,
+        vatAmount: parseFloat(inv.vat_amount) || 0,
+        cessAmount: parseFloat(inv.cess_amount) || 0,
+        totalTax: parseFloat(inv.total_tax) || 0,
+        serviceCharge: parseFloat(inv.service_charge) || 0,
+        packagingCharge: parseFloat(inv.packaging_charge) || 0,
+        deliveryCharge: parseFloat(inv.delivery_charge) || 0,
+        roundOff: parseFloat(inv.round_off) || 0,
+        grandTotal: parseFloat(inv.grand_total) || 0,
+        paymentStatus: inv.payment_status,
+        taxBreakup
+      };
+    }
+
+    const discountsByOrder = {};
+    for (const d of discounts) {
+      if (!discountsByOrder[d.order_id]) discountsByOrder[d.order_id] = [];
+      discountsByOrder[d.order_id].push({
+        discountName: d.discount_name,
+        discountType: d.discount_type,
+        discountValue: parseFloat(d.discount_value) || 0,
+        discountAmount: parseFloat(d.discount_amount) || 0,
+        discountCode: d.discount_code || null,
+        appliedOn: d.applied_on,
+        createdByName: d.created_by_name || null
+      });
+    }
+
+    // Build detailed order list (current page only)
+    const detailedOrders = orders.map(o => {
+      const orderItems = itemsByOrder[o.id] || [];
+      const orderPayments = paymentsByOrder[o.id] || [];
+      const orderInvoice = invoiceByOrder[o.id] || null;
+      const orderDiscounts = discountsByOrder[o.id] || [];
+
+      const activeItems = orderItems.filter(i => i.status !== 'cancelled');
+      const cancelledItems = orderItems.filter(i => i.status === 'cancelled');
+      const itemSubtotal = activeItems.reduce((s, i) => s + i.totalPrice, 0);
+      const itemTax = activeItems.reduce((s, i) => s + i.taxAmount, 0);
+      const itemDiscount = activeItems.reduce((s, i) => s + i.discountAmount, 0);
+
+      return {
+        orderId: o.id,
+        orderNumber: o.order_number,
+        orderType: o.order_type,
+        status: o.status,
+        paymentStatus: o.payment_status,
+
+        // People
+        captainName: o.captain_name || null,
+        cashierName: o.cashier_name || null,
+        customerName: o.customer_name || null,
+        customerPhone: o.customer_phone || null,
+        cancelledByName: o.cancelled_by_name || null,
+
+        // Table info
+        tableNumber: o.table_number || null,
+        tableName: o.table_name || null,
+        floorName: o.floor_name || null,
+        guestCount: o.guest_count || 0,
+
+        // Amounts
+        subtotal: parseFloat(o.subtotal) || 0,
+        discountAmount: parseFloat(o.discount_amount) || 0,
+        taxAmount: parseFloat(o.tax_amount) || 0,
+        serviceCharge: parseFloat(o.service_charge) || 0,
+        packagingCharge: parseFloat(o.packaging_charge) || 0,
+        deliveryCharge: parseFloat(o.delivery_charge) || 0,
+        roundOff: parseFloat(o.round_off) || 0,
+        totalAmount: parseFloat(o.total_amount) || 0,
+        paidAmount: parseFloat(o.paid_amount) || 0,
+        dueAmount: parseFloat(o.due_amount) || 0,
+
+        // Flags
+        isComplimentary: !!o.is_complimentary,
+        isPriority: !!o.is_priority,
+        cancelReason: o.cancel_reason || null,
+
+        // Timestamps
+        createdAt: o.created_at,
+        billedAt: o.billed_at || null,
+        cancelledAt: o.cancelled_at || null,
+
+        // Items
+        items: {
+          active: activeItems,
+          cancelled: cancelledItems,
+          activeCount: activeItems.length,
+          cancelledCount: cancelledItems.length,
+          totalCount: orderItems.length,
+          itemSubtotal: parseFloat(itemSubtotal.toFixed(2)),
+          itemTax: parseFloat(itemTax.toFixed(2)),
+          itemDiscount: parseFloat(itemDiscount.toFixed(2))
+        },
+
+        // Discounts
+        discounts: orderDiscounts,
+
+        // Payments
+        payments: orderPayments,
+
+        // Invoice
+        invoice: orderInvoice
+      };
+    });
+
+    return {
+      dateRange: { start, end },
+      orders: detailedOrders,
+      pagination: {
+        page,
+        limit,
+        totalCount,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      },
+      filters: this._activeFilters(options),
+      summary
+    };
+  },
+
+  _activeFilters(options = {}) {
+    const f = {};
+    if (options.search) f.search = options.search;
+    if (options.orderType) f.orderType = options.orderType;
+    if (options.status) f.status = options.status;
+    if (options.paymentStatus) f.paymentStatus = options.paymentStatus;
+    if (options.captainName) f.captainName = options.captainName;
+    if (options.cashierName) f.cashierName = options.cashierName;
+    if (options.floorName) f.floorName = options.floorName;
+    if (options.tableNumber) f.tableNumber = options.tableNumber;
+    if (options.sortBy) f.sortBy = options.sortBy;
+    if (options.sortOrder) f.sortOrder = options.sortOrder;
+    return f;
+  },
+
+  /**
+   * Detailed Item Sales — per-item breakdown with every order occurrence,
+   * table, floor, captain, cashier, addons, tax, timestamps, cancellations
+   * Supports: filters, search, pagination, sorting
+   *
+   * @param {number} outletId
+   * @param {string} startDate
+   * @param {string} endDate
+   * @param {Object} options
+   * @param {number}  options.page          - 1-indexed page (default 1)
+   * @param {number}  options.limit         - items per page (default 50, max 200)
+   * @param {string}  options.search        - search in item_name, variant_name, order_number, category_name
+   * @param {string}  options.itemType      - veg | non_veg | egg
+   * @param {string}  options.categoryName  - partial match on category
+   * @param {string}  options.status        - item status filter (cancelled, served, etc.)
+   * @param {string}  options.orderType     - dine_in | takeaway | delivery
+   * @param {string}  options.floorName     - partial match on floor name
+   * @param {number}  options.tableNumber   - exact table number
+   * @param {string}  options.captainName   - partial match on captain name
+   * @param {string}  options.cashierName   - partial match on cashier name
+   * @param {string}  options.sortBy        - total_quantity | gross_revenue | net_revenue | item_name | order_count (default total_quantity)
+   * @param {string}  options.sortOrder     - ASC | DESC (default DESC)
+   * @param {Array}   options.floorIds      - floor restriction for assigned-floor users
+   */
+  async getItemSalesDetail(outletId, startDate, endDate, options = {}) {
+    const pool = getPool();
+    const { start, end } = this._dateRange(startDate, endDate);
+
+    // Parse options
+    const page = Math.max(1, parseInt(options.page) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(options.limit) || 50));
+    const search = (options.search || '').trim();
+    const itemType = (options.itemType || '').trim();
+    const categoryName = (options.categoryName || '').trim();
+    const status = (options.status || '').trim();
+    const orderType = (options.orderType || '').trim();
+    const floorName = (options.floorName || '').trim();
+    const tableNumber = (options.tableNumber || '').trim() || null;
+    const captainName = (options.captainName || '').trim();
+    const cashierName = (options.cashierName || '').trim();
+    const floorIds = options.floorIds || [];
+
+    const allowedSort = ['total_quantity', 'gross_revenue', 'net_revenue', 'item_name', 'order_count'];
+    const sortBy = allowedSort.includes(options.sortBy) ? options.sortBy : 'total_quantity';
+    const sortOrder = (options.sortOrder || '').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    // Build dynamic WHERE
+    const baseFrom = `FROM order_items oi
+       JOIN orders o ON oi.order_id = o.id
+       LEFT JOIN tables t ON o.table_id = t.id
+       LEFT JOIN floors fl ON t.floor_id = fl.id
+       LEFT JOIN users u_captain ON o.created_by = u_captain.id
+       LEFT JOIN users u_cashier ON o.billed_by = u_cashier.id
+       LEFT JOIN users u_item_cancel ON oi.cancelled_by = u_item_cancel.id
+       LEFT JOIN users u_item_creator ON oi.created_by = u_item_creator.id
+       LEFT JOIN items i ON oi.item_id = i.id
+       LEFT JOIN categories c ON i.category_id = c.id
+       LEFT JOIN kitchen_stations ks ON i.kitchen_station_id = ks.id
+       LEFT JOIN tax_groups tg ON oi.tax_group_id = tg.id`;
+
+    let conditions = ['o.outlet_id = ?', 'DATE(o.created_at) BETWEEN ? AND ?'];
+    let params = [outletId, start, end];
+
+    if (floorIds.length > 0) {
+      conditions.push(`o.floor_id IN (${floorIds.map(() => '?').join(',')})`);
+      params.push(...floorIds);
+    }
+    if (itemType) { conditions.push('oi.item_type = ?'); params.push(itemType); }
+    if (categoryName) { conditions.push('c.name LIKE ?'); params.push(`%${categoryName}%`); }
+    if (status) { conditions.push('oi.status = ?'); params.push(status); }
+    if (orderType) { conditions.push('o.order_type = ?'); params.push(orderType); }
+    if (floorName) { conditions.push('fl.name LIKE ?'); params.push(`%${floorName}%`); }
+    if (tableNumber) { conditions.push('t.table_number = ?'); params.push(tableNumber); }
+    if (captainName) { conditions.push('u_captain.name LIKE ?'); params.push(`%${captainName}%`); }
+    if (cashierName) { conditions.push('u_cashier.name LIKE ?'); params.push(`%${cashierName}%`); }
+    if (search) {
+      conditions.push('(oi.item_name LIKE ? OR oi.variant_name LIKE ? OR o.order_number LIKE ? OR c.name LIKE ?)');
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
+    const whereClause = 'WHERE ' + conditions.join(' AND ');
+
+    // 1. Get all filtered order_items
+    const [rows] = await pool.query(
+      `SELECT 
+        oi.id as order_item_id, oi.order_id, oi.item_id, oi.variant_id,
+        oi.item_name, oi.variant_name, oi.item_type,
+        oi.quantity, oi.unit_price, oi.base_price,
+        oi.discount_amount, oi.tax_amount, oi.total_price,
+        oi.tax_group_id, oi.tax_details, oi.price_rule_applied,
+        oi.special_instructions, oi.status as item_status,
+        oi.kot_id, oi.is_complimentary, oi.complimentary_reason,
+        oi.cancelled_by, oi.cancelled_at, oi.cancel_reason, oi.cancel_quantity,
+        oi.created_by as item_created_by, oi.created_at as item_created_at,
+        o.order_number, o.order_type, o.status as order_status,
+        o.payment_status, o.table_id, o.guest_count,
+        o.customer_name, o.customer_phone,
+        o.created_at as order_created_at, o.billed_at, o.billed_by,
+        t.table_number, t.name as table_name,
+        fl.name as floor_name,
+        u_captain.name as captain_name,
+        u_cashier.name as cashier_name,
+        u_item_cancel.name as item_cancelled_by_name,
+        u_item_creator.name as item_created_by_name,
+        c.name as category_name, c.id as category_id,
+        ks.name as station_name,
+        tg.name as tax_group_name, tg.total_rate as tax_rate
+       ${baseFrom} ${whereClause}
+       ORDER BY oi.item_name, oi.variant_name, oi.created_at DESC`,
+      params
+    );
+
+    if (rows.length === 0) {
+      return {
+        dateRange: { start, end },
+        items: [],
+        pagination: { page, limit, totalCount: 0, totalPages: 0, hasNext: false, hasPrev: false },
+        filters: this._itemDetailFilters(options),
+        summary: this._emptyItemSalesDetailSummary()
+      };
+    }
+
+    // 2. Batch-fetch addons for all order_items
+    const orderItemIds = rows.map(r => r.order_item_id);
+    const addonsMap = {};
+    if (orderItemIds.length > 0) {
+      const [addons] = await pool.query(
+        `SELECT oia.order_item_id, oia.addon_name, oia.unit_price, oia.total_price, oia.quantity
+         FROM order_item_addons oia
+         WHERE oia.order_item_id IN (?)`,
+        [orderItemIds]
+      );
+      for (const a of addons) {
+        if (!addonsMap[a.order_item_id]) addonsMap[a.order_item_id] = [];
+        addonsMap[a.order_item_id].push({
+          addonName: a.addon_name,
+          unitPrice: parseFloat(a.unit_price) || 0,
+          totalPrice: parseFloat(a.total_price) || 0,
+          quantity: parseInt(a.quantity) || 1
+        });
+      }
+    }
+
+    // 3. Group rows by item_id + variant_name (unique item key)
+    const itemMap = {};
+    // Global summary accumulators
+    let globalTotalQty = 0, globalCancelledQty = 0, globalGrossRevenue = 0;
+    let globalDiscount = 0, globalTax = 0, globalNetRevenue = 0;
+    let globalAddonRevenue = 0, globalComplimentaryCount = 0;
+    const globalCategoryBreakdown = {};
+    const globalTypeBreakdown = {};
+
+    for (const r of rows) {
+      const key = `${r.item_id || 0}::${r.variant_name || ''}`;
+      const isActive = r.item_status !== 'cancelled';
+
+      let taxDetails = null;
+      if (r.tax_details) {
+        try { taxDetails = typeof r.tax_details === 'string' ? JSON.parse(r.tax_details) : r.tax_details; } catch (e) {}
+      }
+      let priceRule = null;
+      if (r.price_rule_applied) {
+        try { priceRule = typeof r.price_rule_applied === 'string' ? JSON.parse(r.price_rule_applied) : r.price_rule_applied; } catch (e) {}
+      }
+
+      const itemAddons = addonsMap[r.order_item_id] || [];
+      const addonTotal = itemAddons.reduce((s, a) => s + a.totalPrice, 0);
+
+      // Build the order occurrence record
+      const occurrence = {
+        orderItemId: r.order_item_id,
+        orderId: r.order_id,
+        orderNumber: r.order_number,
+        orderType: r.order_type,
+        orderStatus: r.order_status,
+        paymentStatus: r.payment_status,
+
+        // Table & floor
+        tableId: r.table_id || null,
+        tableNumber: r.table_number || null,
+        tableName: r.table_name || null,
+        floorName: r.floor_name || null,
+
+        // People
+        captainName: r.captain_name || null,
+        cashierName: r.cashier_name || null,
+        orderedByName: r.item_created_by_name || null,
+        customerName: r.customer_name || null,
+        customerPhone: r.customer_phone || null,
+        guestCount: r.guest_count || 0,
+
+        // Item specifics
+        quantity: parseFloat(r.quantity),
+        unitPrice: parseFloat(r.unit_price) || 0,
+        basePrice: parseFloat(r.base_price) || 0,
+        discountAmount: parseFloat(r.discount_amount) || 0,
+        taxAmount: parseFloat(r.tax_amount) || 0,
+        totalPrice: parseFloat(r.total_price) || 0,
+        addonTotal: parseFloat(addonTotal.toFixed(2)),
+        addons: itemAddons,
+
+        // Tax
+        taxGroupName: r.tax_group_name || null,
+        taxRate: r.tax_rate ? parseFloat(r.tax_rate) : null,
+        taxDetails,
+        priceRuleApplied: priceRule,
+
+        // Status & KOT
+        status: r.item_status,
+        kotId: r.kot_id || null,
+        specialInstructions: r.special_instructions || null,
+
+        // Complimentary
+        isComplimentary: !!r.is_complimentary,
+        complimentaryReason: r.complimentary_reason || null,
+
+        // Cancellation
+        cancelQuantity: parseFloat(r.cancel_quantity || 0),
+        cancelReason: r.cancel_reason || null,
+        cancelledByName: r.item_cancelled_by_name || null,
+        cancelledAt: r.cancelled_at || null,
+
+        // Timestamps
+        itemCreatedAt: r.item_created_at,
+        orderCreatedAt: r.order_created_at,
+        billedAt: r.billed_at || null,
+      };
+
+      if (!itemMap[key]) {
+        itemMap[key] = {
+          itemId: r.item_id,
+          itemName: r.item_name,
+          variantId: r.variant_id || null,
+          variantName: r.variant_name || null,
+          itemType: r.item_type,
+          categoryId: r.category_id || null,
+          categoryName: r.category_name || null,
+          stationName: r.station_name || null,
+          // Accumulators
+          totalQuantity: 0,
+          cancelledQuantity: 0,
+          grossRevenue: 0,
+          discountAmount: 0,
+          taxAmount: 0,
+          netRevenue: 0,
+          addonRevenue: 0,
+          complimentaryCount: 0,
+          orderCount: new Set(),
+          dineInCount: 0,
+          takeawayCount: 0,
+          deliveryCount: 0,
+          occurrences: []
+        };
+      }
+
+      const item = itemMap[key];
+      item.occurrences.push(occurrence);
+      item.orderCount.add(r.order_id);
+
+      if (isActive) {
+        const qty = parseFloat(r.quantity);
+        const tp = parseFloat(r.total_price) || 0;
+        const da = parseFloat(r.discount_amount) || 0;
+        const ta = parseFloat(r.tax_amount) || 0;
+
+        item.totalQuantity += qty;
+        item.grossRevenue += tp;
+        item.discountAmount += da;
+        item.taxAmount += ta;
+        item.netRevenue += (tp - da);
+        item.addonRevenue += addonTotal;
+
+        globalTotalQty += qty;
+        globalGrossRevenue += tp;
+        globalDiscount += da;
+        globalTax += ta;
+        globalNetRevenue += (tp - da);
+        globalAddonRevenue += addonTotal;
+
+        if (r.is_complimentary) {
+          item.complimentaryCount++;
+          globalComplimentaryCount++;
+        }
+
+        // Type breakdown
+        const type = r.item_type || 'other';
+        if (!globalTypeBreakdown[type]) globalTypeBreakdown[type] = { quantity: 0, revenue: 0 };
+        globalTypeBreakdown[type].quantity += qty;
+        globalTypeBreakdown[type].revenue += tp;
+      } else {
+        // Use full quantity for cancelled items (matches summary report logic)
+        const cq = parseFloat(r.quantity);
+        item.cancelledQuantity += cq;
+        globalCancelledQty += cq;
+      }
+
+      if (r.order_type === 'dine_in') item.dineInCount++;
+      else if (r.order_type === 'takeaway') item.takeawayCount++;
+      else if (r.order_type === 'delivery') item.deliveryCount++;
+
+      // Category breakdown
+      const catName = r.category_name || 'Uncategorized';
+      if (!globalCategoryBreakdown[catName]) globalCategoryBreakdown[catName] = { quantity: 0, revenue: 0, itemCount: new Set() };
+      if (isActive) {
+        globalCategoryBreakdown[catName].quantity += parseFloat(r.quantity);
+        globalCategoryBreakdown[catName].revenue += parseFloat(r.total_price) || 0;
+      }
+      globalCategoryBreakdown[catName].itemCount.add(r.item_id);
+    }
+
+    // 4. Finalize items
+    const itemsArray = Object.values(itemMap).map(item => {
+      const orderCount = item.orderCount.size;
+      return {
+        itemId: item.itemId,
+        itemName: item.itemName,
+        variantId: item.variantId,
+        variantName: item.variantName,
+        itemType: item.itemType,
+        categoryId: item.categoryId,
+        categoryName: item.categoryName,
+        stationName: item.stationName,
+
+        // Aggregates
+        totalQuantity: parseFloat(item.totalQuantity.toFixed(3)),
+        cancelledQuantity: parseFloat(item.cancelledQuantity.toFixed(3)),
+        grossRevenue: parseFloat(item.grossRevenue.toFixed(2)),
+        discountAmount: parseFloat(item.discountAmount.toFixed(2)),
+        taxAmount: parseFloat(item.taxAmount.toFixed(2)),
+        netRevenue: parseFloat(item.netRevenue.toFixed(2)),
+        addonRevenue: parseFloat(item.addonRevenue.toFixed(2)),
+        avgUnitPrice: item.totalQuantity > 0
+          ? parseFloat((item.grossRevenue / item.totalQuantity).toFixed(2))
+          : 0,
+        orderCount,
+        complimentaryCount: item.complimentaryCount,
+
+        // Order type breakdown
+        orderTypeBreakdown: {
+          dine_in: item.dineInCount,
+          takeaway: item.takeawayCount,
+          delivery: item.deliveryCount
+        },
+
+        // Every occurrence
+        occurrenceCount: item.occurrences.length,
+        occurrences: item.occurrences
+      };
+    });
+
+    // Sort by chosen field
+    const sortMultiplier = sortOrder === 'ASC' ? 1 : -1;
+    itemsArray.sort((a, b) => {
+      if (sortBy === 'item_name') return sortMultiplier * (a.itemName || '').localeCompare(b.itemName || '');
+      if (sortBy === 'gross_revenue') return sortMultiplier * (a.grossRevenue - b.grossRevenue);
+      if (sortBy === 'net_revenue') return sortMultiplier * (a.netRevenue - b.netRevenue);
+      if (sortBy === 'order_count') return sortMultiplier * (a.orderCount - b.orderCount);
+      return sortMultiplier * (a.totalQuantity - b.totalQuantity); // default: total_quantity
+    });
+
+    // Pagination on grouped items
+    const totalCount = itemsArray.length;
+    const totalPages = Math.ceil(totalCount / limit);
+    const offset = (page - 1) * limit;
+    const paginatedItems = itemsArray.slice(offset, offset + limit);
+
+    // 5. Finalize category breakdown
+    const categoryBreakdown = Object.entries(globalCategoryBreakdown).map(([name, data]) => ({
+      categoryName: name,
+      totalQuantity: parseFloat(data.quantity.toFixed(3)),
+      totalRevenue: parseFloat(data.revenue.toFixed(2)),
+      uniqueItems: data.itemCount.size
+    })).sort((a, b) => b.totalRevenue - a.totalRevenue);
+
+    // 6. Build summary (over ALL filtered items, not just paginated page)
+    const summary = {
+      dateRange: { start, end },
+      totalUniqueItems: itemsArray.length,
+      totalItemsShown: paginatedItems.length,
+      totalQuantitySold: parseFloat(globalTotalQty.toFixed(3)),
+      totalCancelledQuantity: parseFloat(globalCancelledQty.toFixed(3)),
+      grossRevenue: parseFloat(globalGrossRevenue.toFixed(2)),
+      totalDiscount: parseFloat(globalDiscount.toFixed(2)),
+      totalTax: parseFloat(globalTax.toFixed(2)),
+      netRevenue: parseFloat(globalNetRevenue.toFixed(2)),
+      addonRevenue: parseFloat(globalAddonRevenue.toFixed(2)),
+      complimentaryCount: globalComplimentaryCount,
+      avgRevenuePerItem: itemsArray.length > 0
+        ? parseFloat((globalNetRevenue / itemsArray.length).toFixed(2))
+        : 0,
+      itemTypeBreakdown: Object.entries(globalTypeBreakdown).map(([type, data]) => ({
+        type,
+        quantity: parseFloat(data.quantity.toFixed(3)),
+        revenue: parseFloat(data.revenue.toFixed(2))
+      })),
+      categoryBreakdown
+    };
+
+    return {
+      dateRange: { start, end },
+      items: paginatedItems,
+      pagination: {
+        page, limit, totalCount, totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      },
+      filters: this._itemDetailFilters(options),
+      summary
+    };
+  },
+
+  _itemDetailFilters(options = {}) {
+    const f = {};
+    if (options.search) f.search = options.search;
+    if (options.itemType) f.itemType = options.itemType;
+    if (options.categoryName) f.categoryName = options.categoryName;
+    if (options.status) f.status = options.status;
+    if (options.orderType) f.orderType = options.orderType;
+    if (options.captainName) f.captainName = options.captainName;
+    if (options.cashierName) f.cashierName = options.cashierName;
+    if (options.floorName) f.floorName = options.floorName;
+    if (options.tableNumber) f.tableNumber = options.tableNumber;
+    if (options.sortBy) f.sortBy = options.sortBy;
+    if (options.sortOrder) f.sortOrder = options.sortOrder;
+    return f;
+  },
+
+  /**
+   * Detailed Category Sales — per-category breakdown with items, every order occurrence,
+   * table, floor, captain, cashier, addons, tax, timestamps, cancellations
+   * Supports: filters, search, pagination, sorting
+   *
+   * @param {number} outletId
+   * @param {string} startDate
+   * @param {string} endDate
+   * @param {Object} options
+   * @param {number}  options.page          - 1-indexed page (default 1)
+   * @param {number}  options.limit         - categories per page (default 50, max 200)
+   * @param {string}  options.search        - search in category_name, item_name, order_number
+   * @param {string}  options.itemType      - veg | non_veg | egg
+   * @param {string}  options.categoryName  - partial match on category
+   * @param {string}  options.status        - item status filter
+   * @param {string}  options.orderType     - dine_in | takeaway | delivery
+   * @param {string}  options.floorName     - partial match on floor name
+   * @param {number}  options.tableNumber   - exact table number
+   * @param {string}  options.captainName   - partial match on captain name
+   * @param {string}  options.cashierName   - partial match on cashier name
+   * @param {string}  options.sortBy        - net_revenue | total_quantity | category_name | order_count (default net_revenue)
+   * @param {string}  options.sortOrder     - ASC | DESC (default DESC)
+   * @param {Array}   options.floorIds      - floor restriction for assigned-floor users
+   */
+  async getCategorySalesDetail(outletId, startDate, endDate, options = {}) {
+    const pool = getPool();
+    const { start, end } = this._dateRange(startDate, endDate);
+
+    // Parse options
+    const page = Math.max(1, parseInt(options.page) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(options.limit) || 50));
+    const search = (options.search || '').trim();
+    const itemType = (options.itemType || '').trim();
+    const categoryName = (options.categoryName || '').trim();
+    const status = (options.status || '').trim();
+    const orderType = (options.orderType || '').trim();
+    const floorName = (options.floorName || '').trim();
+    const tableNumber = (options.tableNumber || '').trim() || null;
+    const captainName = (options.captainName || '').trim();
+    const cashierName = (options.cashierName || '').trim();
+    const floorIds = options.floorIds || [];
+
+    const allowedSort = ['net_revenue', 'total_quantity', 'category_name', 'order_count'];
+    const sortBy = allowedSort.includes(options.sortBy) ? options.sortBy : 'net_revenue';
+    const sortOrder = (options.sortOrder || '').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    // Build dynamic WHERE
+    const baseFrom = `FROM order_items oi
+       JOIN orders o ON oi.order_id = o.id
+       LEFT JOIN tables t ON o.table_id = t.id
+       LEFT JOIN floors fl ON t.floor_id = fl.id
+       LEFT JOIN users u_captain ON o.created_by = u_captain.id
+       LEFT JOIN users u_cashier ON o.billed_by = u_cashier.id
+       LEFT JOIN users u_item_cancel ON oi.cancelled_by = u_item_cancel.id
+       LEFT JOIN users u_item_creator ON oi.created_by = u_item_creator.id
+       LEFT JOIN items i ON oi.item_id = i.id
+       LEFT JOIN categories c ON i.category_id = c.id
+       LEFT JOIN kitchen_stations ks ON i.kitchen_station_id = ks.id
+       LEFT JOIN tax_groups tg ON oi.tax_group_id = tg.id`;
+
+    let conditions = ['o.outlet_id = ?', 'DATE(o.created_at) BETWEEN ? AND ?'];
+    let params = [outletId, start, end];
+
+    if (floorIds.length > 0) {
+      conditions.push(`o.floor_id IN (${floorIds.map(() => '?').join(',')})`);
+      params.push(...floorIds);
+    }
+    if (itemType) { conditions.push('oi.item_type = ?'); params.push(itemType); }
+    if (categoryName) { conditions.push('c.name LIKE ?'); params.push(`%${categoryName}%`); }
+    if (status) { conditions.push('oi.status = ?'); params.push(status); }
+    if (orderType) { conditions.push('o.order_type = ?'); params.push(orderType); }
+    if (floorName) { conditions.push('fl.name LIKE ?'); params.push(`%${floorName}%`); }
+    if (tableNumber) { conditions.push('t.table_number = ?'); params.push(tableNumber); }
+    if (captainName) { conditions.push('u_captain.name LIKE ?'); params.push(`%${captainName}%`); }
+    if (cashierName) { conditions.push('u_cashier.name LIKE ?'); params.push(`%${cashierName}%`); }
+    if (search) {
+      conditions.push('(c.name LIKE ? OR oi.item_name LIKE ? OR o.order_number LIKE ?)');
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
+    const whereClause = 'WHERE ' + conditions.join(' AND ');
+
+    // 1. Get all filtered order_items with full context
+    const [rows] = await pool.query(
+      `SELECT 
+        oi.id as order_item_id, oi.order_id, oi.item_id, oi.variant_id,
+        oi.item_name, oi.variant_name, oi.item_type,
+        oi.quantity, oi.unit_price, oi.base_price,
+        oi.discount_amount, oi.tax_amount, oi.total_price,
+        oi.tax_group_id, oi.tax_details, oi.price_rule_applied,
+        oi.special_instructions, oi.status as item_status,
+        oi.kot_id, oi.is_complimentary, oi.complimentary_reason,
+        oi.cancelled_by, oi.cancelled_at, oi.cancel_reason, oi.cancel_quantity,
+        oi.created_by as item_created_by, oi.created_at as item_created_at,
+        o.order_number, o.order_type, o.status as order_status,
+        o.payment_status, o.table_id, o.guest_count,
+        o.customer_name, o.customer_phone,
+        o.created_at as order_created_at, o.billed_at,
+        t.table_number, t.name as table_name,
+        fl.name as floor_name,
+        u_captain.name as captain_name,
+        u_cashier.name as cashier_name,
+        u_item_cancel.name as item_cancelled_by_name,
+        u_item_creator.name as item_created_by_name,
+        c.id as category_id, c.name as category_name,
+        ks.name as station_name,
+        tg.name as tax_group_name, tg.total_rate as tax_rate
+       ${baseFrom} ${whereClause}
+       ORDER BY c.name, oi.item_name, oi.created_at DESC`,
+      params
+    );
+
+    if (rows.length === 0) {
+      return {
+        dateRange: { start, end },
+        categories: [],
+        pagination: { page, limit, totalCount: 0, totalPages: 0, hasNext: false, hasPrev: false },
+        filters: this._categoryDetailFilters(options),
+        summary: this._emptyCategorySalesDetailSummary()
+      };
+    }
+
+    // 2. Batch-fetch addons
+    const orderItemIds = rows.map(r => r.order_item_id);
+    const addonsMap = {};
+    if (orderItemIds.length > 0) {
+      const [addons] = await pool.query(
+        `SELECT oia.order_item_id, oia.addon_name, oia.unit_price, oia.total_price, oia.quantity
+         FROM order_item_addons oia WHERE oia.order_item_id IN (?)`,
+        [orderItemIds]
+      );
+      for (const a of addons) {
+        if (!addonsMap[a.order_item_id]) addonsMap[a.order_item_id] = [];
+        addonsMap[a.order_item_id].push({
+          addonName: a.addon_name,
+          unitPrice: parseFloat(a.unit_price) || 0,
+          totalPrice: parseFloat(a.total_price) || 0,
+          quantity: parseInt(a.quantity) || 1
+        });
+      }
+    }
+
+    // 3. Group by category -> items -> occurrences
+    const catMap = {};
+    let globalTotalQty = 0, globalCancelledQty = 0, globalGrossRevenue = 0;
+    let globalDiscount = 0, globalTax = 0, globalNetRevenue = 0;
+    let globalAddonRevenue = 0, globalComplimentaryCount = 0;
+    const globalOrderIds = new Set();
+    const globalTypeBreakdown = {};
+
+    for (const r of rows) {
+      const catKey = r.category_id || 0;
+      const catName = r.category_name || 'Uncategorized';
+      const itemKey = `${r.item_id || 0}::${r.variant_name || ''}`;
+      const isActive = r.item_status !== 'cancelled';
+
+      let taxDetails = null;
+      if (r.tax_details) {
+        try { taxDetails = typeof r.tax_details === 'string' ? JSON.parse(r.tax_details) : r.tax_details; } catch (e) {}
+      }
+      let priceRule = null;
+      if (r.price_rule_applied) {
+        try { priceRule = typeof r.price_rule_applied === 'string' ? JSON.parse(r.price_rule_applied) : r.price_rule_applied; } catch (e) {}
+      }
+
+      const itemAddons = addonsMap[r.order_item_id] || [];
+      const addonTotal = itemAddons.reduce((s, a) => s + a.totalPrice, 0);
+
+      // Build occurrence
+      const occurrence = {
+        orderItemId: r.order_item_id,
+        orderId: r.order_id,
+        orderNumber: r.order_number,
+        orderType: r.order_type,
+        orderStatus: r.order_status,
+        paymentStatus: r.payment_status,
+        tableId: r.table_id || null,
+        tableNumber: r.table_number || null,
+        tableName: r.table_name || null,
+        floorName: r.floor_name || null,
+        captainName: r.captain_name || null,
+        cashierName: r.cashier_name || null,
+        orderedByName: r.item_created_by_name || null,
+        customerName: r.customer_name || null,
+        customerPhone: r.customer_phone || null,
+        guestCount: r.guest_count || 0,
+        quantity: parseFloat(r.quantity),
+        unitPrice: parseFloat(r.unit_price) || 0,
+        basePrice: parseFloat(r.base_price) || 0,
+        discountAmount: parseFloat(r.discount_amount) || 0,
+        taxAmount: parseFloat(r.tax_amount) || 0,
+        totalPrice: parseFloat(r.total_price) || 0,
+        addonTotal: parseFloat(addonTotal.toFixed(2)),
+        addons: itemAddons,
+        taxGroupName: r.tax_group_name || null,
+        taxRate: r.tax_rate ? parseFloat(r.tax_rate) : null,
+        taxDetails,
+        priceRuleApplied: priceRule,
+        status: r.item_status,
+        kotId: r.kot_id || null,
+        specialInstructions: r.special_instructions || null,
+        isComplimentary: !!r.is_complimentary,
+        complimentaryReason: r.complimentary_reason || null,
+        cancelQuantity: parseFloat(r.cancel_quantity || 0),
+        cancelReason: r.cancel_reason || null,
+        cancelledByName: r.item_cancelled_by_name || null,
+        cancelledAt: r.cancelled_at || null,
+        itemCreatedAt: r.item_created_at,
+        orderCreatedAt: r.order_created_at,
+        billedAt: r.billed_at || null,
+      };
+
+      // Init category
+      if (!catMap[catKey]) {
+        catMap[catKey] = {
+          categoryId: r.category_id,
+          categoryName: catName,
+          totalQuantity: 0, cancelledQuantity: 0,
+          grossRevenue: 0, discountAmount: 0, taxAmount: 0, netRevenue: 0,
+          addonRevenue: 0, complimentaryCount: 0,
+          orderIds: new Set(), uniqueItemIds: new Set(),
+          dineInCount: 0, takeawayCount: 0, deliveryCount: 0,
+          items: {}
+        };
+      }
+      const cat = catMap[catKey];
+      cat.orderIds.add(r.order_id);
+      cat.uniqueItemIds.add(r.item_id);
+      globalOrderIds.add(r.order_id);
+
+      // Init item within category
+      if (!cat.items[itemKey]) {
+        cat.items[itemKey] = {
+          itemId: r.item_id,
+          itemName: r.item_name,
+          variantId: r.variant_id || null,
+          variantName: r.variant_name || null,
+          itemType: r.item_type,
+          stationName: r.station_name || null,
+          totalQuantity: 0, cancelledQuantity: 0,
+          grossRevenue: 0, discountAmount: 0, taxAmount: 0, netRevenue: 0,
+          addonRevenue: 0, complimentaryCount: 0,
+          orderCount: new Set(),
+          occurrences: []
+        };
+      }
+      const item = cat.items[itemKey];
+      item.occurrences.push(occurrence);
+      item.orderCount.add(r.order_id);
+
+      if (isActive) {
+        const qty = parseFloat(r.quantity);
+        const tp = parseFloat(r.total_price) || 0;
+        const da = parseFloat(r.discount_amount) || 0;
+        const ta = parseFloat(r.tax_amount) || 0;
+
+        item.totalQuantity += qty;
+        item.grossRevenue += tp;
+        item.discountAmount += da;
+        item.taxAmount += ta;
+        item.netRevenue += (tp - da);
+        item.addonRevenue += addonTotal;
+
+        cat.totalQuantity += qty;
+        cat.grossRevenue += tp;
+        cat.discountAmount += da;
+        cat.taxAmount += ta;
+        cat.netRevenue += (tp - da);
+        cat.addonRevenue += addonTotal;
+
+        globalTotalQty += qty;
+        globalGrossRevenue += tp;
+        globalDiscount += da;
+        globalTax += ta;
+        globalNetRevenue += (tp - da);
+        globalAddonRevenue += addonTotal;
+
+        if (r.is_complimentary) {
+          item.complimentaryCount++;
+          cat.complimentaryCount++;
+          globalComplimentaryCount++;
+        }
+
+        const type = r.item_type || 'other';
+        if (!globalTypeBreakdown[type]) globalTypeBreakdown[type] = { quantity: 0, revenue: 0 };
+        globalTypeBreakdown[type].quantity += qty;
+        globalTypeBreakdown[type].revenue += tp;
+      } else {
+        const cq = parseFloat(r.quantity);
+        item.cancelledQuantity += cq;
+        cat.cancelledQuantity += cq;
+        globalCancelledQty += cq;
+      }
+
+      if (r.order_type === 'dine_in') cat.dineInCount++;
+      else if (r.order_type === 'takeaway') cat.takeawayCount++;
+      else if (r.order_type === 'delivery') cat.deliveryCount++;
+    }
+
+    // 4. Finalize categories
+    const totalNetRevenue = globalNetRevenue || 1; // avoid divide by zero
+    const categoriesArray = Object.values(catMap).map(cat => {
+      // Finalize items within category
+      const itemsArray = Object.values(cat.items).map(item => ({
+        itemId: item.itemId,
+        itemName: item.itemName,
+        variantId: item.variantId,
+        variantName: item.variantName,
+        itemType: item.itemType,
+        stationName: item.stationName,
+        totalQuantity: parseFloat(item.totalQuantity.toFixed(3)),
+        cancelledQuantity: parseFloat(item.cancelledQuantity.toFixed(3)),
+        grossRevenue: parseFloat(item.grossRevenue.toFixed(2)),
+        discountAmount: parseFloat(item.discountAmount.toFixed(2)),
+        taxAmount: parseFloat(item.taxAmount.toFixed(2)),
+        netRevenue: parseFloat(item.netRevenue.toFixed(2)),
+        addonRevenue: parseFloat(item.addonRevenue.toFixed(2)),
+        avgUnitPrice: item.totalQuantity > 0
+          ? parseFloat((item.grossRevenue / item.totalQuantity).toFixed(2)) : 0,
+        orderCount: item.orderCount.size,
+        complimentaryCount: item.complimentaryCount,
+        occurrenceCount: item.occurrences.length,
+        occurrences: item.occurrences
+      })).sort((a, b) => b.totalQuantity - a.totalQuantity);
+
+      const netRev = parseFloat(cat.netRevenue.toFixed(2));
+      return {
+        categoryId: cat.categoryId,
+        categoryName: cat.categoryName,
+        totalQuantity: parseFloat(cat.totalQuantity.toFixed(3)),
+        cancelledQuantity: parseFloat(cat.cancelledQuantity.toFixed(3)),
+        grossRevenue: parseFloat(cat.grossRevenue.toFixed(2)),
+        discountAmount: parseFloat(cat.discountAmount.toFixed(2)),
+        taxAmount: parseFloat(cat.taxAmount.toFixed(2)),
+        netRevenue: netRev,
+        addonRevenue: parseFloat(cat.addonRevenue.toFixed(2)),
+        contributionPercent: parseFloat(((netRev / totalNetRevenue) * 100).toFixed(2)),
+        complimentaryCount: cat.complimentaryCount,
+        uniqueItemCount: cat.uniqueItemIds.size,
+        orderCount: cat.orderIds.size,
+        orderTypeBreakdown: {
+          dine_in: cat.dineInCount,
+          takeaway: cat.takeawayCount,
+          delivery: cat.deliveryCount
+        },
+        items: itemsArray
+      };
+    });
+
+    // Sort categories by chosen field
+    const sortMultiplier = sortOrder === 'ASC' ? 1 : -1;
+    categoriesArray.sort((a, b) => {
+      if (sortBy === 'category_name') return sortMultiplier * (a.categoryName || '').localeCompare(b.categoryName || '');
+      if (sortBy === 'total_quantity') return sortMultiplier * (a.totalQuantity - b.totalQuantity);
+      if (sortBy === 'order_count') return sortMultiplier * (a.orderCount - b.orderCount);
+      return sortMultiplier * (a.netRevenue - b.netRevenue); // default: net_revenue
+    });
+
+    // Pagination on categories
+    const totalCount = categoriesArray.length;
+    const totalPages = Math.ceil(totalCount / limit);
+    const offset = (page - 1) * limit;
+    const paginatedCategories = categoriesArray.slice(offset, offset + limit);
+
+    // 5. Build summary (over ALL filtered categories, not just paginated page)
+    // Sort all categories by netRevenue for topCategory
+    const allSortedByRevenue = [...categoriesArray].sort((a, b) => b.netRevenue - a.netRevenue);
+
+    const summary = {
+      dateRange: { start, end },
+      totalCategories: categoriesArray.length,
+      totalUniqueItems: new Set(rows.map(r => r.item_id)).size,
+      totalOrders: globalOrderIds.size,
+      totalQuantitySold: parseFloat(globalTotalQty.toFixed(3)),
+      totalCancelledQuantity: parseFloat(globalCancelledQty.toFixed(3)),
+      grossRevenue: parseFloat(globalGrossRevenue.toFixed(2)),
+      totalDiscount: parseFloat(globalDiscount.toFixed(2)),
+      totalTax: parseFloat(globalTax.toFixed(2)),
+      netRevenue: parseFloat(globalNetRevenue.toFixed(2)),
+      addonRevenue: parseFloat(globalAddonRevenue.toFixed(2)),
+      complimentaryCount: globalComplimentaryCount,
+      avgRevenuePerCategory: categoriesArray.length > 0
+        ? parseFloat((globalNetRevenue / categoriesArray.length).toFixed(2)) : 0,
+      topCategory: allSortedByRevenue.length > 0 ? {
+        name: allSortedByRevenue[0].categoryName,
+        netRevenue: allSortedByRevenue[0].netRevenue,
+        quantity: allSortedByRevenue[0].totalQuantity
+      } : null,
+      itemTypeBreakdown: Object.entries(globalTypeBreakdown).map(([type, data]) => ({
+        type,
+        quantity: parseFloat(data.quantity.toFixed(3)),
+        revenue: parseFloat(data.revenue.toFixed(2))
+      }))
+    };
+
+    return {
+      dateRange: { start, end },
+      categories: paginatedCategories,
+      pagination: {
+        page, limit, totalCount, totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      },
+      filters: this._categoryDetailFilters(options),
+      summary
+    };
+  },
+
+  _categoryDetailFilters(options = {}) {
+    const f = {};
+    if (options.search) f.search = options.search;
+    if (options.itemType) f.itemType = options.itemType;
+    if (options.categoryName) f.categoryName = options.categoryName;
+    if (options.status) f.status = options.status;
+    if (options.orderType) f.orderType = options.orderType;
+    if (options.captainName) f.captainName = options.captainName;
+    if (options.cashierName) f.cashierName = options.cashierName;
+    if (options.floorName) f.floorName = options.floorName;
+    if (options.tableNumber) f.tableNumber = options.tableNumber;
+    if (options.sortBy) f.sortBy = options.sortBy;
+    if (options.sortOrder) f.sortOrder = options.sortOrder;
+    return f;
+  },
+
+  /**
+   * Detailed Payment Modes — per-mode breakdown with every transaction,
+   * order details, table, floor, captain, cashier, items, invoice, timestamps
+   * Supports: filters, search, pagination, sorting
+   *
+   * @param {number} outletId
+   * @param {string} startDate
+   * @param {string} endDate
+   * @param {Object} options
+   * @param {number}  options.page          - 1-indexed page (default 1)
+   * @param {number}  options.limit         - transactions per page (default 50, max 200)
+   * @param {string}  options.search        - search in order_number, payment_number, transaction_id, customer_name
+   * @param {string}  options.paymentMode   - filter by payment mode (cash, card, upi, etc.)
+   * @param {string}  options.orderType     - dine_in | takeaway | delivery
+   * @param {string}  options.floorName     - partial match on floor name
+   * @param {number}  options.tableNumber   - exact table number
+   * @param {string}  options.captainName   - partial match on captain name
+   * @param {string}  options.cashierName   - partial match on cashier name
+   * @param {string}  options.sortBy        - total_amount | created_at | order_number (default created_at)
+   * @param {string}  options.sortOrder     - ASC | DESC (default DESC)
+   * @param {Array}   options.floorIds      - floor restriction for assigned-floor users
+   */
+  async getPaymentModeDetail(outletId, startDate, endDate, options = {}) {
+    const pool = getPool();
+    const { start, end } = this._dateRange(startDate, endDate);
+
+    // Parse options
+    const page = Math.max(1, parseInt(options.page) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(options.limit) || 50));
+    const offset = (page - 1) * limit;
+    const search = (options.search || '').trim();
+    const paymentMode = (options.paymentMode || '').trim();
+    const orderType = (options.orderType || '').trim();
+    const floorName = (options.floorName || '').trim();
+    const tableNumber = (options.tableNumber || '').trim() || null;
+    const captainName = (options.captainName || '').trim();
+    const cashierName = (options.cashierName || '').trim();
+    const floorIds = options.floorIds || [];
+
+    const allowedSort = ['total_amount', 'created_at', 'order_number'];
+    const sortBy = allowedSort.includes(options.sortBy) ? options.sortBy : 'created_at';
+    const sortOrder = (options.sortOrder || '').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    // Build dynamic WHERE
+    const baseFrom = `FROM payments p
+       JOIN orders o ON p.order_id = o.id
+       LEFT JOIN tables t ON o.table_id = t.id
+       LEFT JOIN floors fl ON t.floor_id = fl.id
+       LEFT JOIN users u_recv ON p.received_by = u_recv.id
+       LEFT JOIN users u_verify ON p.verified_by = u_verify.id
+       LEFT JOIN users u_captain ON o.created_by = u_captain.id
+       LEFT JOIN users u_cashier ON o.billed_by = u_cashier.id
+       LEFT JOIN invoices inv ON p.invoice_id = inv.id`;
+
+    let conditions = ['p.outlet_id = ?', 'DATE(p.created_at) BETWEEN ? AND ?', "p.status = 'completed'"];
+    let params = [outletId, start, end];
+
+    if (floorIds.length > 0) {
+      conditions.push(`o.floor_id IN (${floorIds.map(() => '?').join(',')})`);
+      params.push(...floorIds);
+    }
+    if (paymentMode) { conditions.push('p.payment_mode = ?'); params.push(paymentMode); }
+    if (orderType) { conditions.push('o.order_type = ?'); params.push(orderType); }
+    if (floorName) { conditions.push('fl.name LIKE ?'); params.push(`%${floorName}%`); }
+    if (tableNumber) { conditions.push('t.table_number = ?'); params.push(tableNumber); }
+    if (captainName) { conditions.push('u_captain.name LIKE ?'); params.push(`%${captainName}%`); }
+    if (cashierName) { conditions.push('u_cashier.name LIKE ?'); params.push(`%${cashierName}%`); }
+    if (search) {
+      conditions.push('(o.order_number LIKE ? OR p.payment_number LIKE ? OR p.transaction_id LIKE ? OR o.customer_name LIKE ?)');
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
+    const whereClause = 'WHERE ' + conditions.join(' AND ');
+
+    // 0. Total count for pagination
+    const [countResult] = await pool.query(
+      `SELECT COUNT(*) as total ${baseFrom} ${whereClause}`, params
+    );
+    const totalCount = countResult[0].total;
+
+    if (totalCount === 0) {
+      return {
+        dateRange: { start, end },
+        modes: [],
+        transactions: [],
+        pagination: { page, limit, totalCount: 0, totalPages: 0, hasNext: false, hasPrev: false },
+        filters: this._paymentDetailFilters(options),
+        summary: this._emptyPaymentModeDetailSummary()
+      };
+    }
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    // 0b. Summary aggregation over ALL filtered data (not paginated)
+    const [summaryAgg] = await pool.query(
+      `SELECT
+        COUNT(*) as total_transactions,
+        COUNT(DISTINCT p.order_id) as total_orders,
+        SUM(p.total_amount) as total_collected,
+        SUM(p.amount) as total_base_amount,
+        SUM(p.tip_amount) as total_tips,
+        SUM(p.refund_amount) as total_refund_amount,
+        SUM(CASE WHEN p.refund_amount > 0 THEN 1 ELSE 0 END) as total_refund_count
+       ${baseFrom} ${whereClause}`, params
+    );
+
+    // 0c. Mode breakdown over all filtered
+    const [modeBreakdown] = await pool.query(
+      `SELECT p.payment_mode,
+        COUNT(*) as txn_count,
+        SUM(p.total_amount) as total_amount,
+        SUM(p.amount) as base_amount,
+        SUM(p.tip_amount) as tip_amount,
+        SUM(p.refund_amount) as refund_amount,
+        SUM(CASE WHEN p.refund_amount > 0 THEN 1 ELSE 0 END) as refund_count,
+        COUNT(DISTINCT p.order_id) as order_count,
+        SUM(CASE WHEN o.order_type='dine_in' THEN 1 ELSE 0 END) as dine_in_count,
+        SUM(CASE WHEN o.order_type='takeaway' THEN 1 ELSE 0 END) as takeaway_count,
+        SUM(CASE WHEN o.order_type='delivery' THEN 1 ELSE 0 END) as delivery_count
+       ${baseFrom} ${whereClause}
+       GROUP BY p.payment_mode ORDER BY total_amount DESC`, params
+    );
+
+    // 0d. Daily breakdown over all filtered
+    const [dailyAgg] = await pool.query(
+      `SELECT DATE(p.created_at) as date, p.payment_mode,
+        COUNT(*) as count, SUM(p.total_amount) as amount
+       ${baseFrom} ${whereClause}
+       GROUP BY DATE(p.created_at), p.payment_mode
+       ORDER BY date`, params
+    );
+
+    // 0e. Hourly breakdown over all filtered
+    const [hourlyAgg] = await pool.query(
+      `SELECT HOUR(p.created_at) as hour,
+        COUNT(*) as count, SUM(p.total_amount) as amount
+       ${baseFrom} ${whereClause}
+       GROUP BY HOUR(p.created_at) ORDER BY hour`, params
+    );
+
+    // Sort column mapping
+    const sortCol = sortBy === 'total_amount' ? 'p.total_amount'
+      : sortBy === 'order_number' ? 'o.order_number' : 'p.created_at';
+
+    // 1. Get paginated payments
+    const [payments] = await pool.query(
+      `SELECT 
+        p.id as payment_id, p.uuid as payment_uuid, p.order_id, p.invoice_id,
+        p.payment_number, p.payment_mode,
+        p.amount, p.tip_amount, p.total_amount,
+        p.status, p.transaction_id, p.reference_number,
+        p.card_last_four, p.card_type, p.upi_id, p.wallet_name,
+        p.bank_name, p.payment_gateway, p.notes,
+        p.refund_amount, p.refund_reason, p.refund_reference, p.refunded_at,
+        p.created_at as payment_created_at, p.verified_at,
+        u_recv.name as received_by_name,
+        u_verify.name as verified_by_name,
+        o.order_number, o.order_type, o.status as order_status,
+        o.subtotal as order_subtotal, o.discount_amount as order_discount,
+        o.tax_amount as order_tax, o.service_charge as order_service_charge,
+        o.total_amount as order_total, o.guest_count,
+        o.customer_name, o.customer_phone,
+        o.table_id, o.created_at as order_created_at, o.billed_at,
+        o.created_by as order_created_by, o.billed_by,
+        t.table_number, t.name as table_name,
+        fl.name as floor_name,
+        u_captain.name as captain_name,
+        u_cashier.name as cashier_name,
+        inv.invoice_number, inv.grand_total as invoice_total
+       ${baseFrom} ${whereClause}
+       ORDER BY ${sortCol} ${sortOrder}
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+
+    if (payments.length === 0) {
+      return {
+        dateRange: { start, end },
+        modes: [],
+        transactions: [],
+        pagination: { page, limit, totalCount, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
+        filters: this._paymentDetailFilters(options),
+        summary: this._emptyPaymentModeDetailSummary()
+      };
+    }
+
+    // 2. Batch-fetch order items for all orders in these payments
+    const orderIds = [...new Set(payments.map(p => p.order_id))];
+    const itemsByOrder = {};
+    if (orderIds.length > 0) {
+      const [items] = await pool.query(
+        `SELECT oi.order_id, oi.item_name, oi.variant_name, oi.item_type,
+                oi.quantity, oi.unit_price, oi.total_price, oi.status,
+                c.name as category_name
+         FROM order_items oi
+         LEFT JOIN items i ON oi.item_id = i.id
+         LEFT JOIN categories c ON i.category_id = c.id
+         WHERE oi.order_id IN (?)
+         ORDER BY oi.created_at`,
+        [orderIds]
+      );
+      for (const it of items) {
+        if (!itemsByOrder[it.order_id]) itemsByOrder[it.order_id] = [];
+        itemsByOrder[it.order_id].push({
+          itemName: it.item_name,
+          variantName: it.variant_name || null,
+          itemType: it.item_type,
+          categoryName: it.category_name || null,
+          quantity: parseFloat(it.quantity),
+          unitPrice: parseFloat(it.unit_price) || 0,
+          totalPrice: parseFloat(it.total_price) || 0,
+          status: it.status
+        });
+      }
+    }
+
+    // 3. Build transaction records from paginated payments
+    const transactions = payments.map(p => {
+      const orderItems = itemsByOrder[p.order_id] || [];
+      const activeItems = orderItems.filter(i => i.status !== 'cancelled');
+      const itemCount = activeItems.reduce((s, i) => s + i.quantity, 0);
+
+      return {
+        paymentId: p.payment_id,
+        paymentNumber: p.payment_number,
+        paymentMode: p.payment_mode,
+        orderId: p.order_id,
+        orderNumber: p.order_number,
+        orderType: p.order_type,
+        orderStatus: p.order_status,
+        invoiceId: p.invoice_id || null,
+        invoiceNumber: p.invoice_number || null,
+        invoiceTotal: p.invoice_total ? parseFloat(p.invoice_total) : null,
+        amount: parseFloat(p.amount) || 0,
+        tipAmount: parseFloat(p.tip_amount) || 0,
+        totalAmount: parseFloat(p.total_amount) || 0,
+        transactionId: p.transaction_id || null,
+        referenceNumber: p.reference_number || null,
+        cardLastFour: p.card_last_four || null,
+        cardType: p.card_type || null,
+        upiId: p.upi_id || null,
+        walletName: p.wallet_name || null,
+        bankName: p.bank_name || null,
+        paymentGateway: p.payment_gateway || null,
+        notes: p.notes || null,
+        refundAmount: parseFloat(p.refund_amount) || 0,
+        refundReason: p.refund_reason || null,
+        refundReference: p.refund_reference || null,
+        refundedAt: p.refunded_at || null,
+        tableId: p.table_id || null,
+        tableNumber: p.table_number || null,
+        tableName: p.table_name || null,
+        floorName: p.floor_name || null,
+        captainName: p.captain_name || null,
+        cashierName: p.cashier_name || null,
+        receivedByName: p.received_by_name || null,
+        verifiedByName: p.verified_by_name || null,
+        customerName: p.customer_name || null,
+        customerPhone: p.customer_phone || null,
+        guestCount: p.guest_count || 0,
+        orderSubtotal: parseFloat(p.order_subtotal) || 0,
+        orderDiscount: parseFloat(p.order_discount) || 0,
+        orderTax: parseFloat(p.order_tax) || 0,
+        orderServiceCharge: parseFloat(p.order_service_charge) || 0,
+        orderTotal: parseFloat(p.order_total) || 0,
+        itemCount: parseFloat(itemCount.toFixed(3)),
+        items: activeItems,
+        paymentCreatedAt: p.payment_created_at,
+        verifiedAt: p.verified_at || null,
+        orderCreatedAt: p.order_created_at,
+        billedAt: p.billed_at || null,
+      };
+    });
+
+    // 4. Build modes array from SQL-aggregated mode breakdown (over all filtered data)
+    const sa = summaryAgg[0];
+    const globalTotalCollected = parseFloat(sa.total_collected) || 1;
+
+    const modesArray = modeBreakdown.map(m => ({
+      paymentMode: m.payment_mode,
+      transactionCount: parseInt(m.txn_count),
+      totalAmount: parseFloat((parseFloat(m.total_amount) || 0).toFixed(2)),
+      baseAmount: parseFloat((parseFloat(m.base_amount) || 0).toFixed(2)),
+      tipAmount: parseFloat((parseFloat(m.tip_amount) || 0).toFixed(2)),
+      refundAmount: parseFloat((parseFloat(m.refund_amount) || 0).toFixed(2)),
+      refundCount: parseInt(m.refund_count),
+      percentageShare: parseFloat(((parseFloat(m.total_amount) / globalTotalCollected) * 100).toFixed(2)),
+      orderCount: parseInt(m.order_count),
+      avgTransactionAmount: parseInt(m.txn_count) > 0
+        ? parseFloat((parseFloat(m.total_amount) / parseInt(m.txn_count)).toFixed(2)) : 0,
+      orderTypeBreakdown: {
+        dine_in: parseInt(m.dine_in_count),
+        takeaway: parseInt(m.takeaway_count),
+        delivery: parseInt(m.delivery_count)
+      }
+    }));
+
+    // 5. Daily breakdown from SQL aggregation
+    const dailyMap = {};
+    for (const d of dailyAgg) {
+      const day = d.date instanceof Date ? d.date.toISOString().slice(0, 10) : String(d.date);
+      if (!dailyMap[day]) dailyMap[day] = { total: 0, txnCount: 0, modes: {} };
+      dailyMap[day].modes[d.payment_mode] = { count: parseInt(d.count), amount: parseFloat((parseFloat(d.amount) || 0).toFixed(2)) };
+      dailyMap[day].total += parseFloat(d.amount) || 0;
+      dailyMap[day].txnCount += parseInt(d.count);
+    }
+    const dailyBreakdown = Object.entries(dailyMap).sort(([a], [b]) => a.localeCompare(b)).map(([date, data]) => ({
+      date,
+      total: parseFloat(data.total.toFixed(2)),
+      transactionCount: data.txnCount,
+      modes: Object.entries(data.modes).map(([mode, d]) => ({ mode, count: d.count, amount: d.amount }))
+    }));
+
+    // 6. Hourly breakdown from SQL aggregation
+    const hourlyBreakdown = hourlyAgg.map(h => ({
+      hour: String(h.hour).padStart(2, '0') + ':00',
+      transactionCount: parseInt(h.count),
+      totalAmount: parseFloat((parseFloat(h.amount) || 0).toFixed(2))
+    }));
+
+    // 7. Summary (over ALL filtered data)
+    const summary = {
+      dateRange: { start, end },
+      totalTransactions: parseInt(sa.total_transactions) || 0,
+      totalOrders: parseInt(sa.total_orders) || 0,
+      totalCollected: parseFloat((parseFloat(sa.total_collected) || 0).toFixed(2)),
+      totalBaseAmount: parseFloat((parseFloat(sa.total_base_amount) || 0).toFixed(2)),
+      totalTips: parseFloat((parseFloat(sa.total_tips) || 0).toFixed(2)),
+      totalRefundAmount: parseFloat((parseFloat(sa.total_refund_amount) || 0).toFixed(2)),
+      totalRefundCount: parseInt(sa.total_refund_count) || 0,
+      avgTransactionAmount: parseInt(sa.total_transactions) > 0
+        ? parseFloat((parseFloat(sa.total_collected) / parseInt(sa.total_transactions)).toFixed(2)) : 0,
+      paymentModeCount: modesArray.length,
+      topMode: modesArray.length > 0 ? {
+        mode: modesArray[0].paymentMode,
+        totalAmount: modesArray[0].totalAmount,
+        transactionCount: modesArray[0].transactionCount
+      } : null,
+      dailyBreakdown,
+      hourlyBreakdown
+    };
+
+    return {
+      dateRange: { start, end },
+      modes: modesArray,
+      transactions,
+      pagination: {
+        page, limit, totalCount, totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      },
+      filters: this._paymentDetailFilters(options),
+      summary
+    };
+  },
+
+  _paymentDetailFilters(options = {}) {
+    const f = {};
+    if (options.search) f.search = options.search;
+    if (options.paymentMode) f.paymentMode = options.paymentMode;
+    if (options.orderType) f.orderType = options.orderType;
+    if (options.captainName) f.captainName = options.captainName;
+    if (options.cashierName) f.cashierName = options.cashierName;
+    if (options.floorName) f.floorName = options.floorName;
+    if (options.tableNumber) f.tableNumber = options.tableNumber;
+    if (options.sortBy) f.sortBy = options.sortBy;
+    if (options.sortOrder) f.sortOrder = options.sortOrder;
+    return f;
+  },
+
+  /**
+   * Detailed Tax Report — per-invoice breakdown with order, table, captain, cashier,
+   * items with per-item tax, tax components, customer, HSN summary, timestamps
+   * Supports: filters, search, pagination, sorting
+   *
+   * @param {number} outletId
+   * @param {string} startDate
+   * @param {string} endDate
+   * @param {Object} options
+   * @param {number}  options.page            - 1-indexed page (default 1)
+   * @param {number}  options.limit           - invoices per page (default 50, max 200)
+   * @param {string}  options.search          - search in invoice_number, order_number, customer_name, customer_gstin
+   * @param {string}  options.paymentStatus   - pending | partial | completed
+   * @param {string}  options.orderType       - dine_in | takeaway | delivery
+   * @param {string}  options.floorName       - partial match on floor name
+   * @param {number}  options.tableNumber     - exact table number
+   * @param {string}  options.captainName     - partial match on captain name
+   * @param {string}  options.cashierName     - partial match on cashier name
+   * @param {string}  options.sortBy          - grand_total | total_tax | created_at | invoice_number (default created_at)
+   * @param {string}  options.sortOrder       - ASC | DESC (default DESC)
+   * @param {Array}   options.floorIds        - floor restriction for assigned-floor users
+   */
+  async getTaxDetail(outletId, startDate, endDate, options = {}) {
+    const pool = getPool();
+    const { start, end } = this._dateRange(startDate, endDate);
+
+    // Parse options
+    const page = Math.max(1, parseInt(options.page) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(options.limit) || 50));
+    const offset = (page - 1) * limit;
+    const search = (options.search || '').trim();
+    const paymentStatus = (options.paymentStatus || '').trim();
+    const orderType = (options.orderType || '').trim();
+    const floorName = (options.floorName || '').trim();
+    const tableNumber = (options.tableNumber || '').trim() || null;
+    const captainName = (options.captainName || '').trim();
+    const cashierName = (options.cashierName || '').trim();
+    const floorIds = options.floorIds || [];
+
+    const allowedSort = ['grand_total', 'total_tax', 'created_at', 'invoice_number'];
+    const sortBy = allowedSort.includes(options.sortBy) ? options.sortBy : 'created_at';
+    const sortOrder = (options.sortOrder || '').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    // Build dynamic WHERE
+    const baseFrom = `FROM invoices inv
+       JOIN orders o ON inv.order_id = o.id
+       LEFT JOIN tables t ON o.table_id = t.id
+       LEFT JOIN floors fl ON t.floor_id = fl.id
+       LEFT JOIN users u_captain ON o.created_by = u_captain.id
+       LEFT JOIN users u_cashier ON o.billed_by = u_cashier.id
+       LEFT JOIN users u_gen ON inv.generated_by = u_gen.id`;
+
+    let conditions = ['inv.outlet_id = ?', 'DATE(inv.created_at) BETWEEN ? AND ?', 'inv.is_cancelled = 0'];
+    let params = [outletId, start, end];
+
+    if (floorIds.length > 0) {
+      conditions.push(`o.floor_id IN (${floorIds.map(() => '?').join(',')})`);
+      params.push(...floorIds);
+    }
+    if (paymentStatus) { conditions.push('inv.payment_status = ?'); params.push(paymentStatus); }
+    if (orderType) { conditions.push('o.order_type = ?'); params.push(orderType); }
+    if (floorName) { conditions.push('fl.name LIKE ?'); params.push(`%${floorName}%`); }
+    if (tableNumber) { conditions.push('t.table_number = ?'); params.push(tableNumber); }
+    if (captainName) { conditions.push('u_captain.name LIKE ?'); params.push(`%${captainName}%`); }
+    if (cashierName) { conditions.push('u_cashier.name LIKE ?'); params.push(`%${cashierName}%`); }
+    if (search) {
+      conditions.push('(inv.invoice_number LIKE ? OR o.order_number LIKE ? OR inv.customer_name LIKE ? OR inv.customer_gstin LIKE ?)');
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
+    const whereClause = 'WHERE ' + conditions.join(' AND ');
+
+    // 0. Total count for pagination
+    const [countResult] = await pool.query(
+      `SELECT COUNT(*) as total ${baseFrom} ${whereClause}`, params
+    );
+    const totalCount = countResult[0].total;
+
+    if (totalCount === 0) {
+      return {
+        dateRange: { start, end },
+        invoices: [],
+        pagination: { page, limit, totalCount: 0, totalPages: 0, hasNext: false, hasPrev: false },
+        filters: this._taxDetailFilters(options),
+        summary: this._emptyTaxDetailSummary()
+      };
+    }
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    // 0b. Summary aggregation over ALL filtered data (not paginated)
+    const [taxSummaryAgg] = await pool.query(
+      `SELECT
+        COUNT(*) as total_invoices,
+        COUNT(DISTINCT inv.order_id) as total_orders,
+        SUM(inv.subtotal) as total_subtotal,
+        SUM(inv.discount_amount) as total_discount,
+        SUM(inv.taxable_amount) as total_taxable,
+        SUM(inv.cgst_amount) as total_cgst,
+        SUM(inv.sgst_amount) as total_sgst,
+        SUM(inv.igst_amount) as total_igst,
+        SUM(inv.vat_amount) as total_vat,
+        SUM(inv.cess_amount) as total_cess,
+        SUM(inv.total_tax) as total_tax,
+        SUM(inv.service_charge) as total_service_charge,
+        SUM(inv.packaging_charge) as total_packaging_charge,
+        SUM(inv.delivery_charge) as total_delivery_charge,
+        SUM(inv.round_off) as total_round_off,
+        SUM(inv.grand_total) as total_grand
+       ${baseFrom} ${whereClause}`, params
+    );
+
+    // 0c. Daily tax breakdown over all filtered
+    const [dailyTaxAgg] = await pool.query(
+      `SELECT DATE(inv.created_at) as date,
+        SUM(inv.taxable_amount) as taxable,
+        SUM(inv.cgst_amount) as cgst, SUM(inv.sgst_amount) as sgst,
+        SUM(inv.igst_amount) as igst, SUM(inv.vat_amount) as vat,
+        SUM(inv.cess_amount) as cess, SUM(inv.total_tax) as total_tax,
+        SUM(inv.grand_total) as grand_total, COUNT(*) as invoice_count
+       ${baseFrom} ${whereClause}
+       GROUP BY DATE(inv.created_at) ORDER BY date`, params
+    );
+
+    // Sort column mapping
+    const sortCol = sortBy === 'grand_total' ? 'inv.grand_total'
+      : sortBy === 'total_tax' ? 'inv.total_tax'
+      : sortBy === 'invoice_number' ? 'inv.invoice_number' : 'inv.created_at';
+
+    // 1. Get paginated invoices
+    const [invoices] = await pool.query(
+      `SELECT 
+        inv.id as invoice_id, inv.uuid as invoice_uuid,
+        inv.order_id, inv.invoice_number, inv.invoice_date, inv.invoice_time,
+        inv.customer_name, inv.customer_phone, inv.customer_email,
+        inv.customer_gstin, inv.customer_address, inv.billing_address,
+        inv.subtotal, inv.discount_amount, inv.taxable_amount,
+        inv.cgst_amount, inv.sgst_amount, inv.igst_amount,
+        inv.vat_amount, inv.cess_amount, inv.total_tax,
+        inv.service_charge, inv.packaging_charge, inv.delivery_charge,
+        inv.round_off, inv.grand_total, inv.amount_in_words,
+        inv.payment_status, inv.tax_breakup, inv.hsn_summary,
+        inv.notes, inv.created_at as invoice_created_at,
+        inv.generated_by,
+        o.order_number, o.order_type, o.status as order_status,
+        o.table_id, o.guest_count, o.created_at as order_created_at, o.billed_at,
+        t.table_number, t.name as table_name,
+        fl.name as floor_name,
+        u_captain.name as captain_name,
+        u_cashier.name as cashier_name,
+        u_gen.name as generated_by_name
+       ${baseFrom} ${whereClause}
+       ORDER BY ${sortCol} ${sortOrder}
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+
+    if (invoices.length === 0) {
+      return {
+        dateRange: { start, end },
+        invoices: [],
+        pagination: { page, limit, totalCount, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
+        filters: this._taxDetailFilters(options),
+        summary: this._emptyTaxDetailSummary()
+      };
+    }
+
+    // 2. Batch-fetch order items with per-item tax for all orders
+    const orderIds = [...new Set(invoices.map(inv => inv.order_id))];
+    const itemsByOrder = {};
+    if (orderIds.length > 0) {
+      const [items] = await pool.query(
+        `SELECT oi.order_id, oi.item_name, oi.variant_name, oi.item_type,
+                oi.quantity, oi.unit_price, oi.base_price,
+                oi.discount_amount, oi.tax_amount, oi.total_price,
+                oi.tax_details, oi.status,
+                c.name as category_name,
+                tg.name as tax_group_name, tg.total_rate as tax_rate
+         FROM order_items oi
+         LEFT JOIN items i ON oi.item_id = i.id
+         LEFT JOIN categories c ON i.category_id = c.id
+         LEFT JOIN tax_groups tg ON oi.tax_group_id = tg.id
+         WHERE oi.order_id IN (?)
+         ORDER BY oi.created_at`,
+        [orderIds]
+      );
+      for (const it of items) {
+        if (!itemsByOrder[it.order_id]) itemsByOrder[it.order_id] = [];
+        let taxDetails = null;
+        if (it.tax_details) {
+          try { taxDetails = typeof it.tax_details === 'string' ? JSON.parse(it.tax_details) : it.tax_details; } catch (e) {}
+        }
+        itemsByOrder[it.order_id].push({
+          itemName: it.item_name,
+          variantName: it.variant_name || null,
+          itemType: it.item_type,
+          categoryName: it.category_name || null,
+          quantity: parseFloat(it.quantity),
+          unitPrice: parseFloat(it.unit_price) || 0,
+          basePrice: parseFloat(it.base_price) || 0,
+          discountAmount: parseFloat(it.discount_amount) || 0,
+          taxAmount: parseFloat(it.tax_amount) || 0,
+          totalPrice: parseFloat(it.total_price) || 0,
+          taxGroupName: it.tax_group_name || null,
+          taxRate: it.tax_rate ? parseFloat(it.tax_rate) : null,
+          taxDetails,
+          status: it.status
+        });
+      }
+    }
+
+    // 3. Batch-fetch payments for these orders
+    const paymentsByOrder = {};
+    if (orderIds.length > 0) {
+      const [payments] = await pool.query(
+        `SELECT p.order_id, p.payment_mode, p.amount, p.tip_amount, p.total_amount
+         FROM payments p WHERE p.order_id IN (?) AND p.status = 'completed'`,
+        [orderIds]
+      );
+      for (const p of payments) {
+        if (!paymentsByOrder[p.order_id]) paymentsByOrder[p.order_id] = [];
+        paymentsByOrder[p.order_id].push({
+          paymentMode: p.payment_mode,
+          amount: parseFloat(p.amount) || 0,
+          tipAmount: parseFloat(p.tip_amount) || 0,
+          totalAmount: parseFloat(p.total_amount) || 0
+        });
+      }
+    }
+
+    // 4. Build detailed invoices + accumulators
+    let totalSubtotal = 0, totalDiscount = 0, totalTaxable = 0;
+    let totalCgst = 0, totalSgst = 0, totalIgst = 0, totalVat = 0, totalCess = 0, totalTax = 0;
+    let totalServiceCharge = 0, totalPackagingCharge = 0, totalDeliveryCharge = 0;
+    let totalRoundOff = 0, totalGrand = 0;
+    const componentTotals = {};
+    const dailyTaxBreakdown = {};
+    const taxRateBreakdown = {};
+
+    const detailedInvoices = invoices.map(inv => {
+      const sub = parseFloat(inv.subtotal) || 0;
+      const disc = parseFloat(inv.discount_amount) || 0;
+      const taxable = parseFloat(inv.taxable_amount) || 0;
+      const cgst = parseFloat(inv.cgst_amount) || 0;
+      const sgst = parseFloat(inv.sgst_amount) || 0;
+      const igst = parseFloat(inv.igst_amount) || 0;
+      const vat = parseFloat(inv.vat_amount) || 0;
+      const cess = parseFloat(inv.cess_amount) || 0;
+      const tax = parseFloat(inv.total_tax) || 0;
+      const sc = parseFloat(inv.service_charge) || 0;
+      const pc = parseFloat(inv.packaging_charge) || 0;
+      const dc = parseFloat(inv.delivery_charge) || 0;
+      const ro = parseFloat(inv.round_off) || 0;
+      const grand = parseFloat(inv.grand_total) || 0;
+
+      totalSubtotal += sub; totalDiscount += disc; totalTaxable += taxable;
+      totalCgst += cgst; totalSgst += sgst; totalIgst += igst;
+      totalVat += vat; totalCess += cess; totalTax += tax;
+      totalServiceCharge += sc; totalPackagingCharge += pc; totalDeliveryCharge += dc;
+      totalRoundOff += ro; totalGrand += grand;
+
+      // Parse tax_breakup for per-component tracking
+      let taxBreakup = null;
+      if (inv.tax_breakup) {
+        try { taxBreakup = typeof inv.tax_breakup === 'string' ? JSON.parse(inv.tax_breakup) : inv.tax_breakup; } catch (e) {}
+      }
+      if (taxBreakup && typeof taxBreakup === 'object') {
+        for (const [code, detail] of Object.entries(taxBreakup)) {
+          if (!detail || typeof detail !== 'object') continue;
+          const compName = detail.name || detail.componentName || code;
+          const rate = detail.rate || 0;
+          if (!componentTotals[code]) {
+            componentTotals[code] = { code, name: compName, rate, taxableAmount: 0, taxAmount: 0, invoiceCount: 0 };
+          }
+          componentTotals[code].taxableAmount += parseFloat(detail.taxableAmount || 0);
+          componentTotals[code].taxAmount += parseFloat(detail.taxAmount || 0);
+          componentTotals[code].invoiceCount += 1;
+
+          // Tax rate breakdown
+          const rateKey = String(rate);
+          if (!taxRateBreakdown[rateKey]) taxRateBreakdown[rateKey] = { rate, taxableAmount: 0, taxAmount: 0, invoiceCount: 0 };
+          taxRateBreakdown[rateKey].taxableAmount += parseFloat(detail.taxableAmount || 0);
+          taxRateBreakdown[rateKey].taxAmount += parseFloat(detail.taxAmount || 0);
+          taxRateBreakdown[rateKey].invoiceCount += 1;
+        }
+      }
+
+      let hsnSummary = null;
+      if (inv.hsn_summary) {
+        try { hsnSummary = typeof inv.hsn_summary === 'string' ? JSON.parse(inv.hsn_summary) : inv.hsn_summary; } catch (e) {}
+      }
+
+      // Daily tax breakdown — use DATE(created_at) to match summary report grouping
+      const day = inv.invoice_created_at ? new Date(inv.invoice_created_at).toISOString().slice(0, 10) : (inv.invoice_date || 'unknown');
+      if (!dailyTaxBreakdown[day]) {
+        dailyTaxBreakdown[day] = { taxable: 0, cgst: 0, sgst: 0, igst: 0, vat: 0, cess: 0, totalTax: 0, invoiceCount: 0, grandTotal: 0 };
+      }
+      dailyTaxBreakdown[day].taxable += taxable;
+      dailyTaxBreakdown[day].cgst += cgst;
+      dailyTaxBreakdown[day].sgst += sgst;
+      dailyTaxBreakdown[day].igst += igst;
+      dailyTaxBreakdown[day].vat += vat;
+      dailyTaxBreakdown[day].cess += cess;
+      dailyTaxBreakdown[day].totalTax += tax;
+      dailyTaxBreakdown[day].invoiceCount++;
+      dailyTaxBreakdown[day].grandTotal += grand;
+
+      const orderItems = itemsByOrder[inv.order_id] || [];
+      const orderPayments = paymentsByOrder[inv.order_id] || [];
+
+      return {
+        invoiceId: inv.invoice_id,
+        invoiceNumber: inv.invoice_number,
+        invoiceDate: inv.invoice_date,
+        invoiceTime: inv.invoice_time,
+
+        // Order
+        orderId: inv.order_id,
+        orderNumber: inv.order_number,
+        orderType: inv.order_type,
+        orderStatus: inv.order_status,
+
+        // Table
+        tableNumber: inv.table_number || null,
+        tableName: inv.table_name || null,
+        floorName: inv.floor_name || null,
+        guestCount: inv.guest_count || 0,
+
+        // People
+        captainName: inv.captain_name || null,
+        cashierName: inv.cashier_name || null,
+        generatedByName: inv.generated_by_name || null,
+
+        // Customer
+        customerName: inv.customer_name || null,
+        customerPhone: inv.customer_phone || null,
+        customerEmail: inv.customer_email || null,
+        customerGstin: inv.customer_gstin || null,
+        customerAddress: inv.customer_address || null,
+        billingAddress: inv.billing_address || null,
+
+        // Amounts
+        subtotal: sub,
+        discountAmount: disc,
+        taxableAmount: taxable,
+        cgstAmount: cgst,
+        sgstAmount: sgst,
+        igstAmount: igst,
+        vatAmount: vat,
+        cessAmount: cess,
+        totalTax: tax,
+        serviceCharge: sc,
+        packagingCharge: pc,
+        deliveryCharge: dc,
+        roundOff: ro,
+        grandTotal: grand,
+        amountInWords: inv.amount_in_words || null,
+
+        // Tax detail
+        taxBreakup,
+        hsnSummary,
+        paymentStatus: inv.payment_status,
+        notes: inv.notes || null,
+
+        // Items with per-item tax
+        items: orderItems,
+
+        // Payments
+        payments: orderPayments,
+
+        // Timestamps
+        invoiceCreatedAt: inv.invoice_created_at,
+        orderCreatedAt: inv.order_created_at,
+        billedAt: inv.billed_at || null,
+      };
+    });
+
+    // 5. Finalize component totals
+    const taxComponents = Object.values(componentTotals).map(c => ({
+      ...c,
+      taxableAmount: parseFloat(c.taxableAmount.toFixed(2)),
+      taxAmount: parseFloat(c.taxAmount.toFixed(2))
+    })).sort((a, b) => b.taxAmount - a.taxAmount);
+
+    // 6. Tax rate breakdown
+    const rateBreakdown = Object.values(taxRateBreakdown).map(r => ({
+      rate: r.rate,
+      taxableAmount: parseFloat(r.taxableAmount.toFixed(2)),
+      taxAmount: parseFloat(r.taxAmount.toFixed(2)),
+      invoiceCount: r.invoiceCount
+    })).sort((a, b) => a.rate - b.rate);
+
+    // 7. Daily breakdown from SQL aggregation (over ALL filtered data)
+    const dailyBreakdown = dailyTaxAgg.map(d => {
+      const day = d.date instanceof Date ? d.date.toISOString().slice(0, 10) : String(d.date);
+      return {
+        date: day,
+        taxableAmount: parseFloat((parseFloat(d.taxable) || 0).toFixed(2)),
+        cgstAmount: parseFloat((parseFloat(d.cgst) || 0).toFixed(2)),
+        sgstAmount: parseFloat((parseFloat(d.sgst) || 0).toFixed(2)),
+        igstAmount: parseFloat((parseFloat(d.igst) || 0).toFixed(2)),
+        vatAmount: parseFloat((parseFloat(d.vat) || 0).toFixed(2)),
+        cessAmount: parseFloat((parseFloat(d.cess) || 0).toFixed(2)),
+        totalTax: parseFloat((parseFloat(d.total_tax) || 0).toFixed(2)),
+        grandTotal: parseFloat((parseFloat(d.grand_total) || 0).toFixed(2)),
+        invoiceCount: parseInt(d.invoice_count)
+      };
+    });
+
+    // 8. Summary (over ALL filtered data, not just paginated page)
+    const tsa = taxSummaryAgg[0];
+    const allTotalTax = parseFloat(tsa.total_tax) || 0;
+    const allTotalTaxable = parseFloat(tsa.total_taxable) || 0;
+    const allTotalInvoices = parseInt(tsa.total_invoices) || 0;
+
+    const summary = {
+      dateRange: { start, end },
+      totalInvoices: allTotalInvoices,
+      totalOrders: parseInt(tsa.total_orders) || 0,
+      totalSubtotal: parseFloat((parseFloat(tsa.total_subtotal) || 0).toFixed(2)),
+      totalDiscount: parseFloat((parseFloat(tsa.total_discount) || 0).toFixed(2)),
+      totalTaxable: parseFloat(allTotalTaxable.toFixed(2)),
+      totalCgst: parseFloat((parseFloat(tsa.total_cgst) || 0).toFixed(2)),
+      totalSgst: parseFloat((parseFloat(tsa.total_sgst) || 0).toFixed(2)),
+      totalIgst: parseFloat((parseFloat(tsa.total_igst) || 0).toFixed(2)),
+      totalVat: parseFloat((parseFloat(tsa.total_vat) || 0).toFixed(2)),
+      totalCess: parseFloat((parseFloat(tsa.total_cess) || 0).toFixed(2)),
+      totalTax: parseFloat(allTotalTax.toFixed(2)),
+      totalServiceCharge: parseFloat((parseFloat(tsa.total_service_charge) || 0).toFixed(2)),
+      totalPackagingCharge: parseFloat((parseFloat(tsa.total_packaging_charge) || 0).toFixed(2)),
+      totalDeliveryCharge: parseFloat((parseFloat(tsa.total_delivery_charge) || 0).toFixed(2)),
+      totalRoundOff: parseFloat((parseFloat(tsa.total_round_off) || 0).toFixed(2)),
+      totalGrandTotal: parseFloat((parseFloat(tsa.total_grand) || 0).toFixed(2)),
+      avgTaxPerInvoice: allTotalInvoices > 0 ? parseFloat((allTotalTax / allTotalInvoices).toFixed(2)) : 0,
+      effectiveTaxRate: allTotalTaxable > 0 ? parseFloat(((allTotalTax / allTotalTaxable) * 100).toFixed(2)) : 0,
+      taxComponents,
+      rateBreakdown,
+      dailyBreakdown
+    };
+
+    return {
+      dateRange: { start, end },
+      invoices: detailedInvoices,
+      pagination: {
+        page, limit, totalCount, totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      },
+      filters: this._taxDetailFilters(options),
+      summary
+    };
+  },
+
+  _taxDetailFilters(options = {}) {
+    const f = {};
+    if (options.search) f.search = options.search;
+    if (options.paymentStatus) f.paymentStatus = options.paymentStatus;
+    if (options.orderType) f.orderType = options.orderType;
+    if (options.captainName) f.captainName = options.captainName;
+    if (options.cashierName) f.cashierName = options.cashierName;
+    if (options.floorName) f.floorName = options.floorName;
+    if (options.tableNumber) f.tableNumber = options.tableNumber;
+    if (options.sortBy) f.sortBy = options.sortBy;
+    if (options.sortOrder) f.sortOrder = options.sortOrder;
+    return f;
+  },
+
+  _emptyTaxDetailSummary() {
+    return {
+      dateRange: { start: null, end: null },
+      totalInvoices: 0, totalOrders: 0,
+      totalSubtotal: 0, totalDiscount: 0, totalTaxable: 0,
+      totalCgst: 0, totalSgst: 0, totalIgst: 0, totalVat: 0, totalCess: 0, totalTax: 0,
+      totalServiceCharge: 0, totalPackagingCharge: 0, totalDeliveryCharge: 0,
+      totalRoundOff: 0, totalGrandTotal: 0,
+      avgTaxPerInvoice: 0, effectiveTaxRate: 0,
+      taxComponents: [], rateBreakdown: [], dailyBreakdown: []
+    };
+  },
+
+  _emptyPaymentModeDetailSummary() {
+    return {
+      dateRange: { start: null, end: null },
+      totalTransactions: 0, totalOrders: 0,
+      totalCollected: 0, totalBaseAmount: 0, totalTips: 0,
+      totalRefundAmount: 0, totalRefundCount: 0,
+      avgTransactionAmount: 0, paymentModeCount: 0,
+      topMode: null, dailyBreakdown: [], hourlyBreakdown: []
+    };
+  },
+
+  _emptyCategorySalesDetailSummary() {
+    return {
+      dateRange: { start: null, end: null },
+      totalCategories: 0, totalUniqueItems: 0, totalOrders: 0,
+      totalQuantitySold: 0, totalCancelledQuantity: 0,
+      grossRevenue: 0, totalDiscount: 0, totalTax: 0, netRevenue: 0,
+      addonRevenue: 0, complimentaryCount: 0, avgRevenuePerCategory: 0,
+      topCategory: null, itemTypeBreakdown: []
+    };
+  },
+
+  _emptyItemSalesDetailSummary() {
+    return {
+      dateRange: { start: null, end: null },
+      totalUniqueItems: 0, totalItemsShown: 0,
+      totalQuantitySold: 0, totalCancelledQuantity: 0,
+      grossRevenue: 0, totalDiscount: 0, totalTax: 0, netRevenue: 0,
+      addonRevenue: 0, complimentaryCount: 0, avgRevenuePerItem: 0,
+      itemTypeBreakdown: [], categoryBreakdown: []
+    };
+  },
+
+  _emptyDetailSummary() {
+    return {
+      dateRange: { start: null, end: null },
+      totalOrders: 0, completedOrders: 0, cancelledOrders: 0, activeOrders: 0,
+      orderTypeBreakdown: { dine_in: 0, takeaway: 0, delivery: 0 },
+      grossSales: 0, totalDiscount: 0, totalTax: 0, netSales: 0,
+      totalPaid: 0, totalTips: 0, averageOrderValue: 0,
+      paymentModeBreakdown: {}
     };
   }
 };

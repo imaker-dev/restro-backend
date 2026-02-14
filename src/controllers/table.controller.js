@@ -1,5 +1,19 @@
 const tableService = require('../services/table.service');
+const { getPool } = require('../database');
 const logger = require('../utils/logger');
+
+/**
+ * Get floor IDs a user is restricted to (empty array = no restriction / all floors)
+ */
+async function getUserFloorIds(userId, outletId) {
+  if (!userId) return [];
+  const pool = getPool();
+  const [rows] = await pool.query(
+    'SELECT floor_id FROM user_floors WHERE user_id = ? AND outlet_id = ? AND is_active = 1',
+    [userId, outletId]
+  );
+  return rows.map(r => r.floor_id);
+}
 
 /**
  * Table Controller - Comprehensive table management
@@ -24,13 +38,21 @@ const tableController = {
 
   async getTablesByOutlet(req, res, next) {
     try {
+      const outletId = parseInt(req.params.outletId);
       const filters = {
         floorId: req.query.floorId,
         sectionId: req.query.sectionId,
         status: req.query.status,
         isActive: req.query.isActive === 'true' ? true : req.query.isActive === 'false' ? false : undefined
       };
-      const tables = await tableService.getByOutlet(req.params.outletId, filters);
+      // If user has floor restrictions and no specific floorId filter, restrict
+      if (req.user && !filters.floorId) {
+        const restrictedFloors = await getUserFloorIds(req.user.userId, outletId);
+        if (restrictedFloors.length > 0) {
+          filters.floorIds = restrictedFloors;
+        }
+      }
+      const tables = await tableService.getByOutlet(outletId, filters);
       res.json({ success: true, data: tables });
     } catch (error) {
       next(error);
@@ -39,7 +61,19 @@ const tableController = {
 
   async getTablesByFloor(req, res, next) {
     try {
-      const tables = await tableService.getByFloor(req.params.floorId);
+      const floorId = parseInt(req.params.floorId);
+      // Enforce floor restriction: if user has assigned floors, verify access
+      if (req.user) {
+        const pool = getPool();
+        const [floorRow] = await pool.query('SELECT outlet_id FROM floors WHERE id = ?', [floorId]);
+        if (floorRow.length > 0) {
+          const restrictedFloors = await getUserFloorIds(req.user.userId, floorRow[0].outlet_id);
+          if (restrictedFloors.length > 0 && !restrictedFloors.includes(floorId)) {
+            return res.status(403).json({ success: false, message: 'You do not have access to this floor' });
+          }
+        }
+      }
+      const tables = await tableService.getByFloor(floorId);
       res.json({ success: true, data: tables });
     } catch (error) {
       next(error);
@@ -104,9 +138,24 @@ const tableController = {
 
   async getRealTimeStatus(req, res, next) {
     try {
+      const outletId = parseInt(req.params.outletId);
+      let floorId = req.query.floorId || null;
+
+      // If no specific floor requested, check if user has floor restrictions
+      if (!floorId && req.user) {
+        const restrictedFloors = await getUserFloorIds(req.user.userId, outletId);
+        if (restrictedFloors.length > 0) {
+          // For real-time status, pass first restricted floor or let service handle array
+          // We'll filter results after fetch
+          const allTables = await tableService.getRealTimeStatus(outletId, null);
+          const filtered = allTables.filter(t => restrictedFloors.includes(t.floor_id));
+          return res.json({ success: true, data: filtered });
+        }
+      }
+
       const tables = await tableService.getRealTimeStatus(
-        req.params.outletId,
-        req.query.floorId || null
+        outletId,
+        floorId
       );
       res.json({ success: true, data: tables });
     } catch (error) {

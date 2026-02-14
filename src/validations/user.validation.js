@@ -79,6 +79,28 @@ const updateUser = Joi.object({
   avatarUrl: Joi.string().uri().max(500).optional().allow(null),
   isActive: Joi.boolean().optional(),
   isVerified: Joi.boolean().optional(),
+  roles: Joi.array().items(
+    Joi.object({
+      roleId: Joi.number().integer().positive().required(),
+      outletId: Joi.number().integer().positive().optional().allow(null),
+    })
+  ).optional(),
+  floors: Joi.array().items(
+    Joi.object({
+      floorId: Joi.number().integer().positive().required(),
+      outletId: Joi.number().integer().positive().required(),
+      isPrimary: Joi.boolean().optional().default(false),
+    })
+  ).optional(),
+  sections: Joi.array().items(
+    Joi.object({
+      sectionId: Joi.number().integer().positive().required(),
+      outletId: Joi.number().integer().positive().required(),
+      canViewMenu: Joi.boolean().optional().default(true),
+      canTakeOrders: Joi.boolean().optional().default(true),
+      isPrimary: Joi.boolean().optional().default(false),
+    })
+  ).optional(),
 });
 
 const listUsers = Joi.object({

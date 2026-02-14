@@ -549,12 +549,13 @@ const itemService = {
 
   /**
    * Get effective price for an item considering floor/section/time overrides
+   * NOTE: Price overrides are currently disabled — returns base price only.
+   * To re-enable, uncomment the override logic below.
    */
   async getEffectivePrice(itemId, variantId = null, context = {}) {
-    const { floorId, sectionId, timeSlotId } = context;
     const pool = getPool();
 
-    // Get base price
+    // ── Price overrides DISABLED — return base price only ──
     let price;
     if (variantId) {
       const [variants] = await pool.query('SELECT price FROM variants WHERE id = ?', [variantId]);
@@ -565,6 +566,10 @@ const itemService = {
     }
 
     if (!price) return null;
+    return parseFloat(price);
+
+    /* ── ORIGINAL OVERRIDE LOGIC (disabled) ──
+    const { floorId, sectionId, timeSlotId } = context;
 
     // Check for floor price override
     if (floorId) {
@@ -600,6 +605,7 @@ const itemService = {
     }
 
     return parseFloat(price);
+    */
   },
 
   async invalidateCache(outletId) {

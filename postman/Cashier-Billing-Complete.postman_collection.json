@@ -1,0 +1,1451 @@
+{
+  "info": {
+    "name": "Cashier Billing — Complete Scenarios",
+    "description": "Comprehensive Postman collection for ALL cashier billing operations.\n\n## Modules\n1. Authentication\n2. Pending Bills (Real-time)\n3. Generate Bill (with service charge)\n4. Invoice Retrieval (by ID, by Order)\n5. Remove Service Charge\n6. Remove GST (Non-GST Bill)\n7. Remove Both (Bare Bill)\n8. Restore Charges\n9. Manual Flat Discount\n10. Manual Percentage Discount\n11. Discount by Code\n12. Cash Payment\n13. UPI Payment\n14. Card Payment\n15. Split Payment\n16. Duplicate Bill\n17. Cancel Invoice\n18. Cash Drawer\n\n## Variables Auto-Set\n- accessToken, orderId, invoiceId, grandTotal, paymentId\n\n## Real-time Socket Events\nCashier joins: socket.emit('join:cashier', outletId)\nListens to: bill:status, order:updated, kot:updated, table:updated, payment:updated",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000/api/v1" },
+    { "key": "outletId", "value": "4" },
+    { "key": "accessToken", "value": "" },
+    { "key": "orderId", "value": "" },
+    { "key": "invoiceId", "value": "" },
+    { "key": "grandTotal", "value": "" },
+    { "key": "tableId", "value": "" },
+    { "key": "kotId", "value": "" },
+    { "key": "paymentId", "value": "" },
+    { "key": "invoiceId2", "value": "" },
+    { "key": "orderId2", "value": "" },
+    { "key": "orderId3", "value": "" },
+    { "key": "invoiceId3", "value": "" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "1. Authentication",
+      "item": [
+        {
+          "name": "1.1 Cashier Login",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Login successful', () => {",
+                "    pm.response.to.have.status(200);",
+                "    const j = pm.response.json();",
+                "    pm.expect(j.success).to.be.true;",
+                "    pm.expect(j.data.accessToken).to.be.a('string');",
+                "});",
+                "const j = pm.response.json();",
+                "if (j.success) {",
+                "    pm.collectionVariables.set('accessToken', j.data.accessToken);",
+                "    console.log('Token saved');",
+                "}"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin@restropos.com\",\n  \"password\": \"admin123\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Setup — Create Served Order",
+      "description": "Create a dine-in order, add items, send KOT, mark ready + served. This prepares order for billing.",
+      "item": [
+        {
+          "name": "2.1 List Tables",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Tables loaded', () => {",
+                "    const j = pm.response.json();",
+                "    pm.expect(j.success).to.be.true;",
+                "    pm.expect(j.data).to.be.an('array');",
+                "});",
+                "const tables = pm.response.json().data || [];",
+                "const avail = tables.find(t => t.status === 'available');",
+                "if (avail) {",
+                "    pm.collectionVariables.set('tableId', avail.id);",
+                "    console.log('Table:', avail.table_number);",
+                "}"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/tables/outlet/{{outletId}}", "host": ["{{baseUrl}}"], "path": ["tables", "outlet", "{{outletId}}"] }
+          }
+        },
+        {
+          "name": "2.2 Create Dine-In Order",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Order created', () => {",
+                "    const j = pm.response.json();",
+                "    pm.expect(j.success).to.be.true;",
+                "});",
+                "const j = pm.response.json();",
+                "if (j.success) {",
+                "    pm.collectionVariables.set('orderId', j.data.id);",
+                "    console.log('Order:', j.data.order_number);",
+                "}"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"outletId\": {{outletId}},\n  \"tableId\": {{tableId}},\n  \"orderType\": \"dine_in\",\n  \"guestCount\": 2\n}" },
+            "url": { "raw": "{{baseUrl}}/orders", "host": ["{{baseUrl}}"], "path": ["orders"] }
+          }
+        },
+        {
+          "name": "2.3 Add Items to Order",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Items added', () => {",
+                "    const j = pm.response.json();",
+                "    pm.expect(j.success).to.be.true;",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"items\": [\n    { \"itemId\": 1, \"quantity\": 2 },\n    { \"itemId\": 2, \"quantity\": 1 }\n  ]\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/{{orderId}}/items", "host": ["{{baseUrl}}"], "path": ["orders", "{{orderId}}", "items"] }
+          }
+        },
+        {
+          "name": "2.4 Send KOT",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('KOT sent', () => {",
+                "    const j = pm.response.json();",
+                "    pm.expect(j.success).to.be.true;",
+                "});",
+                "const tickets = pm.response.json().data?.tickets || [];",
+                "if (tickets.length > 0) {",
+                "    pm.collectionVariables.set('kotId', tickets[0].id);",
+                "}"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{baseUrl}}/orders/{{orderId}}/kot", "host": ["{{baseUrl}}"], "path": ["orders", "{{orderId}}", "kot"] }
+          }
+        },
+        {
+          "name": "2.5 Mark KOT Ready",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{baseUrl}}/orders/kot/{{kotId}}/ready", "host": ["{{baseUrl}}"], "path": ["orders", "kot", "{{kotId}}", "ready"] }
+          }
+        },
+        {
+          "name": "2.6 Mark KOT Served",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{baseUrl}}/orders/kot/{{kotId}}/served", "host": ["{{baseUrl}}"], "path": ["orders", "kot", "{{kotId}}", "served"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Generate Bill",
+      "description": "Generate bill for served order — emits bill:status { billStatus: 'pending' }",
+      "item": [
+        {
+          "name": "3.1 Generate Bill (with service charge)",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Bill generated', () => {",
+                "    const j = pm.response.json();",
+                "    pm.expect(j.success).to.be.true;",
+                "    pm.expect(j.message).to.equal('Bill generated');",
+                "});",
+                "",
+                "pm.test('Invoice is camelCase', () => {",
+                "    const inv = pm.response.json().data;",
+                "    pm.expect(inv).to.have.property('invoiceNumber');",
+                "    pm.expect(inv).to.have.property('grandTotal');",
+                "    pm.expect(inv).to.have.property('paymentStatus');",
+                "    pm.expect(inv).to.have.property('serviceCharge');",
+                "    pm.expect(inv).to.have.property('totalTax');",
+                "    pm.expect(inv).to.have.property('items');",
+                "    pm.expect(inv).to.have.property('discounts');",
+                "    pm.expect(inv).to.have.property('payments');",
+                "});",
+                "",
+                "pm.test('Calculations correct', () => {",
+                "    const inv = pm.response.json().data;",
+                "    pm.expect(inv.grandTotal).to.be.above(0);",
+                "    pm.expect(inv.paymentStatus).to.equal('pending');",
+                "    const taxableCalc = +(inv.subtotal - inv.discountAmount).toFixed(2);",
+                "    pm.expect(inv.taxableAmount).to.equal(taxableCalc);",
+                "});",
+                "",
+                "const inv = pm.response.json().data;",
+                "if (inv) {",
+                "    pm.collectionVariables.set('invoiceId', inv.id);",
+                "    pm.collectionVariables.set('grandTotal', inv.grandTotal);",
+                "    console.log('Invoice:', inv.invoiceNumber, '₹' + inv.grandTotal);",
+                "}"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"customerName\": \"John Doe\",\n  \"customerPhone\": \"9876543210\",\n  \"applyServiceCharge\": true\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/{{orderId}}/bill", "host": ["{{baseUrl}}"], "path": ["orders", "{{orderId}}", "bill"] }
+          }
+        },
+        {
+          "name": "3.2 Idempotent — Generate Bill Again (same invoice returned)",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Returns same invoice', () => {",
+                "    const inv = pm.response.json().data;",
+                "    pm.expect(inv.id).to.equal(parseInt(pm.collectionVariables.get('invoiceId')));",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": { "raw": "{{baseUrl}}/orders/{{orderId}}/bill", "host": ["{{baseUrl}}"], "path": ["orders", "{{orderId}}", "bill"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Pending Bills (Cashier Real-time)",
+      "description": "Cashier views all unpaid bills with filter, search, sort, pagination.\n\nQuery params:\n- ?floorId=2 — filter by floor\n- ?search=T1 — search table#, customer name, order#, invoice#\n- ?sortBy=grand_total — sort by: grand_total, created_at, table_number, invoice_number\n- ?sortOrder=asc — ASC or DESC\n- ?page=1 — page number (default 1)\n- ?limit=20 — items per page (default 20, max 100)\n\nAll params combinable.\n\nResponse includes `pagination: { page, limit, total, totalPages }`.\nCancelled items excluded from bill items. Cancelled orders excluded.",
+      "item": [
+        {
+          "name": "4.1 Get All Pending Bills (Paginated)",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Pending bills loaded', () => {",
+                "    const j = pm.response.json();",
+                "    pm.expect(j.success).to.be.true;",
+                "    pm.expect(j.data).to.be.an('array');",
+                "});",
+                "",
+                "pm.test('Has pagination metadata', () => {",
+                "    const pg = pm.response.json().pagination;",
+                "    pm.expect(pg).to.be.an('object');",
+                "    pm.expect(pg).to.have.property('page');",
+                "    pm.expect(pg).to.have.property('limit');",
+                "    pm.expect(pg).to.have.property('total');",
+                "    pm.expect(pg).to.have.property('totalPages');",
+                "});",
+                "",
+                "pm.test('All bills are pending/partial', () => {",
+                "    pm.response.json().data.forEach(b => {",
+                "        pm.expect(['pending', 'partial']).to.include(b.paymentStatus);",
+                "    });",
+                "});",
+                "",
+                "pm.test('Has floor info + no cancelled items', () => {",
+                "    const bills = pm.response.json().data;",
+                "    if (bills.length > 0) {",
+                "        pm.expect(bills[0]).to.have.property('floorId');",
+                "        pm.expect(bills[0]).to.have.property('floorName');",
+                "        pm.expect(bills[0]).to.have.property('items');",
+                "        bills[0].items.forEach(i => pm.expect(i.status).to.not.equal('cancelled'));",
+                "    }",
+                "});",
+                "",
+                "const pg = pm.response.json().pagination;",
+                "console.log('Pending:', pm.response.json().data.length, '| Total:', pg.total, '| Pages:', pg.totalPages);"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/orders/bills/pending/{{outletId}}", "host": ["{{baseUrl}}"], "path": ["orders", "bills", "pending", "{{outletId}}"] }
+          }
+        },
+        {
+          "name": "4.1b Pagination — Page 1 Limit 2",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Page 1 limit 2', () => {",
+                "    const j = pm.response.json();",
+                "    pm.expect(j.data.length).to.be.at.most(2);",
+                "    pm.expect(j.pagination.page).to.equal(1);",
+                "    pm.expect(j.pagination.limit).to.equal(2);",
+                "});",
+                "console.log('Page 1:', pm.response.json().data.length, 'of', pm.response.json().pagination.total);"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/bills/pending/{{outletId}}?page=1&limit=2",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "bills", "pending", "{{outletId}}"],
+              "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "2" }]
+            }
+          }
+        },
+        {
+          "name": "4.1c Pagination — Page 9999 (empty)",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Large page returns empty', () => {",
+                "    pm.expect(pm.response.json().data).to.be.an('array').that.is.empty;",
+                "    pm.expect(pm.response.json().pagination.page).to.equal(9999);",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/bills/pending/{{outletId}}?page=9999&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "bills", "pending", "{{outletId}}"],
+              "query": [{ "key": "page", "value": "9999" }, { "key": "limit", "value": "10" }]
+            }
+          }
+        },
+        {
+          "name": "4.2 Filter by Floor",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Floor filter works', () => {",
+                "    const j = pm.response.json();",
+                "    pm.expect(j.success).to.be.true;",
+                "    j.data.forEach(b => pm.expect(b.floorId).to.equal(1));",
+                "});",
+                "console.log('Floor 1 bills:', pm.response.json().data.length);"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/bills/pending/{{outletId}}?floorId=1",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "bills", "pending", "{{outletId}}"],
+              "query": [{ "key": "floorId", "value": "1" }]
+            }
+          }
+        },
+        {
+          "name": "4.3 Search by Table Number",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Search works', () => {",
+                "    pm.expect(pm.response.json().success).to.be.true;",
+                "});",
+                "console.log('Search T1:', pm.response.json().data.length, 'results');"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/bills/pending/{{outletId}}?search=T1",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "bills", "pending", "{{outletId}}"],
+              "query": [{ "key": "search", "value": "T1" }]
+            }
+          }
+        },
+        {
+          "name": "4.4 Search by Customer Name",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Customer search works', () => {",
+                "    pm.expect(pm.response.json().success).to.be.true;",
+                "});",
+                "console.log('Search John:', pm.response.json().data.length, 'results');"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/bills/pending/{{outletId}}?search=John",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "bills", "pending", "{{outletId}}"],
+              "query": [{ "key": "search", "value": "John" }]
+            }
+          }
+        },
+        {
+          "name": "4.5 Sort by Grand Total ASC",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Sorted ASC', () => {",
+                "    const bills = pm.response.json().data;",
+                "    if (bills.length >= 2) {",
+                "        pm.expect(bills[0].grandTotal).to.be.at.most(bills[bills.length-1].grandTotal);",
+                "    }",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/bills/pending/{{outletId}}?sortBy=grand_total&sortOrder=asc",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "bills", "pending", "{{outletId}}"],
+              "query": [{ "key": "sortBy", "value": "grand_total" }, { "key": "sortOrder", "value": "asc" }]
+            }
+          }
+        },
+        {
+          "name": "4.6 Sort by Grand Total DESC",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Sorted DESC', () => {",
+                "    const bills = pm.response.json().data;",
+                "    if (bills.length >= 2) {",
+                "        pm.expect(bills[0].grandTotal).to.be.at.least(bills[bills.length-1].grandTotal);",
+                "    }",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/bills/pending/{{outletId}}?sortBy=grand_total&sortOrder=desc",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "bills", "pending", "{{outletId}}"],
+              "query": [{ "key": "sortBy", "value": "grand_total" }, { "key": "sortOrder", "value": "desc" }]
+            }
+          }
+        },
+        {
+          "name": "4.7 Combined — Floor + Search + Sort + Page",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Combined filter works', () => {",
+                "    pm.expect(pm.response.json().success).to.be.true;",
+                "    pm.expect(pm.response.json().pagination).to.be.an('object');",
+                "});",
+                "console.log('Combined:', pm.response.json().data.length, 'results, page', pm.response.json().pagination.page);"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/bills/pending/{{outletId}}?floorId=1&search=T1&sortBy=grand_total&sortOrder=asc&page=1&limit=5",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "bills", "pending", "{{outletId}}"],
+              "query": [
+                { "key": "floorId", "value": "1" },
+                { "key": "search", "value": "T1" },
+                { "key": "sortBy", "value": "grand_total" },
+                { "key": "sortOrder", "value": "asc" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "5" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "4.8 Search Non-Existent (empty + pagination)",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('No results for invalid search', () => {",
+                "    pm.expect(pm.response.json().data).to.be.an('array').that.is.empty;",
+                "    pm.expect(pm.response.json().pagination.total).to.equal(0);",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/bills/pending/{{outletId}}?search=ZZZZNONEXIST",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "bills", "pending", "{{outletId}}"],
+              "query": [{ "key": "search", "value": "ZZZZNONEXIST" }]
+            }
+          }
+        },
+        {
+          "name": "4.9 Completed Bills — ?status=completed",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Completed bills loaded', () => {",
+                "    const j = pm.response.json();",
+                "    pm.expect(j.success).to.be.true;",
+                "    pm.expect(j.data).to.be.an('array');",
+                "    pm.expect(j.pagination).to.be.an('object');",
+                "});",
+                "",
+                "pm.test('All bills are paid', () => {",
+                "    pm.response.json().data.forEach(b => {",
+                "        pm.expect(b.paymentStatus).to.equal('paid');",
+                "    });",
+                "});",
+                "console.log('Completed bills:', pm.response.json().data.length);"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/bills/pending/{{outletId}}?status=completed",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "bills", "pending", "{{outletId}}"],
+              "query": [{ "key": "status", "value": "completed" }]
+            }
+          }
+        },
+        {
+          "name": "4.10 All Bills — ?status=all",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('All bills loaded', () => {",
+                "    const j = pm.response.json();",
+                "    pm.expect(j.success).to.be.true;",
+                "    pm.expect(j.data).to.be.an('array');",
+                "});",
+                "",
+                "pm.test('Mix of paid and pending', () => {",
+                "    const statuses = pm.response.json().data.map(b => b.paymentStatus);",
+                "    pm.expect(statuses).to.include.members(['pending']);",
+                "});",
+                "console.log('All bills:', pm.response.json().data.length);"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/orders/bills/pending/{{outletId}}?status=all",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "bills", "pending", "{{outletId}}"],
+              "query": [{ "key": "status", "value": "all" }]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Invoice Retrieval",
+      "item": [
+        {
+          "name": "5.1 Get Invoice by ID",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Invoice by ID', () => {",
+                "    const j = pm.response.json();",
+                "    pm.expect(j.success).to.be.true;",
+                "    pm.expect(j.data.id).to.equal(parseInt(pm.collectionVariables.get('invoiceId')));",
+                "});",
+                "",
+                "pm.test('camelCase format', () => {",
+                "    const inv = pm.response.json().data;",
+                "    pm.expect(inv).to.have.property('invoiceNumber');",
+                "    pm.expect(inv).to.have.property('grandTotal');",
+                "    pm.expect(inv).to.have.property('amountInWords');",
+                "    pm.expect(inv.items).to.be.an('array');",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/orders/invoice/{{invoiceId}}", "host": ["{{baseUrl}}"], "path": ["orders", "invoice", "{{invoiceId}}"] }
+          }
+        },
+        {
+          "name": "5.2 Get Invoice by Order",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Invoice by order', () => {",
+                "    const j = pm.response.json();",
+                "    pm.expect(j.success).to.be.true;",
+                "    pm.expect(j.data.id).to.equal(parseInt(pm.collectionVariables.get('invoiceId')));",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/orders/{{orderId}}/invoice", "host": ["{{baseUrl}}"], "path": ["orders", "{{orderId}}", "invoice"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Remove Service Charge",
+      "description": "Cashier removes optional service charge — emits bill:status { billStatus: 'updated' }",
+      "item": [
+        {
+          "name": "6.1 Remove Service Charge",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Service charge removed', () => {",
+                "    const j = pm.response.json();",
+                "    pm.expect(j.success).to.be.true;",
+                "    pm.expect(j.message).to.equal('Invoice updated');",
+                "});",
+                "",
+                "pm.test('Calculation: svc=0, tax unchanged', () => {",
+                "    const inv = pm.response.json().data;",
+                "    pm.expect(inv.serviceCharge).to.equal(0);",
+                "    pm.expect(inv.grandTotal).to.be.below(parseFloat(pm.collectionVariables.get('grandTotal')));",
+                "});",
+                "",
+                "console.log('New total:', pm.response.json().data.grandTotal, '(svc removed)');"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"removeServiceCharge\": true,\n  \"removeGst\": false\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/invoice/{{invoiceId}}/charges", "host": ["{{baseUrl}}"], "path": ["orders", "invoice", "{{invoiceId}}", "charges"] }
+          }
+        },
+        {
+          "name": "6.2 Restore Service Charge",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Service charge restored', () => {",
+                "    const inv = pm.response.json().data;",
+                "    pm.expect(inv.serviceCharge).to.be.above(0);",
+                "    pm.expect(inv.grandTotal).to.equal(parseFloat(pm.collectionVariables.get('grandTotal')));",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"removeServiceCharge\": false,\n  \"removeGst\": false\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/invoice/{{invoiceId}}/charges", "host": ["{{baseUrl}}"], "path": ["orders", "invoice", "{{invoiceId}}", "charges"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Remove GST (Non-GST Bill)",
+      "description": "Cashier generates non-GST bill. Customer GSTIN is MANDATORY when removing GST.",
+      "item": [
+        {
+          "name": "7.1 Remove GST WITHOUT GSTIN (should fail 422)",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Rejected without GSTIN', () => {",
+                "    pm.expect(pm.response.code).to.equal(422);",
+                "    pm.expect(pm.response.json().success).to.be.false;",
+                "});",
+                "console.log('Correctly rejected:', pm.response.json().message);"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"removeServiceCharge\": false,\n  \"removeGst\": true\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/invoice/{{invoiceId}}/charges", "host": ["{{baseUrl}}"], "path": ["orders", "invoice", "{{invoiceId}}", "charges"] }
+          }
+        },
+        {
+          "name": "7.2 Remove GST WITH Customer GSTIN",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('GST removed', () => {",
+                "    const inv = pm.response.json().data;",
+                "    pm.expect(inv.cgstAmount).to.equal(0);",
+                "    pm.expect(inv.sgstAmount).to.equal(0);",
+                "    pm.expect(inv.totalTax).to.equal(0);",
+                "    pm.expect(inv.serviceCharge).to.be.above(0);",
+                "});",
+                "",
+                "pm.test('GSTIN saved on invoice', () => {",
+                "    const inv = pm.response.json().data;",
+                "    pm.expect(inv.customerGstin).to.equal('27AABCU9603R1ZM');",
+                "});",
+                "",
+                "console.log('No-GST total:', pm.response.json().data.grandTotal);"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"removeServiceCharge\": false,\n  \"removeGst\": true,\n  \"customerGstin\": \"27AABCU9603R1ZM\"\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/invoice/{{invoiceId}}/charges", "host": ["{{baseUrl}}"], "path": ["orders", "invoice", "{{invoiceId}}", "charges"] }
+          }
+        },
+        {
+          "name": "7.3 Remove BOTH Svc + GST (with GSTIN)",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Both removed', () => {",
+                "    const inv = pm.response.json().data;",
+                "    pm.expect(inv.serviceCharge).to.equal(0);",
+                "    pm.expect(inv.totalTax).to.equal(0);",
+                "    const expected = Math.round(inv.taxableAmount);",
+                "    pm.expect(inv.grandTotal).to.equal(expected);",
+                "});",
+                "",
+                "console.log('Bare total:', pm.response.json().data.grandTotal);"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"removeServiceCharge\": true,\n  \"removeGst\": true,\n  \"customerGstin\": \"27AABCU9603R1ZM\"\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/invoice/{{invoiceId}}/charges", "host": ["{{baseUrl}}"], "path": ["orders", "invoice", "{{invoiceId}}", "charges"] }
+          }
+        },
+        {
+          "name": "7.4 Restore ALL Charges",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('All restored', () => {",
+                "    const inv = pm.response.json().data;",
+                "    pm.expect(inv.grandTotal).to.equal(parseFloat(pm.collectionVariables.get('grandTotal')));",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"removeServiceCharge\": false,\n  \"removeGst\": false\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/invoice/{{invoiceId}}/charges", "host": ["{{baseUrl}}"], "path": ["orders", "invoice", "{{invoiceId}}", "charges"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Discounts",
+      "description": "Apply discounts before or after billing. Cancel invoice first to re-bill with discount.",
+      "item": [
+        {
+          "name": "8.1 Cancel Invoice (to apply discount before re-bill)",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Invoice cancelled', () => {",
+                "    const j = pm.response.json();",
+                "    pm.expect(j.success).to.be.true;",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"reason\": \"Apply discount before re-billing\"\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/invoice/{{invoiceId}}/cancel", "host": ["{{baseUrl}}"], "path": ["orders", "invoice", "{{invoiceId}}", "cancel"] }
+          }
+        },
+        {
+          "name": "8.2 Apply Manual FLAT Discount (₹100 off)",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Flat discount applied', () => {",
+                "    const j = pm.response.json();",
+                "    pm.expect(j.success).to.be.true;",
+                "    pm.expect(j.message).to.equal('Discount applied');",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"discountName\": \"Manager Special\",\n  \"discountType\": \"flat\",\n  \"discountValue\": 100,\n  \"appliedOn\": \"subtotal\"\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/{{orderId}}/discount", "host": ["{{baseUrl}}"], "path": ["orders", "{{orderId}}", "discount"] }
+          }
+        },
+        {
+          "name": "8.3 Apply Manual PERCENTAGE Discount (10% off)",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Pct discount applied', () => {",
+                "    const j = pm.response.json();",
+                "    pm.expect(j.success).to.be.true;",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"discountName\": \"Festival Offer\",\n  \"discountType\": \"percentage\",\n  \"discountValue\": 10,\n  \"appliedOn\": \"subtotal\"\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/{{orderId}}/discount", "host": ["{{baseUrl}}"], "path": ["orders", "{{orderId}}", "discount"] }
+          }
+        },
+        {
+          "name": "8.4 Apply Discount by CODE (WELCOME10)",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Discount code applied', () => {",
+                "    const j = pm.response.json();",
+                "    // May fail if min order not met",
+                "    if (j.success) {",
+                "        pm.expect(j.message).to.equal('Discount code applied');",
+                "    } else {",
+                "        pm.expect(j.message).to.include('Minimum');",
+                "    }",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"discountCode\": \"WELCOME10\"\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/{{orderId}}/discount/code", "host": ["{{baseUrl}}"], "path": ["orders", "{{orderId}}", "discount", "code"] }
+          }
+        },
+        {
+          "name": "8.5 Discount Code — Duplicate (should fail)",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Duplicate code rejected', () => {",
+                "    pm.expect(pm.response.code).to.be.oneOf([400, 500]);",
+                "    const j = pm.response.json();",
+                "    pm.expect(j.success).to.be.false;",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"discountCode\": \"WELCOME10\"\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/{{orderId}}/discount/code", "host": ["{{baseUrl}}"], "path": ["orders", "{{orderId}}", "discount", "code"] }
+          }
+        },
+        {
+          "name": "8.6 Discount Code — Invalid (should fail)",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Invalid code rejected', () => {",
+                "    pm.expect(pm.response.code).to.be.oneOf([400, 500]);",
+                "    const j = pm.response.json();",
+                "    pm.expect(j.message).to.include('Invalid');",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"discountCode\": \"FAKECODE999\"\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/{{orderId}}/discount/code", "host": ["{{baseUrl}}"], "path": ["orders", "{{orderId}}", "discount", "code"] }
+          }
+        },
+        {
+          "name": "8.7 Re-Generate Bill (with discount applied)",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Bill with discount', () => {",
+                "    const inv = pm.response.json().data;",
+                "    pm.expect(inv.discountAmount).to.be.above(0);",
+                "    pm.expect(inv.discounts.length).to.be.above(0);",
+                "});",
+                "",
+                "const inv = pm.response.json().data;",
+                "if (inv) {",
+                "    pm.collectionVariables.set('invoiceId', inv.id);",
+                "    pm.collectionVariables.set('grandTotal', inv.grandTotal);",
+                "    console.log('Discounted bill:', inv.invoiceNumber, '₹' + inv.grandTotal);",
+                "}"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"applyServiceCharge\": true\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/{{orderId}}/bill", "host": ["{{baseUrl}}"], "path": ["orders", "{{orderId}}", "bill"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Cash Payment",
+      "description": "Full cash payment with tip — emits bill:status { billStatus: 'paid' }",
+      "item": [
+        {
+          "name": "9.1 Process Cash Payment (with tip)",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Payment processed', () => {",
+                "    const j = pm.response.json();",
+                "    pm.expect(j.success).to.be.true;",
+                "    pm.expect(j.message).to.equal('Payment processed');",
+                "});",
+                "",
+                "pm.test('Payment is camelCase', () => {",
+                "    const p = pm.response.json().data;",
+                "    pm.expect(p).to.have.property('paymentNumber');",
+                "    pm.expect(p).to.have.property('paymentMode');",
+                "    pm.expect(p.paymentMode).to.equal('cash');",
+                "    pm.expect(p.status).to.equal('completed');",
+                "});",
+                "",
+                "const p = pm.response.json().data;",
+                "if (p) {",
+                "    pm.collectionVariables.set('paymentId', p.id);",
+                "    console.log('Payment:', p.paymentNumber, '₹' + p.totalAmount);",
+                "}"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"orderId\": {{orderId}},\n  \"invoiceId\": {{invoiceId}},\n  \"outletId\": {{outletId}},\n  \"paymentMode\": \"cash\",\n  \"amount\": {{grandTotal}},\n  \"tipAmount\": 50\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/payment", "host": ["{{baseUrl}}"], "path": ["orders", "payment"] }
+          }
+        },
+        {
+          "name": "9.2 Verify Order → Paid",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Order is paid', () => {",
+                "    pm.expect(pm.response.json().data.status).to.equal('paid');",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/orders/{{orderId}}", "host": ["{{baseUrl}}"], "path": ["orders", "{{orderId}}"] }
+          }
+        },
+        {
+          "name": "9.3 Verify Invoice → Paid",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Invoice is paid', () => {",
+                "    const inv = pm.response.json().data;",
+                "    pm.expect(inv.paymentStatus).to.equal('paid');",
+                "    pm.expect(inv.payments.length).to.be.above(0);",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/orders/invoice/{{invoiceId}}", "host": ["{{baseUrl}}"], "path": ["orders", "invoice", "{{invoiceId}}"] }
+          }
+        },
+        {
+          "name": "9.4 Verify Table → Available",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Table released', () => {",
+                "    pm.expect(pm.response.json().data.status).to.equal('available');",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/tables/{{tableId}}", "host": ["{{baseUrl}}"], "path": ["tables", "{{tableId}}"] }
+          }
+        },
+        {
+          "name": "9.5 Cannot Modify Paid Invoice (should fail)",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Modify rejected', () => {",
+                "    pm.expect(pm.response.code).to.equal(400);",
+                "    pm.expect(pm.response.json().message).to.include('Cannot modify');",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"removeServiceCharge\": true\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/invoice/{{invoiceId}}/charges", "host": ["{{baseUrl}}"], "path": ["orders", "invoice", "{{invoiceId}}", "charges"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "10. UPI Payment Flow",
+      "description": "Create takeaway order → bill → UPI payment",
+      "item": [
+        {
+          "name": "10.1 Create Takeaway Order",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "const j = pm.response.json();",
+                "if (j.success) pm.collectionVariables.set('orderId2', j.data.id);"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"outletId\": {{outletId}},\n  \"orderType\": \"takeaway\",\n  \"guestCount\": 1\n}" },
+            "url": { "raw": "{{baseUrl}}/orders", "host": ["{{baseUrl}}"], "path": ["orders"] }
+          }
+        },
+        {
+          "name": "10.2 Add Items + KOT + Serve",
+          "event": [{
+            "listen": "test",
+            "script": { "exec": ["// Run manually: add items, send KOT, mark ready+served"], "type": "text/javascript" }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"items\": [\n    { \"itemId\": 1, \"quantity\": 1 },\n    { \"itemId\": 2, \"quantity\": 1 }\n  ]\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/{{orderId2}}/items", "host": ["{{baseUrl}}"], "path": ["orders", "{{orderId2}}", "items"] }
+          }
+        },
+        {
+          "name": "10.3 Generate Bill",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "const inv = pm.response.json().data;",
+                "if (inv) {",
+                "    pm.collectionVariables.set('invoiceId2', inv.id);",
+                "    pm.collectionVariables.set('grandTotal', inv.grandTotal);",
+                "}"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": { "raw": "{{baseUrl}}/orders/{{orderId2}}/bill", "host": ["{{baseUrl}}"], "path": ["orders", "{{orderId2}}", "bill"] }
+          }
+        },
+        {
+          "name": "10.4 UPI Payment",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('UPI payment', () => {",
+                "    const p = pm.response.json().data;",
+                "    pm.expect(p.paymentMode).to.equal('upi');",
+                "    pm.expect(p.transactionId).to.be.a('string');",
+                "    pm.expect(p.upiId).to.equal('customer@paytm');",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"orderId\": {{orderId2}},\n  \"invoiceId\": {{invoiceId2}},\n  \"outletId\": {{outletId}},\n  \"paymentMode\": \"upi\",\n  \"amount\": {{grandTotal}},\n  \"transactionId\": \"UPI-TXN-12345\",\n  \"upiId\": \"customer@paytm\"\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/payment", "host": ["{{baseUrl}}"], "path": ["orders", "payment"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "11. Card Payment Flow",
+      "item": [
+        {
+          "name": "11.1 Card Payment",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Card payment', () => {",
+                "    const p = pm.response.json().data;",
+                "    pm.expect(p.paymentMode).to.equal('card');",
+                "    pm.expect(p.cardLastFour).to.equal('4242');",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"orderId\": {{orderId3}},\n  \"invoiceId\": {{invoiceId3}},\n  \"outletId\": {{outletId}},\n  \"paymentMode\": \"card\",\n  \"amount\": {{grandTotal}},\n  \"referenceNumber\": \"CARD-REF-789\",\n  \"cardLastFour\": \"4242\",\n  \"cardType\": \"visa\"\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/payment", "host": ["{{baseUrl}}"], "path": ["orders", "payment"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "12. Split Payment Flow",
+      "item": [
+        {
+          "name": "12.1 Split Payment (Cash + UPI)",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Split payment', () => {",
+                "    const p = pm.response.json().data;",
+                "    pm.expect(p.paymentMode).to.equal('split');",
+                "    pm.expect(p.splits).to.be.an('array');",
+                "    pm.expect(p.splits.length).to.equal(2);",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"orderId\": {{orderId}},\n  \"invoiceId\": {{invoiceId}},\n  \"outletId\": {{outletId}},\n  \"splits\": [\n    { \"paymentMode\": \"cash\", \"amount\": 200 },\n    { \"paymentMode\": \"upi\", \"amount\": 300, \"transactionId\": \"UPI-SPLIT-001\" }\n  ]\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/payment/split", "host": ["{{baseUrl}}"], "path": ["orders", "payment", "split"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "13. Payments by Order",
+      "item": [
+        {
+          "name": "13.1 Get Payments by Order",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Payments list', () => {",
+                "    const j = pm.response.json();",
+                "    pm.expect(j.success).to.be.true;",
+                "    pm.expect(j.data).to.be.an('array');",
+                "});",
+                "",
+                "pm.test('camelCase payment format', () => {",
+                "    const p = pm.response.json().data;",
+                "    if (p.length > 0) {",
+                "        pm.expect(p[0]).to.have.property('paymentMode');",
+                "        pm.expect(p[0]).to.have.property('paymentNumber');",
+                "    }",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/orders/{{orderId}}/payments", "host": ["{{baseUrl}}"], "path": ["orders", "{{orderId}}", "payments"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "14. Duplicate Bill",
+      "item": [
+        {
+          "name": "14.1 Print Duplicate Bill",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Duplicate printed', () => {",
+                "    const j = pm.response.json();",
+                "    pm.expect(j.success).to.be.true;",
+                "    pm.expect(j.data.isDuplicate).to.be.true;",
+                "    pm.expect(j.data.duplicateNumber).to.be.at.least(1);",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"reason\": \"Customer requested copy\"\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/invoice/{{invoiceId}}/duplicate", "host": ["{{baseUrl}}"], "path": ["orders", "invoice", "{{invoiceId}}", "duplicate"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "15. Cancel Invoice",
+      "item": [
+        {
+          "name": "15.1 Cancel Invoice",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Invoice cancelled', () => {",
+                "    const j = pm.response.json();",
+                "    pm.expect(j.success).to.be.true;",
+                "    pm.expect(j.message).to.equal('Invoice cancelled');",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"reason\": \"Customer changed mind\"\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/invoice/{{invoiceId}}/cancel", "host": ["{{baseUrl}}"], "path": ["orders", "invoice", "{{invoiceId}}", "cancel"] }
+          }
+        },
+        {
+          "name": "15.2 Cannot Cancel Paid Invoice (should fail)",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Paid cancel rejected', () => {",
+                "    pm.expect(pm.response.code).to.be.oneOf([400, 500]);",
+                "    pm.expect(pm.response.json().message).to.include('paid');",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"reason\": \"test\"\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/invoice/{{invoiceId}}/cancel", "host": ["{{baseUrl}}"], "path": ["orders", "invoice", "{{invoiceId}}", "cancel"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "16. Cash Drawer",
+      "item": [
+        {
+          "name": "16.1 Open Day Session",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"openingCash\": 5000\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/cash-drawer/{{outletId}}/open", "host": ["{{baseUrl}}"], "path": ["orders", "cash-drawer", "{{outletId}}", "open"] }
+          }
+        },
+        {
+          "name": "16.2 Cash Drawer Status",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Status loaded', () => {",
+                "    const j = pm.response.json();",
+                "    pm.expect(j.success).to.be.true;",
+                "    pm.expect(j.data).to.have.property('currentBalance');",
+                "    pm.expect(j.data).to.have.property('recentTransactions');",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/orders/cash-drawer/{{outletId}}/status", "host": ["{{baseUrl}}"], "path": ["orders", "cash-drawer", "{{outletId}}", "status"] }
+          }
+        },
+        {
+          "name": "16.3 Close Day Session",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"actualCash\": 5500,\n  \"notes\": \"End of day close\"\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/cash-drawer/{{outletId}}/close", "host": ["{{baseUrl}}"], "path": ["orders", "cash-drawer", "{{outletId}}", "close"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "17. Error Scenarios",
+      "item": [
+        {
+          "name": "17.1 Bill Non-Existent Order (should fail)",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [ "pm.test('Rejected', () => pm.expect(pm.response.code).to.be.oneOf([400, 500]));" ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": { "raw": "{{baseUrl}}/orders/999999/bill", "host": ["{{baseUrl}}"], "path": ["orders", "999999", "bill"] }
+          }
+        },
+        {
+          "name": "17.2 Get Invoice 404",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [ "pm.test('404', () => pm.expect(pm.response.code).to.equal(404));" ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/orders/invoice/999999", "host": ["{{baseUrl}}"], "path": ["orders", "invoice", "999999"] }
+          }
+        },
+        {
+          "name": "17.3 Double Pay Already Paid Order (should fail)",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [ "pm.test('Rejected', () => pm.expect(pm.response.code).to.be.oneOf([400, 500]));" ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"orderId\": {{orderId}},\n  \"invoiceId\": {{invoiceId}},\n  \"outletId\": {{outletId}},\n  \"paymentMode\": \"cash\",\n  \"amount\": 100\n}" },
+            "url": { "raw": "{{baseUrl}}/orders/payment", "host": ["{{baseUrl}}"], "path": ["orders", "payment"] }
+          }
+        }
+      ]
+    }
+  ]
+}

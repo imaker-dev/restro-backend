@@ -10,6 +10,8 @@ const { v4: uuidv4 } = require('uuid');
 const logger = require('../utils/logger');
 const orderService = require('./order.service');
 const tableService = require('./table.service');
+const billingService = require('./billing.service');
+const kotService = require('./kot.service');
 
 const PAYMENT_MODES = {
   CASH: 'cash',
@@ -28,6 +30,59 @@ const PAYMENT_STATUS = {
   REFUNDED: 'refunded',
   CANCELLED: 'cancelled'
 };
+
+// ========================
+// FORMAT HELPERS — clean camelCase output matching KOT details style
+// ========================
+
+function formatSplitEntry(split) {
+  if (!split) return null;
+  return {
+    id: split.id,
+    paymentId: split.payment_id,
+    paymentMode: split.payment_mode,
+    amount: parseFloat(split.amount) || 0,
+    transactionId: split.transaction_id || null,
+    referenceNumber: split.reference_number || null,
+    cardLastFour: split.card_last_four || null,
+    upiId: split.upi_id || null,
+    notes: split.notes || null,
+  };
+}
+
+function formatPayment(payment) {
+  if (!payment) return null;
+  return {
+    id: payment.id,
+    uuid: payment.uuid,
+    outletId: payment.outlet_id,
+    orderId: payment.order_id,
+    invoiceId: payment.invoice_id || null,
+    paymentNumber: payment.payment_number,
+    paymentMode: payment.payment_mode,
+    amount: parseFloat(payment.amount) || 0,
+    tipAmount: parseFloat(payment.tip_amount) || 0,
+    totalAmount: parseFloat(payment.total_amount) || 0,
+    status: payment.status,
+    transactionId: payment.transaction_id || null,
+    referenceNumber: payment.reference_number || null,
+    cardLastFour: payment.card_last_four || null,
+    cardType: payment.card_type || null,
+    upiId: payment.upi_id || null,
+    walletName: payment.wallet_name || null,
+    bankName: payment.bank_name || null,
+    notes: payment.notes || null,
+    receivedBy: payment.received_by || null,
+    receivedByName: payment.received_by_name || null,
+    refundAmount: parseFloat(payment.refund_amount) || 0,
+    refundedAt: payment.refunded_at || null,
+    refundReason: payment.refund_reason || null,
+    orderNumber: payment.order_number || null,
+    invoiceNumber: payment.invoice_number || null,
+    createdAt: payment.created_at || null,
+    splits: payment.splits ? payment.splits.map(formatSplitEntry) : undefined,
+  };
+}
 
 const paymentService = {
   PAYMENT_MODES,
@@ -63,30 +118,48 @@ const paymentService = {
     const pool = getPool();
     const connection = await pool.getConnection();
 
-    try {
-      await connection.beginTransaction();
+    // Variables needed after transaction for event publishing
+    let paymentId, outletId, orderId, invoiceId, orderStatus, paymentStatus;
+    let totalAmount, tableId, tableSessionId;
+    let order;
 
+    try {
       const {
-        outletId: requestOutletId, orderId, invoiceId,
+        outletId: requestOutletId, orderId: reqOrderId, invoiceId: reqInvoiceId,
         paymentMode, amount, tipAmount = 0,
         transactionId, referenceNumber,
         cardLastFour, cardType, upiId, walletName, bankName,
         notes, receivedBy
       } = data;
 
-      // Validate order/invoice
-      const order = await orderService.getById(orderId);
+      orderId = reqOrderId;
+      invoiceId = reqInvoiceId;
+
+      // Validate order/invoice BEFORE transaction to avoid REPEATABLE READ snapshot issues
+      order = await orderService.getById(orderId);
+      if (!order) {
+        // Fallback: read directly via connection before transaction
+        const [rows] = await connection.query(
+          `SELECT * FROM orders WHERE id = ?`,
+          [orderId]
+        );
+        order = rows[0] || null;
+      }
       if (!order) throw new Error('Order not found');
 
-      // Use request outletId or fallback to order's outlet_id
-      const outletId = requestOutletId || order.outlet_id;
-      if (!outletId) throw new Error('Outlet ID is required');
+      await connection.beginTransaction();
 
-      if (order.status === 'paid') {
+      // Use request outletId or fallback to order's outlet_id
+      outletId = requestOutletId || order.outlet_id;
+      if (!outletId) throw new Error('Outlet ID is required');
+      tableId = order.table_id;
+      tableSessionId = order.table_session_id;
+
+      if (order.status === 'paid' || order.status === 'completed') {
         throw new Error('Order already paid');
       }
 
-      const totalAmount = parseFloat(amount) + parseFloat(tipAmount);
+      totalAmount = parseFloat(amount) + parseFloat(tipAmount);
       const paymentNumber = await this.generatePaymentNumber(outletId);
       const uuid = uuidv4();
 
@@ -108,7 +181,7 @@ const paymentService = {
         ]
       );
 
-      const paymentId = result.insertId;
+      paymentId = Number(result.insertId);
 
       // Update order payment status
       const [totalPaid] = await connection.query(
@@ -118,15 +191,26 @@ const paymentService = {
       );
 
       const paidAmount = parseFloat(totalPaid[0].paid) || 0;
-      const orderTotal = parseFloat(order.total_amount);
+
+      // Use invoice grand_total if available, fallback to order total_amount
+      let orderTotal = parseFloat(order.total_amount) || 0;
+      if (invoiceId) {
+        const [invRow] = await connection.query(
+          'SELECT grand_total FROM invoices WHERE id = ? AND is_cancelled = 0',
+          [invoiceId]
+        );
+        if (invRow[0]) {
+          orderTotal = parseFloat(invRow[0].grand_total) || orderTotal;
+        }
+      }
       const dueAmount = orderTotal - paidAmount;
 
-      let paymentStatus = 'pending';
-      let orderStatus = order.status;
+      paymentStatus = 'pending';
+      orderStatus = order.status;
 
       if (dueAmount <= 0) {
         paymentStatus = 'completed';
-        orderStatus = 'paid';
+        orderStatus = 'completed';
       } else if (paidAmount > 0) {
         paymentStatus = 'partial';
       }
@@ -159,66 +243,140 @@ const paymentService = {
         });
       }
 
-      // Release table if fully paid - auto end session and make available
-      if (paymentStatus === 'completed' && order.table_id) {
+      // Release table if fully paid - auto end session, unmerge, and make available
+      if (paymentStatus === 'completed' && tableId) {
+        // Unmerge any merged tables and restore capacity
+        const [activeMerges] = await connection.query(
+          `SELECT tm.merged_table_id, t.capacity
+           FROM table_merges tm
+           JOIN tables t ON tm.merged_table_id = t.id
+           WHERE tm.primary_table_id = ? AND tm.unmerged_at IS NULL`,
+          [tableId]
+        );
+
+        if (activeMerges.length > 0) {
+          await connection.query(
+            'UPDATE table_merges SET unmerged_at = NOW(), unmerged_by = ? WHERE primary_table_id = ? AND unmerged_at IS NULL',
+            [data.receivedBy, tableId]
+          );
+          const mergedIds = activeMerges.map(m => m.merged_table_id);
+          await connection.query(
+            'UPDATE tables SET status = "available" WHERE id IN (?)',
+            [mergedIds]
+          );
+          const capacityToRemove = activeMerges.reduce((sum, m) => sum + (m.capacity || 0), 0);
+          if (capacityToRemove > 0) {
+            await connection.query(
+              'UPDATE tables SET capacity = GREATEST(1, capacity - ?) WHERE id = ?',
+              [capacityToRemove, tableId]
+            );
+          }
+        }
+
         await connection.query(
           `UPDATE tables SET status = 'available' WHERE id = ?`,
-          [order.table_id]
+          [tableId]
         );
         
-        if (order.table_session_id) {
+        if (tableSessionId) {
           await connection.query(
             `UPDATE table_sessions SET 
               status = 'completed', ended_at = NOW()
              WHERE id = ?`,
-            [order.table_session_id]
+            [tableSessionId]
           );
         }
       }
 
-      await connection.commit();
-
-      const payment = await this.getPaymentById(paymentId);
-
-      // Emit realtime event
-      await publishMessage('order:update', {
-        type: 'order:payment_received',
-        outletId,
-        orderId,
-        payment,
-        orderStatus,
-        timestamp: new Date().toISOString()
-      });
-
-      // Emit bill status for Captain real-time tracking
-      await publishMessage('bill:status', {
-        outletId,
-        orderId,
-        tableId: order.table_id,
-        invoiceId,
-        billStatus: paymentStatus === 'completed' ? 'paid' : 'partial',
-        amountPaid: totalAmount,
-        timestamp: new Date().toISOString()
-      });
-
-      // Emit table update if released - table now available
-      if (paymentStatus === 'completed' && order.table_id) {
-        await publishMessage('table:update', {
-          outletId,
-          tableId: order.table_id,
-          status: 'available',
-          event: 'session_ended',
-          timestamp: new Date().toISOString()
-        });
+      // Mark all KOTs and order items as served on full payment
+      if (paymentStatus === 'completed') {
+        await connection.query(
+          `UPDATE kot_tickets SET status = 'served', served_at = NOW(), served_by = ?
+           WHERE order_id = ? AND status NOT IN ('served', 'cancelled')`,
+          [data.receivedBy, orderId]
+        );
+        await connection.query(
+          `UPDATE kot_items SET status = 'served'
+           WHERE kot_id IN (SELECT id FROM kot_tickets WHERE order_id = ?)
+             AND status != 'cancelled'`,
+          [orderId]
+        );
+        await connection.query(
+          `UPDATE order_items SET status = 'served'
+           WHERE order_id = ? AND status NOT IN ('served', 'cancelled')`,
+          [orderId]
+        );
       }
 
-      return payment;
+      await connection.commit();
     } catch (error) {
       await connection.rollback();
       throw error;
     } finally {
       connection.release();
     }
+
+    // Fetch payment and publish events AFTER connection is released
+    const payment = await this.getPaymentById(paymentId);
+
+    // Emit realtime event
+    await publishMessage('order:update', {
+      type: 'order:payment_received',
+      outletId,
+      orderId,
+      tableId,
+      captainId: order.created_by,
+      payment,
+      orderStatus,
+      paymentStatus,
+      timestamp: new Date().toISOString()
+    });
+
+    // Emit bill status for Captain real-time tracking
+    await publishMessage('bill:status', {
+      outletId,
+      orderId,
+      tableId,
+      tableNumber: order.table_number,
+      captainId: order.created_by,
+      invoiceId,
+      billStatus: paymentStatus === 'completed' ? 'paid' : 'partial',
+      amountPaid: totalAmount,
+      timestamp: new Date().toISOString()
+    });
+
+    // Emit table update if released - table now available
+    if (paymentStatus === 'completed' && tableId) {
+      await publishMessage('table:update', {
+        outletId,
+        tableId,
+        floorId: order.floor_id,
+        status: 'available',
+        event: 'session_ended',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Emit KOT served events for real-time kitchen display
+    if (paymentStatus === 'completed') {
+      try {
+        const kots = await kotService.getKotsByOrder(orderId);
+        for (const kot of kots) {
+          await publishMessage('kot:update', {
+            type: 'kot:served',
+            outletId,
+            station: kot.station,
+            kot,
+            timestamp: new Date().toISOString()
+          });
+        }
+      } catch (err) {
+        logger.error('Failed to emit KOT served events:', err.message);
+      }
+    }
+
+    // Build detailed response for all scenarios
+    return this.buildPaymentResponse(payment, orderId, invoiceId, orderStatus, paymentStatus, tableId);
   },
 
   /**
@@ -250,7 +408,7 @@ const paymentService = {
         [uuid, outletId, orderId, invoiceId, paymentNumber, totalAmount, totalAmount, receivedBy]
       );
 
-      const paymentId = mainResult.insertId;
+      const paymentId = Number(mainResult.insertId);
 
       // Create split payment records
       for (const split of splits) {
@@ -283,7 +441,7 @@ const paymentService = {
       // Update order status
       await connection.query(
         `UPDATE orders SET 
-          paid_amount = ?, due_amount = 0, payment_status = 'completed', status = 'paid'
+          paid_amount = ?, due_amount = 0, payment_status = 'completed', status = 'completed'
          WHERE id = ?`,
         [totalAmount, orderId]
       );
@@ -295,8 +453,36 @@ const paymentService = {
         );
       }
 
-      // Release table - set to available and end session
+      // Release table - unmerge, restore capacity, end session, set available
       if (order.table_id) {
+        // Unmerge any merged tables and restore capacity
+        const [activeMerges] = await connection.query(
+          `SELECT tm.merged_table_id, t.capacity
+           FROM table_merges tm
+           JOIN tables t ON tm.merged_table_id = t.id
+           WHERE tm.primary_table_id = ? AND tm.unmerged_at IS NULL`,
+          [order.table_id]
+        );
+
+        if (activeMerges.length > 0) {
+          await connection.query(
+            'UPDATE table_merges SET unmerged_at = NOW(), unmerged_by = ? WHERE primary_table_id = ? AND unmerged_at IS NULL',
+            [receivedBy, order.table_id]
+          );
+          const mergedIds = activeMerges.map(m => m.merged_table_id);
+          await connection.query(
+            'UPDATE tables SET status = "available" WHERE id IN (?)',
+            [mergedIds]
+          );
+          const capacityToRemove = activeMerges.reduce((sum, m) => sum + (m.capacity || 0), 0);
+          if (capacityToRemove > 0) {
+            await connection.query(
+              'UPDATE tables SET capacity = GREATEST(1, capacity - ?) WHERE id = ?',
+              [capacityToRemove, order.table_id]
+            );
+          }
+        }
+
         await connection.query(
           `UPDATE tables SET status = 'available' WHERE id = ?`,
           [order.table_id]
@@ -312,6 +498,24 @@ const paymentService = {
         }
       }
 
+      // Mark all KOTs and order items as served
+      await connection.query(
+        `UPDATE kot_tickets SET status = 'served', served_at = NOW(), served_by = ?
+         WHERE order_id = ? AND status NOT IN ('served', 'cancelled')`,
+        [receivedBy, orderId]
+      );
+      await connection.query(
+        `UPDATE kot_items SET status = 'served'
+         WHERE kot_id IN (SELECT id FROM kot_tickets WHERE order_id = ?)
+           AND status != 'cancelled'`,
+        [orderId]
+      );
+      await connection.query(
+        `UPDATE order_items SET status = 'served'
+         WHERE order_id = ? AND status NOT IN ('served', 'cancelled')`,
+        [orderId]
+      );
+
       await connection.commit();
 
       const payment = await this.getPaymentById(paymentId);
@@ -321,17 +525,132 @@ const paymentService = {
         outletId,
         orderId,
         payment,
-        orderStatus: 'paid',
+        orderStatus: 'completed',
         timestamp: new Date().toISOString()
       });
 
-      return payment;
+      // Emit table update
+      if (order.table_id) {
+        await publishMessage('table:update', {
+          outletId,
+          tableId: order.table_id,
+          floorId: order.floor_id,
+          status: 'available',
+          event: 'session_ended',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      // Emit KOT served events
+      try {
+        const kots = await kotService.getKotsByOrder(orderId);
+        for (const kot of kots) {
+          await publishMessage('kot:update', {
+            type: 'kot:served',
+            outletId,
+            station: kot.station,
+            kot,
+            timestamp: new Date().toISOString()
+          });
+        }
+      } catch (err) {
+        logger.error('Failed to emit KOT served events:', err.message);
+      }
+
+      return this.buildPaymentResponse(payment, orderId, invoiceId, 'completed', 'completed', order.table_id);
     } catch (error) {
       await connection.rollback();
       throw error;
     } finally {
       connection.release();
     }
+  },
+
+  // ========================
+  // RESPONSE BUILDER
+  // ========================
+
+  async buildPaymentResponse(payment, orderId, invoiceId, orderStatus, paymentStatus, tableId) {
+    const pool = getPool();
+
+    // Fetch updated order
+    const updatedOrder = await orderService.getOrderWithItems(orderId);
+
+    // Fetch invoice (always, not just on complete)
+    let invoice = null;
+    if (invoiceId) {
+      try {
+        invoice = await billingService.getInvoiceById(invoiceId);
+      } catch (err) {
+        logger.error('Failed to fetch invoice:', err.message);
+      }
+    }
+    // Fallback: find invoice by order if not passed
+    if (!invoice) {
+      try {
+        const [invRows] = await pool.query(
+          'SELECT id FROM invoices WHERE order_id = ? AND is_cancelled = 0 LIMIT 1',
+          [orderId]
+        );
+        if (invRows[0]) invoice = await billingService.getInvoiceById(invRows[0].id);
+      } catch (err) { /* ignore */ }
+    }
+
+    // Fetch all payments for this order
+    const allPayments = await this.getPaymentsByOrder(orderId);
+    const totalPaid = allPayments.reduce((s, p) => s + p.totalAmount, 0);
+    const orderTotal = invoice ? invoice.grandTotal : (parseFloat(updatedOrder?.total_amount) || 0);
+    const dueAmount = Math.max(0, orderTotal - totalPaid);
+
+    // Table info
+    let tableInfo = null;
+    if (tableId) {
+      try {
+        const [tbl] = await pool.query(
+          'SELECT id, table_number, name, status FROM tables WHERE id = ?',
+          [tableId]
+        );
+        if (tbl[0]) {
+          tableInfo = {
+            id: tbl[0].id,
+            tableNumber: tbl[0].table_number,
+            name: tbl[0].name,
+            status: tbl[0].status
+          };
+        }
+      } catch (err) { /* ignore */ }
+    }
+
+    return {
+      payment,
+      invoice,
+      order: updatedOrder ? {
+        id: updatedOrder.id,
+        orderNumber: updatedOrder.order_number,
+        orderType: updatedOrder.order_type,
+        status: orderStatus,
+        itemCount: updatedOrder.items?.filter(i => i.status !== 'cancelled').length || 0,
+        subtotal: parseFloat(updatedOrder.subtotal) || 0,
+        discountAmount: parseFloat(updatedOrder.discount_amount) || 0,
+        taxAmount: parseFloat(updatedOrder.tax_amount) || 0,
+        totalAmount: orderTotal,
+        tableName: updatedOrder.table_name || null,
+        tableNumber: updatedOrder.table_number || null,
+        floorName: updatedOrder.floor_name || null,
+        createdByName: updatedOrder.created_by_name || null
+      } : null,
+      paymentSummary: {
+        orderTotal,
+        totalPaid: parseFloat(totalPaid.toFixed(2)),
+        dueAmount: parseFloat(dueAmount.toFixed(2)),
+        paymentStatus,
+        paymentCount: allPayments.length,
+        payments: allPayments
+      },
+      table: tableInfo,
+      orderStatus,
+      paymentStatus
+    };
   },
 
   // ========================
@@ -364,7 +683,7 @@ const paymentService = {
       payment.splits = splits;
     }
 
-    return payment;
+    return formatPayment(payment);
   },
 
   async getPaymentsByOrder(orderId) {
@@ -373,7 +692,7 @@ const paymentService = {
       'SELECT * FROM payments WHERE order_id = ? ORDER BY created_at',
       [orderId]
     );
-    return payments;
+    return payments.map(formatPayment);
   },
 
   // ========================
@@ -477,8 +796,8 @@ const paymentService = {
        WHERE outlet_id = ? ORDER BY id DESC LIMIT 1`,
       [outletId]
     );
-    const balanceBefore = lastTx[0]?.balance_after || 0;
-    const balanceAfter = balanceBefore + amount;
+    const balanceBefore = parseFloat(lastTx[0]?.balance_after) || 0;
+    const balanceAfter = balanceBefore + parseFloat(amount);
 
     await connection.query(
       `INSERT INTO cash_drawer (
@@ -494,22 +813,35 @@ const paymentService = {
     const pool = getPool();
     const today = new Date().toISOString().slice(0, 10);
 
-    // Check if session exists
+    // Check if a session exists for today
     const [existing] = await pool.query(
       'SELECT * FROM day_sessions WHERE outlet_id = ? AND session_date = ?',
       [outletId, today]
     );
 
-    if (existing[0]) {
+    if (existing[0] && existing[0].status === 'open') {
       throw new Error('Day session already open');
     }
 
-    await pool.query(
-      `INSERT INTO day_sessions (
-        outlet_id, session_date, opening_time, opening_cash, status, opened_by
-      ) VALUES (?, ?, NOW(), ?, 'open', ?)`,
-      [outletId, today, openingCash, userId]
-    );
+    if (existing[0] && existing[0].status === 'closed') {
+      // Reopen: update existing closed session back to open
+      await pool.query(
+        `UPDATE day_sessions SET 
+          opening_time = NOW(), opening_cash = ?, closing_time = NULL, closing_cash = 0,
+          expected_cash = 0, cash_variance = 0, total_sales = 0, total_orders = 0,
+          status = 'open', opened_by = ?, closed_by = NULL, variance_notes = NULL
+         WHERE id = ?`,
+        [openingCash, userId, existing[0].id]
+      );
+    } else {
+      // First open of the day — insert new row
+      await pool.query(
+        `INSERT INTO day_sessions (
+          outlet_id, session_date, opening_time, opening_cash, status, opened_by
+        ) VALUES (?, ?, NOW(), ?, 'open', ?)`,
+        [outletId, today, openingCash, userId]
+      );
+    }
 
     await pool.query(
       `INSERT INTO cash_drawer (

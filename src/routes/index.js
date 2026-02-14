@@ -20,6 +20,7 @@ router.use('/menu', require('./menu.routes'));
 router.use('/tax', require('./tax.routes'));
 router.use('/orders', require('./order.routes'));
 router.use('/printers', require('./printer.routes'));
+router.use('/upload', require('./upload.routes'));
 
 // Future routes (uncomment as modules are developed)
 // router.use('/categories', require('./category.routes'));

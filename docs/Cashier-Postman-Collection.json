@@ -1,0 +1,623 @@
+{
+  "info": {
+    "name": "Cashier Module — POS API",
+    "description": "Complete Cashier workflow APIs for Restaurant POS. Cashier = Captain superset + Billing + Payments + Cash Drawer + Reports.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000/api/v1" },
+    { "key": "token", "value": "" },
+    { "key": "outletId", "value": "4" },
+    { "key": "tableId", "value": "" },
+    { "key": "orderId", "value": "" },
+    { "key": "invoiceId", "value": "" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "1. Authentication",
+      "item": [
+        {
+          "name": "Login (Cashier)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.data && res.data.accessToken) {",
+                  "  pm.collectionVariables.set('token', res.data.accessToken);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"cashier@restropos.com\",\n  \"password\": \"cashier123\"\n}"
+            },
+            "description": "Login as cashier. Saves token to collection variable."
+          }
+        },
+        {
+          "name": "PIN Login (Quick)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.data && res.data.accessToken) {",
+                  "  pm.collectionVariables.set('token', res.data.accessToken);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/pin-login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pin\": \"1234\",\n  \"outletId\": {{outletId}}\n}"
+            },
+            "description": "Quick PIN login at outlet terminal."
+          }
+        },
+        {
+          "name": "Get Current User & Permissions",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/auth/me",
+            "description": "Verify cashier's roles and permissions."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Day Opening — Cash Drawer",
+      "item": [
+        {
+          "name": "Open Cash Drawer",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/orders/cash-drawer/{{outletId}}/open",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"openingCash\": 5000\n}"
+            },
+            "description": "Start day session with opening cash amount. Creates day_sessions + initial cash_drawer entry."
+          }
+        },
+        {
+          "name": "Get Cash Drawer Status",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/orders/cash-drawer/{{outletId}}/status",
+            "description": "Get current session status, balance, and recent transactions."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Tables",
+      "item": [
+        {
+          "name": "Get All Tables (Realtime)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/tables/realtime/{{outletId}}",
+            "description": "Get realtime status of all tables in outlet."
+          }
+        },
+        {
+          "name": "Get Tables by Floor",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/tables/floor/1",
+            "description": "Get tables for a specific floor with realtime data."
+          }
+        },
+        {
+          "name": "Get Table Details",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.data && res.data.order) {",
+                  "  pm.collectionVariables.set('orderId', res.data.order.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/tables/{{tableId}}",
+            "description": "Full table detail: order, items with menu pricing, charges breakdown (tax/service/roundoff), KOTs, timeline."
+          }
+        },
+        {
+          "name": "Start Table Session",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/tables/{{tableId}}/session",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"guestCount\": 4,\n  \"guestName\": \"Walk-in\"\n}"
+            },
+            "description": "Occupy table and start session."
+          }
+        },
+        {
+          "name": "End Table Session",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/tables/{{tableId}}/session",
+            "description": "Release table after payment."
+          }
+        },
+        {
+          "name": "Merge Tables",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/tables/{{tableId}}/merge",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mergeTableIds\": [5, 6]\n}"
+            },
+            "description": "Merge secondary tables into primary table."
+          }
+        },
+        {
+          "name": "Unmerge Tables",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/tables/{{tableId}}/merge",
+            "description": "Unmerge all secondary tables."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Orders",
+      "item": [
+        {
+          "name": "Create Order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.data && res.data.id) {",
+                  "  pm.collectionVariables.set('orderId', res.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tableId\": {{tableId}},\n  \"orderType\": \"dine_in\",\n  \"guestCount\": 4\n}"
+            },
+            "description": "Create new order for table."
+          }
+        },
+        {
+          "name": "Add Items to Order",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/orders/{{orderId}}/items",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    { \"itemId\": 1, \"quantity\": 2, \"addons\": [] },\n    { \"itemId\": 5, \"variantId\": 2, \"quantity\": 1, \"addons\": [10], \"specialInstructions\": \"Extra spicy\" }\n  ]\n}"
+            },
+            "description": "Add items to order. Price rules applied server-side."
+          }
+        },
+        {
+          "name": "Get Active Orders",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/orders/active/{{outletId}}",
+            "description": "Get all active (non-paid, non-cancelled) orders for outlet."
+          }
+        },
+        {
+          "name": "Get Order Detail",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/orders/{{orderId}}",
+            "description": "Get order with all items."
+          }
+        },
+        {
+          "name": "Cancel Item",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/orders/items/999/cancel",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Customer changed mind\",\n  \"reasonId\": 1\n}"
+            },
+            "description": "Cancel a single order item. Replace 999 with actual itemId."
+          }
+        },
+        {
+          "name": "Cancel Order",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/orders/{{orderId}}/cancel",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Customer left\",\n  \"reasonId\": 2\n}"
+            },
+            "description": "Cancel entire order. Cancels all KOTs, prints cancel slips."
+          }
+        },
+        {
+          "name": "Transfer Order to Table",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/orders/{{orderId}}/transfer",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"toTableId\": 10\n}"
+            },
+            "description": "Transfer order from current table to another."
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. KOT",
+      "item": [
+        {
+          "name": "Send KOT",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/orders/{{orderId}}/kot",
+            "description": "Send pending items as KOT to kitchen/bar. Auto-routes by station."
+          }
+        },
+        {
+          "name": "Get Active KOTs",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/orders/kot/active?includeStats=true",
+            "description": "Get all active KOTs for cashier's outlet. Auto-detects outlet from token."
+          }
+        },
+        {
+          "name": "Get KOTs for Order",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/orders/{{orderId}}/kots",
+            "description": "Get all KOT tickets for a specific order."
+          }
+        },
+        {
+          "name": "Mark KOT Served",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/orders/kot/999/served",
+            "description": "Mark KOT as served. Replace 999 with KOT ID."
+          }
+        },
+        {
+          "name": "Reprint KOT",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/orders/kot/999/reprint",
+            "description": "Reprint KOT to kitchen printer. Replace 999 with KOT ID."
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Billing",
+      "item": [
+        {
+          "name": "Generate Bill",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.data && res.data.id) {",
+                  "  pm.collectionVariables.set('invoiceId', res.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/orders/{{orderId}}/bill",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerName\": \"Rahul Sharma\",\n  \"customerPhone\": \"9876543210\",\n  \"customerGstin\": null,\n  \"applyServiceCharge\": true\n}"
+            },
+            "description": "Generate invoice. Idempotent — returns existing if already generated. Auto-prints to cashier printer."
+          }
+        },
+        {
+          "name": "Get Invoice by Order",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/orders/{{orderId}}/invoice",
+            "description": "Get invoice for order. Contains full tax breakup, GST/VAT split, amount in words."
+          }
+        },
+        {
+          "name": "Get Invoice by ID",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/orders/invoice/{{invoiceId}}",
+            "description": "Get invoice by its ID."
+          }
+        },
+        {
+          "name": "Print Duplicate Bill",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/orders/invoice/{{invoiceId}}/duplicate",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Customer requested copy\"\n}"
+            },
+            "description": "Print duplicate bill. Marked as 'DUPLICATE' on printout."
+          }
+        },
+        {
+          "name": "Apply Discount",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/orders/{{orderId}}/discount",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"discountType\": \"percentage\",\n  \"discountValue\": 10,\n  \"reason\": \"Regular customer\",\n  \"couponCode\": null\n}"
+            },
+            "description": "Apply discount before billing. Types: percentage, fixed, coupon."
+          }
+        },
+        {
+          "name": "Split Bill",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/orders/{{orderId}}/split-bill",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"splits\": [\n    { \"itemIds\": [1, 2] },\n    { \"itemIds\": [3, 4] }\n  ]\n}"
+            },
+            "description": "Split order into multiple invoices by item groups."
+          }
+        },
+        {
+          "name": "Cancel Invoice",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/orders/invoice/{{invoiceId}}/cancel",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Billing error — regenerating\"\n}"
+            },
+            "description": "Cancel invoice. Requires BILL_CANCEL permission."
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Payments",
+      "item": [
+        {
+          "name": "Process Payment — Cash",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/orders/payment",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": {{orderId}},\n  \"invoiceId\": {{invoiceId}},\n  \"paymentMode\": \"cash\",\n  \"amount\": 1750,\n  \"tipAmount\": 50\n}"
+            },
+            "description": "Collect cash payment. Records in cash_drawer. Releases table."
+          }
+        },
+        {
+          "name": "Process Payment — Card",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/orders/payment",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": {{orderId}},\n  \"invoiceId\": {{invoiceId}},\n  \"paymentMode\": \"card\",\n  \"amount\": 1750,\n  \"tipAmount\": 0,\n  \"cardLastFour\": \"4242\",\n  \"cardType\": \"visa\",\n  \"transactionId\": \"TXN123456\"\n}"
+            },
+            "description": "Collect card payment with transaction reference."
+          }
+        },
+        {
+          "name": "Process Payment — UPI",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/orders/payment",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": {{orderId}},\n  \"invoiceId\": {{invoiceId}},\n  \"paymentMode\": \"upi\",\n  \"amount\": 1750,\n  \"upiId\": \"customer@upi\",\n  \"referenceNumber\": \"UPI123456\"\n}"
+            },
+            "description": "Collect UPI payment."
+          }
+        },
+        {
+          "name": "Process Split Payment",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/orders/payment/split",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": {{orderId}},\n  \"invoiceId\": {{invoiceId}},\n  \"splits\": [\n    { \"paymentMode\": \"cash\", \"amount\": 1000 },\n    { \"paymentMode\": \"upi\", \"amount\": 750, \"upiId\": \"friend@upi\", \"referenceNumber\": \"UPI789\" }\n  ]\n}"
+            },
+            "description": "Split payment across multiple modes. Cash portion tracked in cash_drawer."
+          }
+        },
+        {
+          "name": "Get Payments for Order",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/orders/{{orderId}}/payments",
+            "description": "List all payments made for an order."
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Day Closing — Cash Drawer",
+      "item": [
+        {
+          "name": "Get Cash Drawer Status (Before Closing)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/orders/cash-drawer/{{outletId}}/status",
+            "description": "Check expected cash, current balance, and transactions before closing."
+          }
+        },
+        {
+          "name": "Close Cash Drawer",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/orders/cash-drawer/{{outletId}}/close",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actualCash\": 28500,\n  \"notes\": \"All accounted\"\n}"
+            },
+            "description": "Close day session. Calculates expected vs actual cash, reports variance."
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Reports",
+      "item": [
+        {
+          "name": "Live Dashboard",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/orders/reports/{{outletId}}/dashboard",
+            "description": "Today's live stats: orders, sales, active tables, pending KOTs, payment breakdown."
+          }
+        },
+        {
+          "name": "Daily Sales Report",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/orders/reports/{{outletId}}/daily-sales?startDate=2026-02-01&endDate=2026-02-09",
+            "description": "Daily sales summary with order count, net sales, discounts, tax, service charge."
+          }
+        },
+        {
+          "name": "Item Sales Report",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/orders/reports/{{outletId}}/item-sales?startDate=2026-02-01&endDate=2026-02-09&limit=20",
+            "description": "Top selling items by quantity and revenue."
+          }
+        },
+        {
+          "name": "Category Sales Report",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/orders/reports/{{outletId}}/category-sales?startDate=2026-02-01&endDate=2026-02-09",
+            "description": "Category-wise revenue breakdown with contribution %."
+          }
+        },
+        {
+          "name": "Payment Mode Report",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/orders/reports/{{outletId}}/payment-modes?startDate=2026-02-01&endDate=2026-02-09",
+            "description": "Payment mode breakdown: cash/card/UPI/wallet with % share."
+          }
+        },
+        {
+          "name": "Tax Report (GST/VAT)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/orders/reports/{{outletId}}/tax?startDate=2026-02-01&endDate=2026-02-09",
+            "description": "Date-wise CGST, SGST, VAT, IGST breakdown from invoices."
+          }
+        },
+        {
+          "name": "Hourly Sales Report",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/orders/reports/{{outletId}}/hourly?date=2026-02-09",
+            "description": "Hour-by-hour order count, guest count, and sales for a specific date."
+          }
+        },
+        {
+          "name": "Floor/Section Report",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/orders/reports/{{outletId}}/floor-section?startDate=2026-02-01&endDate=2026-02-09",
+            "description": "Sales by floor and section with average order value."
+          }
+        },
+        {
+          "name": "Counter Report (Kitchen vs Bar)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/orders/reports/{{outletId}}/counter?startDate=2026-02-01&endDate=2026-02-09",
+            "description": "Station-wise ticket count, item count, and average prep time."
+          }
+        },
+        {
+          "name": "Cancellation Report",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/orders/reports/{{outletId}}/cancellations?startDate=2026-02-01&endDate=2026-02-09",
+            "description": "Cancellation reasons, counts, and who cancelled."
+          }
+        },
+        {
+          "name": "Staff Performance Report",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/orders/reports/{{outletId}}/staff?startDate=2026-02-01&endDate=2026-02-09",
+            "description": "Staff-wise orders, sales, discounts, tips, cancellations."
+          }
+        }
+      ]
+    }
+  ]
+}

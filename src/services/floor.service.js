@@ -11,7 +11,29 @@ const floorService = {
    */
   async create(data, userId) {
     const pool = getPool();
-    
+
+    // Validate outlet exists
+    const [outlets] = await pool.query(
+      'SELECT id FROM outlets WHERE id = ? AND is_active = 1',
+      [data.outletId]
+    );
+    if (outlets.length === 0) {
+      const error = new Error('Outlet not found');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Check duplicate floor name in same outlet
+    const [existing] = await pool.query(
+      'SELECT id FROM floors WHERE outlet_id = ? AND LOWER(name) = LOWER(?) AND is_active = 1',
+      [data.outletId, data.name]
+    );
+    if (existing.length > 0) {
+      const error = new Error('A floor with this name already exists in this outlet');
+      error.statusCode = 409;
+      throw error;
+    }
+
     const [result] = await pool.query(
       `INSERT INTO floors (outlet_id, name, code, description, floor_number, display_order, is_active)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -32,17 +54,34 @@ const floorService = {
 
   /**
    * Get all floors for an outlet
+   * When userId is provided, filters to only assigned floors (if user has any assignments).
+   * Users with no floor assignments (admin/manager or unrestricted staff) see all floors.
    */
-  async getByOutlet(outletId, includeInactive = false) {
+  async getByOutlet(outletId, includeInactive = false, userId = null) {
     const pool = getPool();
-    
+    const params = [outletId];
+
+    // Check if user has floor restrictions
+    let floorRestriction = '';
+    if (userId) {
+      const [userFloors] = await pool.query(
+        'SELECT floor_id FROM user_floors WHERE user_id = ? AND outlet_id = ? AND is_active = 1',
+        [userId, outletId]
+      );
+      if (userFloors.length > 0) {
+        const floorIds = userFloors.map(uf => uf.floor_id);
+        floorRestriction = ` AND f.id IN (${floorIds.map(() => '?').join(',')})`;
+        params.push(...floorIds);
+      }
+    }
+
     let query = `
       SELECT f.*, 
         (SELECT COUNT(*) FROM tables t WHERE t.floor_id = f.id AND t.is_active = 1) as table_count,
         (SELECT COUNT(*) FROM tables t WHERE t.floor_id = f.id AND t.is_active = 1 AND t.status = 'available') as available_count,
         (SELECT COUNT(*) FROM tables t WHERE t.floor_id = f.id AND t.is_active = 1 AND t.status = 'occupied') as occupied_count
       FROM floors f
-      WHERE f.outlet_id = ?
+      WHERE f.outlet_id = ?${floorRestriction}
     `;
 
     if (!includeInactive) {
@@ -51,7 +90,7 @@ const floorService = {
 
     query += ' ORDER BY f.display_order, f.floor_number, f.name';
 
-    const [floors] = await pool.query(query, [outletId]);
+    const [floors] = await pool.query(query, params);
     return floors;
   },
 

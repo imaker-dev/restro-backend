@@ -119,6 +119,38 @@ const sanitizeInput = (str) => {
   return str.replace(/[<>]/g, '').trim();
 };
 
+const appConfig = require('../config/app.config');
+
+/**
+ * Prefix APP_URL to a relative image path.
+ * Returns full URL if path is relative (e.g. "uploads/images/xxx.jpg").
+ * Returns as-is if already absolute URL, null, or empty.
+ */
+const prefixImageUrl = (path) => {
+  if (!path || typeof path !== 'string') return null;
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  const base = (appConfig.url || 'http://localhost:3000').replace(/\/+$/, '');
+  const clean = path.replace(/^\/+/, '');
+  return `${base}/${clean}`;
+};
+
+/**
+ * Get floor IDs a user is restricted to for a given outlet.
+ * Returns empty array when the user has NO floor assignments (no restriction — sees all floors).
+ * Works for ANY role (captain, cashier, manager, etc.) — role-agnostic.
+ * Requires getPool from database module – caller must pass it or we lazy-require.
+ */
+const getUserFloorIds = async (userId, outletId) => {
+  if (!userId || !outletId) return [];
+  const { getPool } = require('../database');
+  const pool = getPool();
+  const [rows] = await pool.query(
+    'SELECT floor_id FROM user_floors WHERE user_id = ? AND outlet_id = ? AND is_active = 1',
+    [userId, outletId]
+  );
+  return rows.map(r => r.floor_id);
+};
+
 module.exports = {
   generateUUID,
   generateCode,
@@ -138,4 +170,6 @@ module.exports = {
   retry,
   parseBoolean,
   sanitizeInput,
+  prefixImageUrl,
+  getUserFloorIds,
 };

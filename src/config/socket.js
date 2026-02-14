@@ -108,7 +108,7 @@ const setupRedisPubSub = () => {
     io.to(`cashier:${data.outletId}`).emit('order:updated', data);
   });
 
-  // KOT updates - route to specific station
+  // KOT updates - route to kitchen, captain, and cashier
   pubsub.subscribe('kot:update', (data) => {
     // Send to general kitchen room
     io.to(`kitchen:${data.outletId}`).emit('kot:updated', data);
@@ -123,14 +123,13 @@ const setupRedisPubSub = () => {
       }
     }
     
-    // Notify captain when item is ready
+    // Send ALL KOT status updates to captain and cashier for real-time tracking
+    io.to(`captain:${data.outletId}`).emit('kot:updated', data);
+    io.to(`cashier:${data.outletId}`).emit('kot:updated', data);
+
+    // Keep backward-compatible item:ready event for captain
     if (data.type === 'kot:item_ready' || data.type === 'kot:ready') {
       io.to(`captain:${data.outletId}`).emit('item:ready', data);
-    }
-
-    // Notify captain when KOT or item is cancelled (so captain app updates in real-time)
-    if (data.type === 'kot:cancelled' || data.type === 'kot:item_cancelled') {
-      io.to(`captain:${data.outletId}`).emit('kot:updated', data);
     }
   });
 

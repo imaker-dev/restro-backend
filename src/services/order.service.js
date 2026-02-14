@@ -11,6 +11,7 @@ const logger = require('../utils/logger');
 const tableService = require('./table.service');
 const menuEngineService = require('./menuEngine.service');
 const taxService = require('./tax.service');
+const { prefixImageUrl } = require('../utils/helpers');
 
 // Order status flow
 const ORDER_STATUS = {
@@ -69,9 +70,9 @@ const orderService = {
        WHERE ur.user_id = ? AND ur.is_active = 1`,
       [userId]
     );
-    const isAdminOrManager = userRoles.some(r => ['admin', 'manager', 'super_admin'].includes(r.role_name));
+    const isPrivileged = userRoles.some(r => ['admin', 'manager', 'super_admin', 'cashier'].includes(r.role_name));
     
-    if (isAdminOrManager) return true;
+    if (isPrivileged) return true;
     
     // Check if user is session owner (convert to numbers for comparison)
     const sessionOwnerId = parseInt(order[0].started_by, 10);
@@ -91,19 +92,21 @@ const orderService = {
   /**
    * Generate unique order number
    */
-  async generateOrderNumber(outletId) {
-    const pool = getPool();
+  async generateOrderNumber(outletId, connection = null) {
+    const db = connection || getPool();
     const today = new Date();
     const datePrefix = today.toISOString().slice(2, 10).replace(/-/g, '');
+    const prefix = `ORD${datePrefix}`;
     
-    const [result] = await pool.query(
-      `SELECT COUNT(*) + 1 as seq FROM orders 
-       WHERE outlet_id = ? AND DATE(created_at) = CURDATE()`,
-      [outletId]
+    const [result] = await db.query(
+      `SELECT MAX(CAST(SUBSTRING(order_number, ?) AS UNSIGNED)) as max_seq
+       FROM orders 
+       WHERE outlet_id = ? AND order_number LIKE CONCAT(?, '%')`,
+      [prefix.length + 1, outletId, prefix]
     );
     
-    const seq = String(result[0].seq).padStart(4, '0');
-    return `ORD${datePrefix}${seq}`;
+    const seq = String((result[0].max_seq || 0) + 1).padStart(4, '0');
+    return `${prefix}${seq}`;
   },
 
   /**
@@ -122,8 +125,8 @@ const orderService = {
         specialInstructions, createdBy
       } = data;
 
-      // Generate order number
-      const orderNumber = await this.generateOrderNumber(outletId);
+      // Generate order number within the transaction to prevent race conditions
+      const orderNumber = await this.generateOrderNumber(outletId, connection);
       const uuid = uuidv4();
 
       // Get or create table session
@@ -145,13 +148,13 @@ const orderService = {
              WHERE ur.user_id = ? AND ur.is_active = 1`,
             [createdBy]
           );
-          const isAdminOrManager = userRoles.some(r => ['admin', 'manager', 'super_admin'].includes(r.role_name));
+          const isPrivileged = userRoles.some(r => ['admin', 'manager', 'super_admin', 'cashier'].includes(r.role_name));
           
           // Convert to numbers for comparison (handle type mismatch)
           const sessionOwnerId = parseInt(existingSession.started_by, 10);
           const currentUserId = parseInt(createdBy, 10);
           
-          if (sessionOwnerId !== currentUserId && !isAdminOrManager) {
+          if (sessionOwnerId !== currentUserId && !isPrivileged) {
             // Get session owner name for better error message
             const [sessionOwner] = await connection.query(
               'SELECT name FROM users WHERE id = ?',
@@ -205,10 +208,30 @@ const orderService = {
 
       await connection.commit();
 
-      const order = await this.getById(result.insertId);
+      // Read order using pool (connection is still held but committed)
+      let order = await this.getById(result.insertId);
+      
+      // Fallback: if pool read fails due to visibility lag, read via connection
+      if (!order) {
+        const [rows] = await connection.query(
+          `SELECT o.*, t.table_number, t.name as table_name,
+            f.name as floor_name, s.name as section_name,
+            u.name as created_by_name
+           FROM orders o
+           LEFT JOIN tables t ON o.table_id = t.id
+           LEFT JOIN floors f ON o.floor_id = f.id
+           LEFT JOIN sections s ON o.section_id = s.id
+           LEFT JOIN users u ON o.created_by = u.id
+           WHERE o.id = ?`,
+          [result.insertId]
+        );
+        order = rows[0] || null;
+      }
 
       // Emit realtime event
-      await this.emitOrderUpdate(outletId, order, 'order:created');
+      if (order) {
+        await this.emitOrderUpdate(outletId, order, 'order:created');
+      }
 
       return order;
     } catch (error) {
@@ -234,9 +257,22 @@ const orderService = {
     try {
       await connection.beginTransaction();
 
-      const order = await this.getById(orderId);
+      // Use connection (not pool) to avoid snapshot visibility lag for recently created orders
+      const [orderRows] = await connection.query(
+        `SELECT o.*, t.table_number, t.name as table_name,
+          f.name as floor_name, s.name as section_name,
+          u.name as created_by_name
+         FROM orders o
+         LEFT JOIN tables t ON o.table_id = t.id
+         LEFT JOIN floors f ON o.floor_id = f.id
+         LEFT JOIN sections s ON o.section_id = s.id
+         LEFT JOIN users u ON o.created_by = u.id
+         WHERE o.id = ?`,
+        [orderId]
+      );
+      const order = orderRows[0] || null;
       if (!order) throw new Error('Order not found');
-      if (order.status === 'billed' || order.status === 'paid' || order.status === 'cancelled') {
+      if (order.status === 'billed' || order.status === 'paid' || order.status === 'completed' || order.status === 'cancelled') {
         throw new Error('Cannot add items to this order');
       }
 
@@ -252,13 +288,13 @@ const orderService = {
            WHERE ur.user_id = ? AND ur.is_active = 1`,
           [createdBy]
         );
-        const isAdminOrManager = userRoles.some(r => ['admin', 'manager', 'super_admin'].includes(r.role_name));
+        const isPrivileged = userRoles.some(r => ['admin', 'manager', 'super_admin', 'cashier'].includes(r.role_name));
         
         // Convert to numbers for comparison (handle type mismatch)
         const sessionOwnerId = parseInt(sessionOwner[0]?.started_by, 10);
         const currentUserId = parseInt(createdBy, 10);
         
-        if (sessionOwner[0] && sessionOwnerId !== currentUserId && !isAdminOrManager) {
+        if (sessionOwner[0] && sessionOwnerId !== currentUserId && !isPrivileged) {
           throw new Error('Only the assigned captain can modify this order. Contact manager to transfer table.');
         }
       }
@@ -471,13 +507,21 @@ const orderService = {
       [orderId]
     );
 
-    // Get addons for each item
-    for (const item of items) {
-      const [addons] = await pool.query(
-        'SELECT * FROM order_item_addons WHERE order_item_id = ?',
-        [item.id]
+    // Get addons for ALL items in one query (avoids N+1)
+    const itemIds = items.map(i => i.id);
+    let addonsMap = {};
+    if (itemIds.length > 0) {
+      const [allAddons] = await pool.query(
+        'SELECT * FROM order_item_addons WHERE order_item_id IN (?)',
+        [itemIds]
       );
-      item.addons = addons;
+      for (const addon of allAddons) {
+        if (!addonsMap[addon.order_item_id]) addonsMap[addon.order_item_id] = [];
+        addonsMap[addon.order_item_id].push(addon);
+      }
+    }
+    for (const item of items) {
+      item.addons = addonsMap[item.id] || [];
     }
 
     // Get applied discounts
@@ -503,13 +547,16 @@ const orderService = {
       LEFT JOIN tables t ON o.table_id = t.id
       LEFT JOIN floors f ON o.floor_id = f.id
       LEFT JOIN sections s ON o.section_id = s.id
-      WHERE o.outlet_id = ? AND o.status NOT IN ('paid', 'cancelled')
+      WHERE o.outlet_id = ? AND o.status NOT IN ('paid', 'completed', 'cancelled')
     `;
     const params = [outletId];
 
     if (filters.floorId) {
       query += ' AND o.floor_id = ?';
       params.push(filters.floorId);
+    } else if (filters.floorIds && filters.floorIds.length > 0) {
+      query += ` AND o.floor_id IN (${filters.floorIds.map(() => '?').join(',')})`;
+      params.push(...filters.floorIds);
     }
     if (filters.status) {
       query += ' AND o.status = ?';
@@ -531,13 +578,372 @@ const orderService = {
   },
 
   /**
+   * Get pending takeaway orders for cashier
+   * Returns takeaway orders that are not yet paid/completed/cancelled
+   * Supports search, pagination, sorting, and status filtering
+   */
+  async getPendingTakeawayOrders(outletId, filters = {}) {
+    const pool = getPool();
+    const {
+      search, sortBy = 'created_at', sortOrder = 'DESC',
+      status
+    } = filters;
+    const page = Math.max(1, parseInt(filters.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(filters.limit) || 20));
+    const offset = (page - 1) * limit;
+
+    const allowedSort = ['created_at', 'order_number', 'total_amount', 'status'];
+    const safeSortBy = allowedSort.includes(sortBy) ? sortBy : 'created_at';
+    const safeSortOrder = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    let whereClause = `WHERE o.outlet_id = ? AND o.order_type = 'takeaway'`;
+    const params = [outletId];
+
+    // Status filter: 'pending' (active/not paid), 'completed', 'cancelled', 'all'
+    if (status === 'completed') {
+      whereClause += ` AND o.status IN ('paid', 'completed')`;
+    } else if (status === 'cancelled') {
+      whereClause += ` AND o.status = 'cancelled'`;
+    } else if (status === 'all') {
+      // no additional filter
+    } else {
+      // Default: pending (all active non-finished orders)
+      whereClause += ` AND o.status NOT IN ('paid', 'completed', 'cancelled')`;
+    }
+
+    if (search) {
+      whereClause += ` AND (o.order_number LIKE ? OR o.customer_name LIKE ? OR o.customer_phone LIKE ?)`;
+      const s = `%${search}%`;
+      params.push(s, s, s);
+    }
+
+    // Count query
+    const [countResult] = await pool.query(
+      `SELECT COUNT(*) as total FROM orders o ${whereClause}`, params
+    );
+    const total = countResult[0].total;
+
+    // Data query
+    const [orders] = await pool.query(
+      `SELECT o.*,
+        u.name as created_by_name,
+        (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id AND oi.status != 'cancelled') as item_count,
+        (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id AND oi.status = 'ready') as ready_count,
+        (SELECT GROUP_CONCAT(DISTINCT oi.item_name SEPARATOR ', ')
+         FROM order_items oi WHERE oi.order_id = o.id AND oi.status != 'cancelled' LIMIT 1) as item_summary,
+        i.id as invoice_id, i.invoice_number, i.grand_total as invoice_total, i.payment_status as invoice_payment_status
+       FROM orders o
+       LEFT JOIN users u ON o.created_by = u.id
+       LEFT JOIN invoices i ON i.order_id = o.id AND i.is_cancelled = 0
+       ${whereClause}
+       ORDER BY o.is_priority DESC, o.${safeSortBy} ${safeSortOrder}
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+
+    return {
+      data: orders,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit)
+      }
+    };
+  },
+
+  /**
+   * Get detailed takeaway order by ID — deep detail with items, KOTs, discounts, payments, invoice
+   */
+  async getTakeawayOrderDetail(orderId) {
+    const pool = getPool();
+
+    // 1. Core order info
+    const order = await this.getById(orderId);
+    if (!order) throw new Error('Order not found');
+
+    // 2. All items with addons, station info
+    const [items] = await pool.query(
+      `SELECT oi.*,
+        i.short_name, i.image_url,
+        ks.name as station_name, ks.station_type,
+        c.name as counter_name,
+        u_cancel.name as cancelled_by_name
+       FROM order_items oi
+       LEFT JOIN items i ON oi.item_id = i.id
+       LEFT JOIN kitchen_stations ks ON i.kitchen_station_id = ks.id
+       LEFT JOIN counters c ON i.counter_id = c.id
+       LEFT JOIN users u_cancel ON oi.cancelled_by = u_cancel.id
+       WHERE oi.order_id = ?
+       ORDER BY oi.created_at`,
+      [orderId]
+    );
+
+    // Batch-load addons
+    const itemIds = items.map(i => i.id);
+    let addonsMap = {};
+    if (itemIds.length > 0) {
+      const [allAddons] = await pool.query(
+        'SELECT * FROM order_item_addons WHERE order_item_id IN (?)',
+        [itemIds]
+      );
+      for (const addon of allAddons) {
+        if (!addonsMap[addon.order_item_id]) addonsMap[addon.order_item_id] = [];
+        addonsMap[addon.order_item_id].push({
+          id: addon.id,
+          addonName: addon.addon_name,
+          addonGroupName: addon.addon_group_name || null,
+          quantity: addon.quantity,
+          unitPrice: parseFloat(addon.unit_price) || 0,
+          totalPrice: parseFloat(addon.total_price) || 0
+        });
+      }
+    }
+
+    // Format items
+    const formattedItems = items.map(it => ({
+      id: it.id,
+      itemId: it.item_id,
+      itemName: it.item_name,
+      shortName: it.short_name || null,
+      imageUrl: prefixImageUrl(it.image_url),
+      quantity: it.quantity,
+      unitPrice: parseFloat(it.unit_price) || 0,
+      totalPrice: parseFloat(it.total_price) || 0,
+      status: it.status,
+      itemType: it.item_type || null,
+      stationName: it.station_name || null,
+      stationType: it.station_type || null,
+      counterName: it.counter_name || null,
+      specialInstructions: it.special_instructions || null,
+      taxDetails: it.tax_details ? (typeof it.tax_details === 'string' ? JSON.parse(it.tax_details) : it.tax_details) : null,
+      cancelledBy: it.cancelled_by || null,
+      cancelledByName: it.cancelled_by_name || null,
+      cancelReason: it.cancel_reason || null,
+      cancelledAt: it.cancelled_at || null,
+      addons: addonsMap[it.id] || [],
+      createdAt: it.created_at
+    }));
+
+    const activeItems = formattedItems.filter(i => i.status !== 'cancelled');
+    const cancelledItems = formattedItems.filter(i => i.status === 'cancelled');
+
+    // 3. KOTs with items
+    const [kots] = await pool.query(
+      `SELECT kt.*,
+        u_created.name as created_by_name,
+        u_served.name as served_by_name
+       FROM kot_tickets kt
+       LEFT JOIN users u_created ON kt.created_by = u_created.id
+       LEFT JOIN users u_served ON kt.served_by = u_served.id
+       WHERE kt.order_id = ?
+       ORDER BY kt.created_at`,
+      [orderId]
+    );
+
+    const kotIds = kots.map(k => k.id);
+    let kotItemsMap = {};
+    if (kotIds.length > 0) {
+      const [allKotItems] = await pool.query(
+        `SELECT ki.*, oi.item_name, oi.unit_price, oi.status as order_item_status
+         FROM kot_items ki
+         LEFT JOIN order_items oi ON ki.order_item_id = oi.id
+         WHERE ki.kot_id IN (?)
+         ORDER BY ki.id`,
+        [kotIds]
+      );
+      for (const ki of allKotItems) {
+        if (!kotItemsMap[ki.kot_id]) kotItemsMap[ki.kot_id] = [];
+        kotItemsMap[ki.kot_id].push({
+          id: ki.id,
+          orderItemId: ki.order_item_id,
+          itemName: ki.item_name || ki.item_name,
+          quantity: ki.quantity,
+          unitPrice: parseFloat(ki.unit_price) || 0,
+          status: ki.status,
+          orderItemStatus: ki.order_item_status || null,
+          specialInstructions: ki.special_instructions || null
+        });
+      }
+    }
+
+    const formattedKots = kots.map(k => {
+      const kotItems = kotItemsMap[k.id] || [];
+      return {
+        id: k.id,
+        kotNumber: k.kot_number,
+        station: k.station,
+        status: k.status,
+        itemCount: kotItems.filter(i => i.status !== 'cancelled').length,
+        cancelledCount: kotItems.filter(i => i.status === 'cancelled').length,
+        items: kotItems,
+        createdBy: k.created_by,
+        createdByName: k.created_by_name || null,
+        servedBy: k.served_by || null,
+        servedByName: k.served_by_name || null,
+        servedAt: k.served_at || null,
+        readyAt: k.ready_at || null,
+        createdAt: k.created_at
+      };
+    });
+
+    // 4. Discounts
+    const [discounts] = await pool.query(
+      `SELECT od.*, u.name as created_by_name
+       FROM order_discounts od
+       LEFT JOIN users u ON od.created_by = u.id
+       WHERE od.order_id = ?
+       ORDER BY od.created_at`,
+      [orderId]
+    );
+
+    const formattedDiscounts = discounts.map(d => ({
+      id: d.id,
+      discountName: d.discount_name,
+      discountType: d.discount_type,
+      discountValue: parseFloat(d.discount_value) || 0,
+      discountAmount: parseFloat(d.discount_amount) || 0,
+      discountCode: d.discount_code || null,
+      appliedOn: d.applied_on || 'subtotal',
+      approvedBy: d.approved_by || null,
+      approvalReason: d.approval_reason || null,
+      createdBy: d.created_by,
+      createdByName: d.created_by_name || null,
+      createdAt: d.created_at
+    }));
+
+    // 5. Payments
+    const [payments] = await pool.query(
+      `SELECT p.*, u.name as received_by_name
+       FROM payments p
+       LEFT JOIN users u ON p.received_by = u.id
+       WHERE p.order_id = ?
+       ORDER BY p.created_at`,
+      [orderId]
+    );
+
+    const formattedPayments = payments.map(p => ({
+      id: p.id,
+      paymentNumber: p.payment_number,
+      paymentMode: p.payment_mode,
+      amount: parseFloat(p.amount) || 0,
+      tipAmount: parseFloat(p.tip_amount) || 0,
+      totalAmount: parseFloat(p.total_amount) || 0,
+      status: p.status,
+      transactionId: p.transaction_id || null,
+      referenceNumber: p.reference_number || null,
+      cardLastFour: p.card_last_four || null,
+      cardType: p.card_type || null,
+      upiId: p.upi_id || null,
+      walletName: p.wallet_name || null,
+      bankName: p.bank_name || null,
+      receivedBy: p.received_by,
+      receivedByName: p.received_by_name || null,
+      createdAt: p.created_at
+    }));
+
+    // 6. Invoice
+    const [invoices] = await pool.query(
+      `SELECT * FROM invoices WHERE order_id = ? AND is_cancelled = 0 LIMIT 1`,
+      [orderId]
+    );
+    const inv = invoices[0];
+    const invoice = inv ? {
+      id: inv.id,
+      invoiceNumber: inv.invoice_number,
+      subtotal: parseFloat(inv.subtotal) || 0,
+      discountAmount: parseFloat(inv.discount_amount) || 0,
+      taxableAmount: parseFloat(inv.taxable_amount) || 0,
+      cgst: parseFloat(inv.cgst) || 0,
+      sgst: parseFloat(inv.sgst) || 0,
+      totalTax: parseFloat(inv.total_tax) || 0,
+      serviceCharge: parseFloat(inv.service_charge) || 0,
+      packagingCharge: parseFloat(inv.packaging_charge) || 0,
+      deliveryCharge: parseFloat(inv.delivery_charge) || 0,
+      roundOff: parseFloat(inv.round_off) || 0,
+      grandTotal: parseFloat(inv.grand_total) || 0,
+      amountInWords: inv.amount_in_words || null,
+      paymentStatus: inv.payment_status,
+      createdAt: inv.created_at
+    } : null;
+
+    // 7. Summary
+    const totalPaid = formattedPayments.reduce((s, p) => s + p.totalAmount, 0);
+    const orderTotal = invoice ? invoice.grandTotal : (parseFloat(order.total_amount) || 0);
+    const dueAmount = Math.max(0, orderTotal - totalPaid);
+    const totalDiscount = formattedDiscounts.reduce((s, d) => s + d.discountAmount, 0);
+
+    const kotStatusCounts = {};
+    for (const k of formattedKots) {
+      kotStatusCounts[k.status] = (kotStatusCounts[k.status] || 0) + 1;
+    }
+
+    const itemStatusCounts = {};
+    for (const i of formattedItems) {
+      itemStatusCounts[i.status] = (itemStatusCounts[i.status] || 0) + 1;
+    }
+
+    return {
+      order: {
+        id: order.id,
+        uuid: order.uuid,
+        orderNumber: order.order_number,
+        orderType: order.order_type,
+        status: order.status,
+        paymentStatus: order.payment_status,
+        customerName: order.customer_name || null,
+        customerPhone: order.customer_phone || null,
+        customerAddress: order.customer_address || null,
+        isPriority: !!order.is_priority,
+        notes: order.notes || null,
+        subtotal: parseFloat(order.subtotal) || 0,
+        discountAmount: parseFloat(order.discount_amount) || 0,
+        taxAmount: parseFloat(order.tax_amount) || 0,
+        totalAmount: parseFloat(order.total_amount) || 0,
+        paidAmount: parseFloat(order.paid_amount) || 0,
+        dueAmount: parseFloat(order.due_amount) || 0,
+        createdBy: order.created_by,
+        createdByName: order.created_by_name || null,
+        createdAt: order.created_at,
+        updatedAt: order.updated_at
+      },
+      items: {
+        active: activeItems,
+        cancelled: cancelledItems,
+        activeCount: activeItems.length,
+        cancelledCount: cancelledItems.length,
+        totalCount: formattedItems.length,
+        statusBreakdown: itemStatusCounts
+      },
+      kots: {
+        list: formattedKots,
+        totalCount: formattedKots.length,
+        statusBreakdown: kotStatusCounts
+      },
+      discounts: {
+        list: formattedDiscounts,
+        totalCount: formattedDiscounts.length,
+        totalDiscount: parseFloat(totalDiscount.toFixed(2))
+      },
+      payments: {
+        list: formattedPayments,
+        totalCount: formattedPayments.length,
+        totalPaid: parseFloat(totalPaid.toFixed(2)),
+        dueAmount: parseFloat(dueAmount.toFixed(2)),
+        orderTotal: parseFloat(orderTotal.toFixed(2))
+      },
+      invoice
+    };
+  },
+
+  /**
    * Get orders by table
    */
   async getByTable(tableId) {
     const pool = getPool();
     const [rows] = await pool.query(
       `SELECT * FROM orders 
-       WHERE table_id = ? AND status NOT IN ('paid', 'cancelled')
+       WHERE table_id = ? AND status NOT IN ('paid', 'completed', 'cancelled')
        ORDER BY created_at DESC`,
       [tableId]
     );
@@ -751,9 +1157,9 @@ const orderService = {
           // Single item cancelled - kitchen needs to know
           await kotService.emitKotUpdate(item.outlet_id, {
             ...updatedKot,
-            cancelled_item: {
-              order_item_id: orderItemId,
-              item_name: item.item_name,
+            cancelledItem: {
+              orderItemId: orderItemId,
+              itemName: item.item_name,
               quantity: cancelQuantity,
               reason: reason
             }
@@ -818,7 +1224,7 @@ const orderService = {
       const { reason, reasonId, approvedBy } = data;
 
       // Check if order can be cancelled
-      if (['paid', 'cancelled'].includes(order.status)) {
+      if (['paid', 'completed', 'cancelled'].includes(order.status)) {
         throw new Error('Order cannot be cancelled');
       }
 
@@ -881,6 +1287,20 @@ const orderService = {
         [orderId, reasonId, reason, approvedBy, userId]
       );
 
+      // Auto-cancel any pending invoices for this order
+      const [pendingInvoices] = await connection.query(
+        `SELECT id, invoice_number FROM invoices 
+         WHERE order_id = ? AND is_cancelled = 0 AND payment_status IN ('pending', 'partial')`,
+        [orderId]
+      );
+      if (pendingInvoices.length > 0) {
+        await connection.query(
+          `UPDATE invoices SET is_cancelled = 1, cancelled_at = NOW(), cancelled_by = ?, cancel_reason = ?
+           WHERE order_id = ? AND is_cancelled = 0 AND payment_status IN ('pending', 'partial')`,
+          [userId, reason || 'Order cancelled', orderId]
+        );
+      }
+
       // Release table if dine-in - end session and set to available
       if (order.table_id) {
         // End session first (this also sets table to available)
@@ -897,6 +1317,28 @@ const orderService = {
       const cancelledOrder = await this.getById(orderId);
       await this.emitOrderUpdate(order.outlet_id, cancelledOrder, 'order:cancelled');
 
+      // Emit bill:status cancelled for each auto-cancelled invoice
+      if (pendingInvoices.length > 0) {
+        const { publishMessage } = require('../config/redis');
+        for (const inv of pendingInvoices) {
+          try {
+            await publishMessage('bill:status', {
+              outletId: order.outlet_id,
+              orderId,
+              tableId: order.table_id,
+              tableNumber: order.table_number,
+              invoiceId: inv.id,
+              invoiceNumber: inv.invoice_number,
+              billStatus: 'cancelled',
+              reason: reason || 'Order cancelled',
+              timestamp: new Date().toISOString()
+            });
+          } catch (e) {
+            logger.error(`Failed to emit bill:status for invoice ${inv.id}:`, e.message);
+          }
+        }
+      }
+
       // Emit KOT cancellation events to kitchen + print cancel slips for each KOT
       if (activeKots.length > 0) {
         const kotService = require('./kot.service');
@@ -910,18 +1352,18 @@ const orderService = {
           await kotService.emitKotUpdate(order.outlet_id, {
             ...(fullKot || kot),
             status: 'cancelled',
-            cancel_reason: reason,
-            order_number: order.order_number,
-            table_number: kot.table_number
+            cancelReason: reason,
+            orderNumber: order.order_number,
+            tableNumber: kot.table_number
           }, 'kot:cancelled');
 
           // Print cancel slip to kitchen printer for this KOT
           try {
             const kotItems = (fullKot?.items || []).map(i => ({
-              itemName: i.item_name,
-              variantName: i.variant_name,
+              itemName: i.name || i.item_name,
+              variantName: i.variantName || i.variant_name,
               quantity: i.quantity,
-              itemType: i.item_type || null
+              itemType: i.itemType || i.item_type || null
             }));
 
             const cancelSlipData = {
@@ -1021,12 +1463,18 @@ const orderService = {
     `;
     const params = [outletId, captainId];
 
+    // Floor restriction
+    if (filters.floorIds && filters.floorIds.length > 0) {
+      query += ` AND o.floor_id IN (${filters.floorIds.map(() => '?').join(',')})`;
+      params.push(...filters.floorIds);
+    }
+
     // Status filter
     if (status && status !== 'all') {
       if (status === 'running') {
         query += ` AND o.status IN ('pending', 'confirmed', 'preparing', 'ready', 'served')`;
       } else if (status === 'completed') {
-        query += ` AND o.status IN ('billed', 'paid')`;
+        query += ` AND o.status IN ('billed', 'paid', 'completed')`;
       } else if (status === 'cancelled') {
         query += ` AND o.status = 'cancelled'`;
       } else {
@@ -1173,7 +1621,7 @@ const orderService = {
       sessionStarted: order.session_started_at,
       firstKotSent: kots.length > 0 ? kots[0].created_at : null,
       lastKotSent: kots.length > 0 ? kots[kots.length - 1].created_at : null,
-      orderCompleted: order.status === 'paid' ? order.updated_at : null,
+      orderCompleted: (order.status === 'paid' || order.status === 'completed') ? order.updated_at : null,
       orderCancelled: order.cancelled_at,
       sessionEnded: order.session_ended_at
     };
@@ -1201,8 +1649,9 @@ const orderService = {
   async getCaptainOrderStats(captainId, outletId, dateRange = {}) {
     const pool = getPool();
     
-    const { startDate, endDate } = dateRange;
+    const { startDate, endDate, floorIds } = dateRange;
     let dateFilter = '';
+    let floorFilter = '';
     const params = [outletId, captainId];
 
     if (startDate && endDate) {
@@ -1212,16 +1661,21 @@ const orderService = {
       dateFilter = 'AND DATE(o.created_at) = CURDATE()';
     }
 
+    if (floorIds && floorIds.length > 0) {
+      floorFilter = ` AND o.floor_id IN (${floorIds.map(() => '?').join(',')})`;
+      params.push(...floorIds);
+    }
+
     const [stats] = await pool.query(
       `SELECT 
         COUNT(*) as total_orders,
         COUNT(CASE WHEN status IN ('pending', 'confirmed', 'preparing', 'ready', 'served') THEN 1 END) as running_orders,
-        COUNT(CASE WHEN status IN ('billed', 'paid') THEN 1 END) as completed_orders,
+        COUNT(CASE WHEN status IN ('billed', 'paid', 'completed') THEN 1 END) as completed_orders,
         COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled_orders,
-        COALESCE(SUM(CASE WHEN status = 'paid' THEN total_amount ELSE 0 END), 0) as total_sales,
-        COALESCE(AVG(CASE WHEN status = 'paid' THEN total_amount END), 0) as avg_order_value
+        COALESCE(SUM(CASE WHEN status IN ('paid', 'completed') THEN total_amount ELSE 0 END), 0) as total_sales,
+        COALESCE(AVG(CASE WHEN status IN ('paid', 'completed') THEN total_amount END), 0) as avg_order_value
        FROM orders o
-       WHERE o.outlet_id = ? AND o.created_by = ? ${dateFilter}`,
+       WHERE o.outlet_id = ? AND o.created_by = ? ${dateFilter}${floorFilter}`,
       params
     );
 

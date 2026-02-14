@@ -68,6 +68,7 @@ const updateFloor = Joi.object({
 
 const createSection = Joi.object({
   outletId: Joi.number().integer().positive().required(),
+  floorId: Joi.number().integer().positive().required(),
   name: Joi.string().min(1).max(50).required(),
   code: Joi.string().max(20),
   sectionType: Joi.string().valid('dine_in', 'takeaway', 'delivery', 'bar', 'rooftop', 'private', 'outdoor', 'ac', 'non_ac'),

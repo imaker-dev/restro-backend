@@ -110,6 +110,20 @@ module.exports = {
     approvalReason: Joi.string().max(255).allow('', null)
   }),
 
+  applyDiscountCode: Joi.object({
+    discountCode: Joi.string().max(50).required()
+  }),
+
+  updateInvoiceCharges: Joi.object({
+    removeServiceCharge: Joi.boolean().default(false),
+    removeGst: Joi.boolean().default(false),
+    customerGstin: Joi.string().max(20).when('removeGst', {
+      is: true,
+      then: Joi.required(),
+      otherwise: Joi.allow('', null)
+    })
+  }),
+
   // ========================
   // PAYMENT VALIDATION
   // ========================
@@ -117,6 +131,7 @@ module.exports = {
   processPayment: Joi.object({
     orderId: Joi.number().integer().positive().required(),
     invoiceId: Joi.number().integer().positive().allow(null),
+    outletId: Joi.number().integer().positive().allow(null),
     paymentMode: Joi.string().valid(...PAYMENT_MODES).required(),
     amount: Joi.number().min(0).required(),
     tipAmount: Joi.number().min(0).default(0),
@@ -133,6 +148,7 @@ module.exports = {
   splitPayment: Joi.object({
     orderId: Joi.number().integer().positive().required(),
     invoiceId: Joi.number().integer().positive().allow(null),
+    outletId: Joi.number().integer().positive().allow(null),
     splits: Joi.array().items(Joi.object({
       paymentMode: Joi.string().valid('cash', 'card', 'upi', 'wallet').required(),
       amount: Joi.number().min(0).required(),

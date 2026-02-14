@@ -189,6 +189,10 @@ class UserService {
       [id]
     );
 
+    // Get floor and section assignments
+    const assignedFloors = await this.getUserFloors(id);
+    const assignedSections = await this.getUserSections(id);
+
     return {
       ...this.formatUser(user),
       roles: roles.map(r => ({
@@ -202,6 +206,8 @@ class UserService {
       })),
       permissions: permissions.map(p => p.slug),
       permissionCount: permissions.length,
+      assignedFloors,
+      assignedSections,
     };
   }
 
@@ -286,6 +292,28 @@ class UserService {
             `INSERT INTO user_roles (user_id, role_id, outlet_id, assigned_by)
              VALUES (?, ?, ?, ?)`,
             [userId, role.roleId, role.outletId || null, createdBy]
+          );
+        }
+      }
+
+      // Assign floors
+      if (data.floors && data.floors.length > 0) {
+        for (const floor of data.floors) {
+          await connection.query(
+            `INSERT INTO user_floors (user_id, floor_id, outlet_id, is_primary, assigned_by)
+             VALUES (?, ?, ?, ?, ?)`,
+            [userId, floor.floorId, floor.outletId, floor.isPrimary || false, createdBy]
+          );
+        }
+      }
+
+      // Assign sections
+      if (data.sections && data.sections.length > 0) {
+        for (const section of data.sections) {
+          await connection.query(
+            `INSERT INTO user_sections (user_id, section_id, outlet_id, can_view_menu, can_take_orders, is_primary, assigned_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [userId, section.sectionId, section.outletId, section.canViewMenu !== false, section.canTakeOrders !== false, section.isPrimary || false, createdBy]
           );
         }
       }
@@ -405,6 +433,36 @@ class UserService {
           `UPDATE users SET ${updates.join(', ')} WHERE id = ?`,
           params
         );
+      }
+
+      // Update floor assignments if provided
+      if (data.floors !== undefined) {
+        // Remove existing floor assignments for this user
+        await connection.query('DELETE FROM user_floors WHERE user_id = ?', [id]);
+        // Insert new floor assignments
+        if (data.floors && data.floors.length > 0) {
+          for (const floor of data.floors) {
+            await connection.query(
+              `INSERT INTO user_floors (user_id, floor_id, outlet_id, is_primary, assigned_by)
+               VALUES (?, ?, ?, ?, ?)`,
+              [id, floor.floorId, floor.outletId, floor.isPrimary || false, updatedBy]
+            );
+          }
+        }
+      }
+
+      // Update section assignments if provided
+      if (data.sections !== undefined) {
+        await connection.query('DELETE FROM user_sections WHERE user_id = ?', [id]);
+        if (data.sections && data.sections.length > 0) {
+          for (const section of data.sections) {
+            await connection.query(
+              `INSERT INTO user_sections (user_id, section_id, outlet_id, can_view_menu, can_take_orders, is_primary, assigned_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              [id, section.sectionId, section.outletId, section.canViewMenu !== false, section.canTakeOrders !== false, section.isPrimary || false, updatedBy]
+            );
+          }
+        }
       }
 
       await connection.commit();
@@ -639,6 +697,69 @@ class UserService {
       all: permissions,
       byModule: grouped,
     };
+  }
+
+  /**
+   * Get assigned floors for a user (optionally filtered by outlet)
+   */
+  async getUserFloors(userId, outletId = null) {
+    const pool = getPool();
+    let query = `SELECT uf.id, uf.floor_id, uf.outlet_id, uf.is_primary, uf.is_active,
+                        f.name as floor_name, f.floor_number, f.code as floor_code,
+                        o.name as outlet_name
+                 FROM user_floors uf
+                 JOIN floors f ON uf.floor_id = f.id
+                 LEFT JOIN outlets o ON uf.outlet_id = o.id
+                 WHERE uf.user_id = ? AND uf.is_active = 1`;
+    const params = [userId];
+    if (outletId) {
+      query += ' AND uf.outlet_id = ?';
+      params.push(outletId);
+    }
+    query += ' ORDER BY uf.is_primary DESC, f.display_order, f.floor_number';
+    const [rows] = await pool.query(query, params);
+    return rows.map(r => ({
+      id: r.id,
+      floorId: r.floor_id,
+      floorName: r.floor_name,
+      floorNumber: r.floor_number,
+      floorCode: r.floor_code,
+      outletId: r.outlet_id,
+      outletName: r.outlet_name,
+      isPrimary: !!r.is_primary,
+    }));
+  }
+
+  /**
+   * Get assigned sections for a user (optionally filtered by outlet)
+   */
+  async getUserSections(userId, outletId = null) {
+    const pool = getPool();
+    let query = `SELECT us.id, us.section_id, us.outlet_id, us.is_primary, us.can_view_menu, us.can_take_orders,
+                        s.name as section_name, s.section_type,
+                        o.name as outlet_name
+                 FROM user_sections us
+                 JOIN sections s ON us.section_id = s.id
+                 LEFT JOIN outlets o ON us.outlet_id = o.id
+                 WHERE us.user_id = ? AND us.is_active = 1`;
+    const params = [userId];
+    if (outletId) {
+      query += ' AND us.outlet_id = ?';
+      params.push(outletId);
+    }
+    query += ' ORDER BY us.is_primary DESC, s.name';
+    const [rows] = await pool.query(query, params);
+    return rows.map(r => ({
+      id: r.id,
+      sectionId: r.section_id,
+      sectionName: r.section_name,
+      sectionType: r.section_type,
+      outletId: r.outlet_id,
+      outletName: r.outlet_name,
+      isPrimary: !!r.is_primary,
+      canViewMenu: !!r.can_view_menu,
+      canTakeOrders: !!r.can_take_orders,
+    }));
   }
 
   // ==================== Helper Methods ====================
