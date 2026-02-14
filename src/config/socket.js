@@ -1,17 +1,57 @@
 const { Server } = require('socket.io');
+const { createAdapter } = require('@socket.io/redis-adapter');
+const Redis = require('ioredis');
 const corsConfig = require('./cors.config');
+const redisConfig = require('./redis.config');
 const logger = require('../utils/logger');
 const { pubsub, isRedisAvailable } = require('./redis');
 
 let io = null;
 
 const initializeSocket = (server) => {
+  // Build Socket.IO CORS: allow mobile apps (no Origin header) + web origins
+  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map(s => s.trim()).filter(Boolean) || [];
+  const socketCors = {
+    ...corsConfig,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, server-to-server, curl)
+      if (!origin) return callback(null, true);
+      // In development, allow all
+      if (process.env.NODE_ENV !== 'production') return callback(null, true);
+      // In production, check against allowed origins
+      if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      logger.warn(`Socket.IO CORS rejected origin: ${origin}`);
+      return callback(new Error('Not allowed by CORS'));
+    },
+  };
+
   io = new Server(server, {
-    cors: corsConfig,
+    cors: socketCors,
     pingInterval: parseInt(process.env.WS_PING_INTERVAL, 10) || 25000,
     pingTimeout: parseInt(process.env.WS_PING_TIMEOUT, 10) || 60000,
     transports: ['websocket', 'polling'],
+    allowEIO3: true,
+    path: process.env.SOCKET_PATH || '/socket.io/',
   });
+
+  // Attach Redis adapter for PM2 cluster mode session sharing
+  if (isRedisAvailable()) {
+    try {
+      const pubClient = new Redis({
+        host: redisConfig.host,
+        port: redisConfig.port,
+        password: redisConfig.password,
+        db: redisConfig.db,
+      });
+      const subClient = pubClient.duplicate();
+      io.adapter(createAdapter(pubClient, subClient));
+      logger.info('Socket.IO Redis adapter attached (cluster-safe)');
+    } catch (err) {
+      logger.warn('Socket.IO Redis adapter setup failed, cluster sync disabled:', err.message);
+    }
+  }
 
   // Connection handler
   io.on('connection', (socket) => {
