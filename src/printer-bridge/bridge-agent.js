@@ -25,31 +25,34 @@ const net = require('net');
 
 const CONFIG = {
   // Cloud server URL (your backend API)
-  CLOUD_URL: process.env.CLOUD_URL || 'http://localhost:3000',
+  CLOUD_URL: process.env.CLOUD_URL || 'https://restro-backend.imaker.in',
   
   // Outlet ID from your system
-  OUTLET_ID: process.env.OUTLET_ID || '1',
+  OUTLET_ID: process.env.OUTLET_ID || '4',
   
-  // Bridge code (created via API)
+  // Bridge code (created via API: POST /api/v1/printers/bridges)
   BRIDGE_CODE: process.env.BRIDGE_CODE || 'KITCHEN-BRIDGE-1',
   
-  // API key (provided when bridge was created)
-  API_KEY: process.env.API_KEY || 'your-api-key-here',
+  // API key (provided when bridge was created via API)
+  API_KEY: process.env.API_KEY || '8573e2b31d02ee62aa026a510923c35cb3a88ef7ac31d86e77002601fa913e49',
   
   // Polling interval in milliseconds
   POLL_INTERVAL: parseInt(process.env.POLL_INTERVAL) || 2000,
   
   // Printers configuration - map stations to printer IP/port
+  // Update these IPs to match your local network printers
   PRINTERS: {
-    kitchen: { ip: '192.168.1.100', port: 9100 },
-    bar: { ip: '192.168.1.101', port: 9100 },
-    mocktail: { ip: '192.168.1.102', port: 9100 },
-    dessert: { ip: '192.168.1.100', port: 9100 }, // Same as kitchen
-    cashier: { ip: '192.168.1.103', port: 9100 }
+    kot_kitchen: { ip: '192.168.1.13', port: 9100 },
+    // kot_bar: { ip: '192.168.1.13', port: 9100 },
+    // kot_dessert: { ip: '192.168.1.13', port: 9100 },
+    kitchen: { ip: '192.168.1.13', port: 9100 },
+    // bar: { ip: '192.168.1.13', port: 9100 },
+    // bill: { ip: '192.168.1.13', port: 9100 },
+    // cashier: { ip: '192.168.1.13', port: 9100 }
   },
   
   // Fallback printer if station not found
-  DEFAULT_PRINTER: { ip: '192.168.1.100', port: 9100 }
+  DEFAULT_PRINTER: { ip: '192.168.1.13', port: 9100 }
 };
 
 // ========================
