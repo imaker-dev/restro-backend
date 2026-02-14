@@ -160,9 +160,26 @@ const pubsub = {
   },
 };
 
-// Helper alias for services
+// Local Socket.IO emitter fallback (registered by socket.js after init)
+let _localEmitter = null;
+const registerLocalEmitter = (emitterFn) => {
+  _localEmitter = emitterFn;
+};
+
+// Helper alias for services — falls back to local emit when Redis is down
 const publishMessage = async (channel, message) => {
-  return pubsub.publish(channel, message);
+  if (redisAvailable && redisClient) {
+    return pubsub.publish(channel, message);
+  }
+  // Redis unavailable — fallback to direct Socket.IO emission (same process only)
+  if (_localEmitter) {
+    const delivered = _localEmitter(channel, message);
+    if (delivered) {
+      logger.debug(`publishMessage: delivered '${channel}' via local emitter (Redis unavailable)`);
+    }
+    return;
+  }
+  logger.warn(`publishMessage: dropped '${channel}' — Redis unavailable and no local emitter registered`);
 };
 
 module.exports = {
@@ -173,4 +190,5 @@ module.exports = {
   cache,
   pubsub,
   publishMessage,
+  registerLocalEmitter,
 };

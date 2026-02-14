@@ -11,8 +11,8 @@ const http = require('http');
 const config = require('./config');
 const logger = require('./utils/logger');
 const { initializeDatabase } = require('./database');
-const { initializeRedis } = require('./config/redis');
-const { initializeSocket } = require('./config/socket');
+const { initializeRedis, registerLocalEmitter } = require('./config/redis');
+const { initializeSocket, emitLocal } = require('./config/socket');
 const { initializeQueues } = require('./queues');
 const { initializeCronJobs } = require('./cron');
 
@@ -42,6 +42,21 @@ if (config.app.env !== 'test') {
 // Serve uploaded files statically (with CORS headers)
 const path = require('path');
 app.use('/uploads', cors(config.cors), express.static(path.resolve(config.app.uploadPath || './uploads')));
+
+// WebSocket diagnostic endpoint — shows what headers reach Node.js
+app.get('/ws-debug', (req, res) => {
+  const hdrs = req.headers;
+  res.json({
+    upgrade: hdrs.upgrade || null,
+    connection: hdrs.connection || null,
+    'sec-websocket-version': hdrs['sec-websocket-version'] || null,
+    'sec-websocket-key': hdrs['sec-websocket-key'] || null,
+    'x-forwarded-for': hdrs['x-forwarded-for'] || null,
+    'x-forwarded-proto': hdrs['x-forwarded-proto'] || null,
+    host: hdrs.host || null,
+    allHeaders: hdrs,
+  });
+});
 
 // Health check
 app.get('/health', (req, res) => {
@@ -114,6 +129,15 @@ const startServer = async () => {
     // Initialize WebSocket
     initializeSocket(server);
     logger.info('WebSocket initialized');
+
+    // Register local Socket.IO emitter as fallback when Redis is unavailable
+    registerLocalEmitter(emitLocal);
+    logger.info('Local socket emitter registered (Redis fallback)');
+
+    // Log raw HTTP upgrade events (WebSocket diagnostic)
+    server.on('upgrade', (req, socket, head) => {
+      logger.info(`[WS-DIAG] Upgrade event: url=${req.url} upgrade=${req.headers.upgrade} connection=${req.headers.connection}`);
+    });
 
     // Initialize Queues
     await initializeQueues();

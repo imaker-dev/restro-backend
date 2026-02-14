@@ -6,7 +6,7 @@
 
 const { getPool } = require('../database');
 const { v4: uuidv4 } = require('uuid');
-const { pubsub } = require('../config/redis');
+const { pubsub, publishMessage } = require('../config/redis');
 const logger = require('../utils/logger');
 const crypto = require('crypto');
 const net = require('net');
@@ -147,8 +147,8 @@ const printerService = {
       [jobId, JSON.stringify({ station: data.station, type: data.jobType })]
     );
 
-    // Notify bridges via pub/sub
-    pubsub.publish('print:new_job', {
+    // Notify bridges via pub/sub (uses local emitter fallback if Redis unavailable)
+    publishMessage('print:new_job', {
       outletId: data.outletId,
       station: data.station,
       jobId,

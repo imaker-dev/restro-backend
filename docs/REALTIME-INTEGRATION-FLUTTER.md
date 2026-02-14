@@ -83,21 +83,41 @@ class SocketService {
   bool get isConnected => _isConnected;
 
   /// Initialize socket connection
-  void connect(String serverUrl, {String? token}) {
+  /// 
+  /// IMPORTANT: serverUrl must be the BASE domain, NOT the /api/v1 path.
+  /// - Local:      'http://192.168.1.100:3000'
+  /// - Production: 'https://restro-backend.imaker.in:443'
+  ///
+  /// The :443 is REQUIRED for HTTPS — without it, socket_io_client
+  /// resolves port to 0, causing 'Connection to ...:0/socket.io/' errors.
+  void connect(String serverUrl, {String? token, String? outletId}) {
     if (_socket != null && _isConnected) {
       print('Socket already connected');
       return;
     }
 
+    // Ensure HTTPS URLs have explicit port 443 to avoid :0 bug
+    String fixedUrl = serverUrl;
+    if (fixedUrl.startsWith('https://') && !RegExp(r':\d+').hasMatch(fixedUrl.replaceFirst('https://', ''))) {
+      fixedUrl = fixedUrl.replaceFirst('https://', 'https://').replaceFirst(RegExp(r'(/.*)?$'), ':443');
+    }
+    // Strip any /api/v1 or other paths — Socket.IO needs base URL only
+    final uri = Uri.parse(fixedUrl);
+    fixedUrl = '${uri.scheme}://${uri.host}:${uri.port}';
+    print('[WebSocket] Connecting to: $fixedUrl');
+
     _socket = IO.io(
-      serverUrl,
+      fixedUrl,
       IO.OptionBuilder()
-          .setTransports(['websocket'])
+          .setTransports(['polling', 'websocket']) // polling first for reliability
+          .setPath('/socket.io/')
           .enableAutoConnect()
           .enableReconnection()
           .setReconnectionAttempts(10)
           .setReconnectionDelay(1000)
+          .setReconnectionDelayMax(5000)
           .setAuth({'token': token ?? ''})
+          .setQuery(outletId != null ? {'outletId': outletId} : {})
           .build(),
     );
 
@@ -808,15 +828,21 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _initializeApp() async {
     // Configure API service
+    // Local:      'http://192.168.1.100:3000/api/v1'
+    // Production: 'https://restro-backend.imaker.in/api/v1'
     ApiService().configure(
-      baseUrl: 'http://192.168.1.100:3000/api/v1', // Your server IP
+      baseUrl: 'https://restro-backend.imaker.in/api/v1',
       token: 'your-auth-token',
     );
 
     // Initialize socket and table provider
+    // IMPORTANT: Socket URL is the BASE domain with explicit port.
+    // Do NOT use the /api/v1 path for Socket.IO!
+    // Local:      'http://192.168.1.100:3000'
+    // Production: 'https://restro-backend.imaker.in:443'
     await context.read<TableProvider>().initialize(
       4, // outletId
-      'http://192.168.1.100:3000', // Socket server URL
+      'https://restro-backend.imaker.in:443', // Socket server URL (explicit :443!)
       token: 'your-auth-token',
     );
 
@@ -935,6 +961,17 @@ class _SplashScreenState extends State<SplashScreen> {
 
 ## 10. Troubleshooting
 
+### `:0` Port Error (CRITICAL)
+If you see `Connection to 'https://domain:0/socket.io/...'`:
+1. **Add explicit port** — Use `https://restro-backend.imaker.in:443` (not just `https://restro-backend.imaker.in`)
+2. **Remove /api/v1** — Socket.IO URL must be the base domain only
+3. **Don't pass REST API URL** — The Socket URL and API URL are different
+
+### `websocket error` / `Transport Error` on Production
+1. Use `['polling', 'websocket']` transport order (NOT `['websocket']` only)
+2. Polling connects through any proxy; WebSocket upgrade happens after
+3. If WebSocket upgrade fails, Socket.IO stays on polling (still works)
+
 ### Connection Issues on Android
 - Add to `AndroidManifest.xml`:
 ```xml
@@ -961,6 +998,12 @@ class _SplashScreenState extends State<SplashScreen> {
 1. Call `notifyListeners()` after updating data
 2. Use `Consumer` widget to listen to changes
 3. Check if `tableId` matches correctly
+
+### Quick URL Reference
+| Environment | REST API URL | Socket.IO URL |
+|-------------|-------------|---------------|
+| Local | `http://192.168.1.100:3000/api/v1` | `http://192.168.1.100:3000` |
+| Production | `https://restro-backend.imaker.in/api/v1` | `https://restro-backend.imaker.in:443` |
 
 ---
 

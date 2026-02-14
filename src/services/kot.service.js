@@ -935,8 +935,9 @@ const kotService = {
         kot,
         timestamp: new Date().toISOString()
       });
+      logger.info(`KOT socket event emitted: ${eventType} for outlet ${outletId}, station ${kot.station}, KOT ${kot.kotNumber || kot.id}`);
     } catch (error) {
-      logger.error('Failed to emit KOT update:', error);
+      logger.error(`Failed to emit KOT update (${eventType}):`, error.message);
     }
   },
 

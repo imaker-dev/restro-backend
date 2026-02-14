@@ -4,7 +4,7 @@ const Redis = require('ioredis');
 const corsConfig = require('./cors.config');
 const redisConfig = require('./redis.config');
 const logger = require('../utils/logger');
-const { pubsub, isRedisAvailable } = require('./redis');
+const { pubsub, isRedisAvailable, publishMessage } = require('./redis');
 
 let io = null;
 
@@ -34,6 +34,11 @@ const initializeSocket = (server) => {
     transports: ['websocket', 'polling'],
     allowEIO3: true,
     path: process.env.SOCKET_PATH || '/socket.io/',
+    // Mobile app compatibility settings
+    cookie: false, // Disable cookies - mobile apps use query params for session tracking
+    allowUpgrades: true, // Allow transport upgrade from polling to websocket
+    httpCompression: true, // Compress polling responses
+    addTrailingSlash: false, // Some mobile HTTP clients don't handle trailing slashes well
   });
 
   // Attach Redis adapter for PM2 cluster mode session sharing
@@ -53,9 +58,14 @@ const initializeSocket = (server) => {
     }
   }
 
+  // Log connection errors at engine level (before 'connection' event)
+  io.engine.on('connection_error', (err) => {
+    logger.error(`[Socket.IO Engine] connection_error: code=${err.code} message=${err.message} context=${JSON.stringify(err.context || {})}`);
+  });
+
   // Connection handler
   io.on('connection', (socket) => {
-    logger.info(`Socket connected: ${socket.id}`);
+    logger.info(`Socket connected: ${socket.id} transport=${socket.conn.transport.name}`);
 
     // Join outlet room
     socket.on('join:outlet', (outletId) => {
@@ -199,27 +209,94 @@ const getSocketIO = () => {
   return io;
 };
 
-// Emit helpers
+/**
+ * Emit events directly via Socket.IO (bypasses Redis pub/sub).
+ * Used as fallback when Redis is unavailable, ensuring KDS/clients
+ * always receive events even without Redis.
+ */
+const emitLocal = (channel, data) => {
+  if (!io) return false;
+
+  try {
+    switch (channel) {
+      case 'table:update':
+        io.to(`floor:${data.outletId}:${data.floorId}`).emit('table:updated', data);
+        io.to(`outlet:${data.outletId}`).emit('table:updated', data);
+        break;
+
+      case 'order:update':
+        io.to(`outlet:${data.outletId}`).emit('order:updated', data);
+        io.to(`captain:${data.outletId}`).emit('order:updated', data);
+        io.to(`cashier:${data.outletId}`).emit('order:updated', data);
+        break;
+
+      case 'kot:update':
+        io.to(`kitchen:${data.outletId}`).emit('kot:updated', data);
+        if (data.station) {
+          io.to(`station:${data.outletId}:${data.station}`).emit('kot:updated', data);
+          if (data.station === 'bar') {
+            io.to(`bar:${data.outletId}`).emit('kot:updated', data);
+          }
+        }
+        io.to(`captain:${data.outletId}`).emit('kot:updated', data);
+        io.to(`cashier:${data.outletId}`).emit('kot:updated', data);
+        if (data.type === 'kot:item_ready' || data.type === 'kot:ready') {
+          io.to(`captain:${data.outletId}`).emit('item:ready', data);
+        }
+        break;
+
+      case 'bill:status':
+        io.to(`captain:${data.outletId}`).emit('bill:status', data);
+        io.to(`cashier:${data.outletId}`).emit('bill:status', data);
+        io.to(`outlet:${data.outletId}`).emit('bill:status', data);
+        break;
+
+      case 'payment:update':
+        io.to(`cashier:${data.outletId}`).emit('payment:updated', data);
+        io.to(`outlet:${data.outletId}`).emit('payment:updated', data);
+        break;
+
+      case 'notification':
+        io.to(`outlet:${data.outletId}`).emit('notification', data);
+        break;
+
+      case 'print:new_job':
+        io.to(`outlet:${data.outletId}`).emit('print:new_job', data);
+        break;
+
+      default:
+        logger.warn(`emitLocal: unhandled channel '${channel}'`);
+        return false;
+    }
+    return true;
+  } catch (error) {
+    logger.error(`emitLocal failed for channel '${channel}':`, error.message);
+    return false;
+  }
+};
+
+// Emit helpers (use publishMessage for local fallback when Redis is unavailable)
 const emit = {
   toOutlet(outletId, event, data) {
-    pubsub.publish(event.split(':')[0] + ':update', { outletId, ...data });
+    publishMessage(event.split(':')[0] + ':update', { outletId, ...data });
   },
 
   toFloor(outletId, floorId, event, data) {
-    pubsub.publish('table:update', { outletId, floorId, ...data });
+    publishMessage('table:update', { outletId, floorId, ...data });
   },
 
   toKitchen(outletId, event, data) {
-    pubsub.publish('kot:update', { outletId, ...data });
+    publishMessage('kot:update', { outletId, ...data });
   },
 
   notification(outletId, message, type = 'info') {
-    pubsub.publish('notification', { outletId, message, type, timestamp: new Date() });
+    publishMessage('notification', { outletId, message, type, timestamp: new Date() });
   },
 };
 
 module.exports = {
   initializeSocket,
   getSocketIO,
+  emitLocal,
   emit,
 };
