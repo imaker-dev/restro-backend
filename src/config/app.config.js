@@ -1,8 +1,14 @@
+const isProduction = process.env.PROD_ENV === 'production';
+
 module.exports = {
-  env: process.env.NODE_ENV || 'development',
+  env: isProduction ? process.env.PROD_ENV : process.env.DEV_ENV || 'development',
   name: process.env.APP_NAME || 'RestroPOS',
-  url: process.env.APP_URL || 'http://localhost:3000',
-  port: parseInt(process.env.PORT, 10) || 3000,
+  url: isProduction
+    ? (process.env.PROD_APP_URL || 'https://restro-backend.imaker.in')
+    : (process.env.APP_URL || 'http://localhost:3000'),
+  port: isProduction
+    ? (parseInt(process.env.PROD_PORT, 10) || 3532)
+    : (parseInt(process.env.PORT, 10) || 3000),
   wsPort: parseInt(process.env.WS_PORT, 10) || 3001,
   enableCronJobs: process.env.ENABLE_CRON_JOBS === 'true',
   reportAggregationInterval: process.env.REPORT_AGGREGATION_INTERVAL || '*/5 * * * *',
