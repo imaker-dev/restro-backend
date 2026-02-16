@@ -42,6 +42,11 @@ const initializeSocket = (server) => {
     perMessageDeflate: false, // Disable compression for WebSocket (can cause issues with some clients)
   });
 
+  // Log Socket.IO initialization
+  const port = server.address()?.port || process.env.PORT || process.env.PROD_PORT || 'unknown';
+  logger.info(`Socket.IO server initialized on port ${port} at path ${process.env.SOCKET_PATH || '/socket.io/'}`);
+  logger.info(`Socket.IO transports: ${['websocket', 'polling'].join(', ')}`);
+
   // Attach Redis adapter for PM2 cluster mode session sharing
   if (isRedisAvailable()) {
     try {
