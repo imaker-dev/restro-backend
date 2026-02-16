@@ -1,4 +1,4 @@
-const isProduction = process.env.PROD_ENV === 'production';
+const isProduction = process.env.NODE_ENV === 'production';
 
 module.exports = {
   host: isProduction 

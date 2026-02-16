@@ -1,7 +1,7 @@
-const isProduction = process.env.PROD_ENV === 'production';
+const isProduction = process.env.NODE_ENV === 'production';
 
 module.exports = {
-  env: isProduction ? process.env.PROD_ENV : process.env.DEV_ENV || 'development',
+  env: process.env.NODE_ENV || 'development',
   name: process.env.APP_NAME || 'RestroPOS',
   url: isProduction
     ? (process.env.PROD_APP_URL || 'https://restro-backend.imaker.in')
