@@ -31,13 +31,13 @@ const initializeSocket = (server) => {
     cors: socketCors,
     pingInterval: parseInt(process.env.WS_PING_INTERVAL, 10) || 25000,
     pingTimeout: parseInt(process.env.WS_PING_TIMEOUT, 10) || 60000,
-    transports: ['websocket', 'polling'], // Allow both transports
+    transports: ['websocket'], // WebSocket-only mode for Flutter compatibility
     allowEIO3: true,
     path: process.env.SOCKET_PATH || '/socket.io/',
     // Mobile app compatibility settings
     cookie: false, // Disable cookies - mobile apps use query params for session tracking
-    allowUpgrades: false, // Disable upgrade requirement - allow direct WebSocket
-    httpCompression: true, // Compress polling responses
+    allowUpgrades: false, // No upgrades needed in WebSocket-only mode
+    httpCompression: false, // Disable for WebSocket-only
     addTrailingSlash: false, // Some mobile HTTP clients don't handle trailing slashes well
     perMessageDeflate: false, // Disable compression for WebSocket (can cause issues with some clients)
   });
