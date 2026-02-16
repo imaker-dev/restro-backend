@@ -67,7 +67,11 @@ const initializeSocket = (server) => {
   // Log connection errors at engine level (before 'connection' event)
   io.engine.on('connection_error', (err) => {
     logger.error(`[Socket.IO Engine] connection_error: code=${err.code} message=${err.message} context=${JSON.stringify(err.context || {})}`);
-    logger.error(`[Socket.IO Engine] Error details: ${JSON.stringify(err)}`);
+    if (err.req) {
+      logger.error(`[Socket.IO Engine] Request URL: ${err.req.url}`);
+      logger.error(`[Socket.IO Engine] Request method: ${err.req.method}`);
+      logger.error(`[Socket.IO Engine] Request headers: ${JSON.stringify(err.req.headers || {})}`);
+    }
   });
 
   // Log handshake attempts
