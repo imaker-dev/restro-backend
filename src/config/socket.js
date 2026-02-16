@@ -58,9 +58,25 @@ const initializeSocket = (server) => {
     }
   }
 
+  // Log all incoming requests to Socket.IO
+  io.engine.on('initial_headers', (headers, req) => {
+    logger.debug(`[Socket.IO] Incoming request: ${req.method} ${req.url}`);
+    logger.debug(`[Socket.IO] Headers: ${JSON.stringify(req.headers)}`);
+  });
+
   // Log connection errors at engine level (before 'connection' event)
   io.engine.on('connection_error', (err) => {
     logger.error(`[Socket.IO Engine] connection_error: code=${err.code} message=${err.message} context=${JSON.stringify(err.context || {})}`);
+    logger.error(`[Socket.IO Engine] Error details: ${JSON.stringify(err)}`);
+  });
+
+  // Log handshake attempts
+  io.use((socket, next) => {
+    logger.info(`[Socket.IO] Handshake attempt from ${socket.handshake.address}`);
+    logger.info(`[Socket.IO] Query params: ${JSON.stringify(socket.handshake.query)}`);
+    logger.info(`[Socket.IO] Headers: ${JSON.stringify(socket.handshake.headers)}`);
+    logger.info(`[Socket.IO] Auth: ${JSON.stringify(socket.handshake.auth)}`);
+    next();
   });
 
   // Connection handler
