@@ -963,6 +963,354 @@ const paymentService = {
       currentBalance: balance[0]?.balance_after || 0,
       recentTransactions: transactions
     };
+  },
+
+  // ========================
+  // SHIFT HISTORY
+  // ========================
+
+  /**
+   * Get shift history with pagination, filtering, and full details
+   * @param {Object} params - Query parameters
+   * @returns {Object} - Paginated shift history with summary
+   */
+  async getShiftHistory(params) {
+    const pool = getPool();
+    const {
+      outletId,
+      userId = null,
+      startDate = null,
+      endDate = null,
+      status = null, // 'open', 'closed', 'all'
+      page = 1,
+      limit = 20,
+      sortBy = 'session_date',
+      sortOrder = 'DESC'
+    } = params;
+
+    const offset = (page - 1) * limit;
+    const conditions = ['ds.outlet_id = ?'];
+    const queryParams = [outletId];
+
+    // Filter by user (opened_by or closed_by)
+    if (userId) {
+      conditions.push('(ds.opened_by = ? OR ds.closed_by = ?)');
+      queryParams.push(userId, userId);
+    }
+
+    // Date range filter
+    if (startDate) {
+      conditions.push('ds.session_date >= ?');
+      queryParams.push(startDate);
+    }
+    if (endDate) {
+      conditions.push('ds.session_date <= ?');
+      queryParams.push(endDate);
+    }
+
+    // Status filter
+    if (status && status !== 'all') {
+      conditions.push('ds.status = ?');
+      queryParams.push(status);
+    }
+
+    const whereClause = conditions.join(' AND ');
+
+    // Validate sort columns
+    const allowedSortColumns = ['session_date', 'opening_time', 'closing_time', 'total_sales', 'total_orders', 'cash_variance'];
+    const safeSort = allowedSortColumns.includes(sortBy) ? sortBy : 'session_date';
+    const safeOrder = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    // Get total count
+    const [countResult] = await pool.query(
+      `SELECT COUNT(*) as total FROM day_sessions ds WHERE ${whereClause}`,
+      queryParams
+    );
+    const total = countResult[0].total;
+
+    // Get shifts with user details
+    const [shifts] = await pool.query(
+      `SELECT 
+        ds.*,
+        o.name as outlet_name,
+        opener.name as opened_by_name,
+        closer.name as closed_by_name
+       FROM day_sessions ds
+       LEFT JOIN outlets o ON ds.outlet_id = o.id
+       LEFT JOIN users opener ON ds.opened_by = opener.id
+       LEFT JOIN users closer ON ds.closed_by = closer.id
+       WHERE ${whereClause}
+       ORDER BY ds.${safeSort} ${safeOrder}
+       LIMIT ? OFFSET ?`,
+      [...queryParams, parseInt(limit), parseInt(offset)]
+    );
+
+    // Format shifts
+    const formattedShifts = shifts.map(shift => ({
+      id: shift.id,
+      outletId: shift.outlet_id,
+      outletName: shift.outlet_name,
+      sessionDate: shift.session_date,
+      openingTime: shift.opening_time,
+      closingTime: shift.closing_time,
+      openingCash: parseFloat(shift.opening_cash) || 0,
+      closingCash: parseFloat(shift.closing_cash) || 0,
+      expectedCash: parseFloat(shift.expected_cash) || 0,
+      cashVariance: parseFloat(shift.cash_variance) || 0,
+      totalSales: parseFloat(shift.total_sales) || 0,
+      totalOrders: shift.total_orders || 0,
+      totalCashSales: parseFloat(shift.total_cash_sales) || 0,
+      totalCardSales: parseFloat(shift.total_card_sales) || 0,
+      totalUpiSales: parseFloat(shift.total_upi_sales) || 0,
+      totalDiscounts: parseFloat(shift.total_discounts) || 0,
+      totalRefunds: parseFloat(shift.total_refunds) || 0,
+      totalCancellations: parseFloat(shift.total_cancellations) || 0,
+      status: shift.status,
+      openedBy: shift.opened_by,
+      openedByName: shift.opened_by_name,
+      closedBy: shift.closed_by,
+      closedByName: shift.closed_by_name,
+      varianceNotes: shift.variance_notes,
+      createdAt: shift.created_at,
+      updatedAt: shift.updated_at
+    }));
+
+    return {
+      shifts: formattedShifts,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        totalPages: Math.ceil(total / limit)
+      }
+    };
+  },
+
+  /**
+   * Get detailed shift by ID with all transactions
+   * @param {number} shiftId - Day session ID
+   * @returns {Object} - Detailed shift with transactions
+   */
+  async getShiftDetail(shiftId) {
+    const pool = getPool();
+
+    // Get shift details
+    const [shifts] = await pool.query(
+      `SELECT 
+        ds.*,
+        o.name as outlet_name,
+        opener.name as opened_by_name,
+        closer.name as closed_by_name
+       FROM day_sessions ds
+       LEFT JOIN outlets o ON ds.outlet_id = o.id
+       LEFT JOIN users opener ON ds.opened_by = opener.id
+       LEFT JOIN users closer ON ds.closed_by = closer.id
+       WHERE ds.id = ?`,
+      [shiftId]
+    );
+
+    if (!shifts[0]) {
+      throw new Error('Shift not found');
+    }
+
+    const shift = shifts[0];
+
+    // Get all cash drawer transactions for this shift
+    const [transactions] = await pool.query(
+      `SELECT 
+        cd.*,
+        u.name as user_name
+       FROM cash_drawer cd
+       LEFT JOIN users u ON cd.user_id = u.id
+       WHERE cd.outlet_id = ? AND DATE(cd.created_at) = ?
+       ORDER BY cd.created_at ASC`,
+      [shift.outlet_id, shift.session_date]
+    );
+
+    // Get payment breakdown for the shift
+    const [paymentBreakdown] = await pool.query(
+      `SELECT 
+        payment_mode,
+        COUNT(*) as count,
+        SUM(total_amount) as total
+       FROM payments
+       WHERE outlet_id = ? AND DATE(created_at) = ? AND status = 'completed'
+       GROUP BY payment_mode`,
+      [shift.outlet_id, shift.session_date]
+    );
+
+    // Get order statistics
+    const [orderStats] = await pool.query(
+      `SELECT 
+        COUNT(*) as total_orders,
+        SUM(CASE WHEN status = 'completed' OR status = 'paid' THEN 1 ELSE 0 END) as completed_orders,
+        SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_orders,
+        SUM(CASE WHEN order_type = 'dine_in' THEN 1 ELSE 0 END) as dine_in_orders,
+        SUM(CASE WHEN order_type = 'takeaway' THEN 1 ELSE 0 END) as takeaway_orders,
+        SUM(CASE WHEN order_type = 'delivery' THEN 1 ELSE 0 END) as delivery_orders,
+        AVG(total_amount) as avg_order_value,
+        MAX(total_amount) as max_order_value,
+        MIN(CASE WHEN total_amount > 0 THEN total_amount ELSE NULL END) as min_order_value
+       FROM orders
+       WHERE outlet_id = ? AND DATE(created_at) = ?`,
+      [shift.outlet_id, shift.session_date]
+    );
+
+    // Get staff who worked during this shift
+    const [staffActivity] = await pool.query(
+      `SELECT 
+        u.id as user_id,
+        u.name as user_name,
+        COUNT(DISTINCT o.id) as orders_handled,
+        SUM(o.total_amount) as total_sales
+       FROM orders o
+       JOIN users u ON o.created_by = u.id
+       WHERE o.outlet_id = ? AND DATE(o.created_at) = ?
+       GROUP BY u.id, u.name
+       ORDER BY total_sales DESC`,
+      [shift.outlet_id, shift.session_date]
+    );
+
+    // Format transactions
+    const formattedTransactions = transactions.map(tx => ({
+      id: tx.id,
+      type: tx.transaction_type,
+      amount: parseFloat(tx.amount) || 0,
+      balanceBefore: parseFloat(tx.balance_before) || 0,
+      balanceAfter: parseFloat(tx.balance_after) || 0,
+      referenceType: tx.reference_type,
+      referenceId: tx.reference_id,
+      description: tx.description,
+      notes: tx.notes,
+      userId: tx.user_id,
+      userName: tx.user_name,
+      createdAt: tx.created_at
+    }));
+
+    // Format payment breakdown
+    const formattedPayments = paymentBreakdown.map(p => ({
+      mode: p.payment_mode,
+      count: p.count,
+      total: parseFloat(p.total) || 0
+    }));
+
+    return {
+      id: shift.id,
+      outletId: shift.outlet_id,
+      outletName: shift.outlet_name,
+      sessionDate: shift.session_date,
+      openingTime: shift.opening_time,
+      closingTime: shift.closing_time,
+      openingCash: parseFloat(shift.opening_cash) || 0,
+      closingCash: parseFloat(shift.closing_cash) || 0,
+      expectedCash: parseFloat(shift.expected_cash) || 0,
+      cashVariance: parseFloat(shift.cash_variance) || 0,
+      totalSales: parseFloat(shift.total_sales) || 0,
+      totalOrders: shift.total_orders || 0,
+      totalCashSales: parseFloat(shift.total_cash_sales) || 0,
+      totalCardSales: parseFloat(shift.total_card_sales) || 0,
+      totalUpiSales: parseFloat(shift.total_upi_sales) || 0,
+      totalDiscounts: parseFloat(shift.total_discounts) || 0,
+      totalRefunds: parseFloat(shift.total_refunds) || 0,
+      totalCancellations: parseFloat(shift.total_cancellations) || 0,
+      status: shift.status,
+      openedBy: shift.opened_by,
+      openedByName: shift.opened_by_name,
+      closedBy: shift.closed_by,
+      closedByName: shift.closed_by_name,
+      varianceNotes: shift.variance_notes,
+      transactions: formattedTransactions,
+      paymentBreakdown: formattedPayments,
+      orderStats: {
+        totalOrders: orderStats[0]?.total_orders || 0,
+        completedOrders: orderStats[0]?.completed_orders || 0,
+        cancelledOrders: orderStats[0]?.cancelled_orders || 0,
+        dineInOrders: orderStats[0]?.dine_in_orders || 0,
+        takeawayOrders: orderStats[0]?.takeaway_orders || 0,
+        deliveryOrders: orderStats[0]?.delivery_orders || 0,
+        avgOrderValue: parseFloat(orderStats[0]?.avg_order_value) || 0,
+        maxOrderValue: parseFloat(orderStats[0]?.max_order_value) || 0,
+        minOrderValue: parseFloat(orderStats[0]?.min_order_value) || 0
+      },
+      staffActivity: staffActivity.map(s => ({
+        userId: s.user_id,
+        userName: s.user_name,
+        ordersHandled: s.orders_handled,
+        totalSales: parseFloat(s.total_sales) || 0
+      })),
+      createdAt: shift.created_at,
+      updatedAt: shift.updated_at
+    };
+  },
+
+  /**
+   * Get shift summary statistics across date range
+   * @param {Object} params - Query parameters
+   * @returns {Object} - Summary statistics
+   */
+  async getShiftSummary(params) {
+    const pool = getPool();
+    const {
+      outletId,
+      startDate = null,
+      endDate = null
+    } = params;
+
+    const conditions = ['outlet_id = ?'];
+    const queryParams = [outletId];
+
+    if (startDate) {
+      conditions.push('session_date >= ?');
+      queryParams.push(startDate);
+    }
+    if (endDate) {
+      conditions.push('session_date <= ?');
+      queryParams.push(endDate);
+    }
+
+    const whereClause = conditions.join(' AND ');
+
+    const [summary] = await pool.query(
+      `SELECT 
+        COUNT(*) as total_shifts,
+        SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) as closed_shifts,
+        SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) as open_shifts,
+        SUM(total_sales) as total_sales,
+        SUM(total_orders) as total_orders,
+        SUM(total_cash_sales) as total_cash_sales,
+        SUM(total_card_sales) as total_card_sales,
+        SUM(total_upi_sales) as total_upi_sales,
+        SUM(total_discounts) as total_discounts,
+        SUM(total_refunds) as total_refunds,
+        SUM(total_cancellations) as total_cancellations,
+        SUM(cash_variance) as total_variance,
+        AVG(total_sales) as avg_daily_sales,
+        AVG(total_orders) as avg_daily_orders,
+        MAX(total_sales) as max_daily_sales,
+        MIN(CASE WHEN total_sales > 0 THEN total_sales ELSE NULL END) as min_daily_sales
+       FROM day_sessions
+       WHERE ${whereClause}`,
+      queryParams
+    );
+
+    return {
+      totalShifts: summary[0]?.total_shifts || 0,
+      closedShifts: summary[0]?.closed_shifts || 0,
+      openShifts: summary[0]?.open_shifts || 0,
+      totalSales: parseFloat(summary[0]?.total_sales) || 0,
+      totalOrders: summary[0]?.total_orders || 0,
+      totalCashSales: parseFloat(summary[0]?.total_cash_sales) || 0,
+      totalCardSales: parseFloat(summary[0]?.total_card_sales) || 0,
+      totalUpiSales: parseFloat(summary[0]?.total_upi_sales) || 0,
+      totalDiscounts: parseFloat(summary[0]?.total_discounts) || 0,
+      totalRefunds: parseFloat(summary[0]?.total_refunds) || 0,
+      totalCancellations: parseFloat(summary[0]?.total_cancellations) || 0,
+      totalVariance: parseFloat(summary[0]?.total_variance) || 0,
+      avgDailySales: parseFloat(summary[0]?.avg_daily_sales) || 0,
+      avgDailyOrders: parseFloat(summary[0]?.avg_daily_orders) || 0,
+      maxDailySales: parseFloat(summary[0]?.max_daily_sales) || 0,
+      minDailySales: parseFloat(summary[0]?.min_daily_sales) || 0
+    };
   }
 };
 

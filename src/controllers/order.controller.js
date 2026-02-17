@@ -1179,6 +1179,162 @@ const orderController = {
       logger.error('Get captain order stats error:', error);
       res.status(500).json({ success: false, message: error.message });
     }
+  },
+
+  // ========================
+  // SHIFT HISTORY (CASHIER)
+  // ========================
+
+  /**
+   * Get shift history with pagination and filters
+   * GET /api/v1/orders/shifts/:outletId/history
+   */
+  async getShiftHistory(req, res) {
+    try {
+      const { outletId } = req.params;
+      const {
+        userId,
+        startDate,
+        endDate,
+        status,
+        page = 1,
+        limit = 20,
+        sortBy = 'session_date',
+        sortOrder = 'DESC'
+      } = req.query;
+
+      const result = await paymentService.getShiftHistory({
+        outletId,
+        userId: userId || null,
+        startDate: startDate || null,
+        endDate: endDate || null,
+        status: status || null,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        sortBy,
+        sortOrder
+      });
+
+      res.json({ success: true, data: result });
+    } catch (error) {
+      logger.error('Get shift history error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
+   * Get detailed shift information
+   * GET /api/v1/orders/shifts/:shiftId/detail
+   */
+  async getShiftDetail(req, res) {
+    try {
+      const { shiftId } = req.params;
+      const shift = await paymentService.getShiftDetail(shiftId);
+      res.json({ success: true, data: shift });
+    } catch (error) {
+      logger.error('Get shift detail error:', error);
+      if (error.message === 'Shift not found') {
+        return res.status(404).json({ success: false, message: error.message });
+      }
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
+   * Get shift summary statistics
+   * GET /api/v1/orders/shifts/:outletId/summary
+   */
+  async getShiftSummary(req, res) {
+    try {
+      const { outletId } = req.params;
+      const { startDate, endDate } = req.query;
+
+      const summary = await paymentService.getShiftSummary({
+        outletId,
+        startDate: startDate || null,
+        endDate: endDate || null
+      });
+
+      res.json({ success: true, data: summary });
+    } catch (error) {
+      logger.error('Get shift summary error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  // ========================
+  // ADMIN ORDER MANAGEMENT
+  // ========================
+
+  /**
+   * Get all orders for admin with filters, pagination, sorting
+   * GET /api/v1/orders/admin/list
+   */
+  async getAdminOrderList(req, res) {
+    try {
+      const {
+        outletId,
+        status,
+        orderType,
+        paymentStatus,
+        startDate,
+        endDate,
+        search,
+        captainId,
+        cashierId,
+        tableId,
+        floorId,
+        minAmount,
+        maxAmount,
+        page = 1,
+        limit = 20,
+        sortBy = 'created_at',
+        sortOrder = 'DESC'
+      } = req.query;
+
+      const result = await orderService.getAdminOrderList({
+        outletId: outletId || null,
+        status: status || null,
+        orderType: orderType || null,
+        paymentStatus: paymentStatus || null,
+        startDate: startDate || null,
+        endDate: endDate || null,
+        search: search || null,
+        captainId: captainId || null,
+        cashierId: cashierId || null,
+        tableId: tableId || null,
+        floorId: floorId || null,
+        minAmount: minAmount ? parseFloat(minAmount) : null,
+        maxAmount: maxAmount ? parseFloat(maxAmount) : null,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        sortBy,
+        sortOrder
+      });
+
+      res.json({ success: true, data: result });
+    } catch (error) {
+      logger.error('Get admin order list error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
+   * Get comprehensive order details for admin
+   * GET /api/v1/orders/admin/detail/:orderId
+   */
+  async getAdminOrderDetail(req, res) {
+    try {
+      const { orderId } = req.params;
+      const order = await orderService.getAdminOrderDetail(orderId);
+      res.json({ success: true, data: order });
+    } catch (error) {
+      logger.error('Get admin order detail error:', error);
+      if (error.message === 'Order not found') {
+        return res.status(404).json({ success: false, message: error.message });
+      }
+      res.status(500).json({ success: false, message: error.message });
+    }
   }
 };
 
