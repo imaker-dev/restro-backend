@@ -41,6 +41,11 @@ const initializeSocket = (server) => {
     addTrailingSlash: false, // Some mobile HTTP clients don't handle trailing slashes well
   });
 
+  // Log Socket.IO initialization
+  const port = server.address()?.port || process.env.PORT || process.env.PROD_PORT || 'unknown';
+  logger.info(`Socket.IO server initialized on port ${port} at path ${process.env.SOCKET_PATH || '/socket.io/'}`);
+  logger.info(`Socket.IO transports: ${['websocket', 'polling'].join(', ')}`);
+
   // Attach Redis adapter for PM2 cluster mode session sharing
   if (isRedisAvailable()) {
     try {
