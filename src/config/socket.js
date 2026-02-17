@@ -33,7 +33,7 @@ const initializeSocket = (server) => {
     pingTimeout: parseInt(process.env.WS_PING_TIMEOUT, 10) || 60000,
     transports: ['websocket', 'polling'], // WebSocket-only mode for Flutter compatibility
     allowEIO3: true,
-    path: process.env.SOCKET_PATH || '/socket.io/',
+    path: process.env.SOCKET_PATH || '/socket.io',
     // Mobile app compatibility settings
     cookie: false, // Disable cookies - mobile apps use query params for session tracking
     allowUpgrades: false, // No upgrades needed in WebSocket-only mode
