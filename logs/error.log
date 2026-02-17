@@ -8032,3 +8032,7 @@ Error: FUNCTION restro.JSON_ARRAYAGG does not exist
     at E:\restro-backend\node_modules\express\lib\router\index.js:284:15
     at param (E:\restro-backend\node_modules\express\lib\router\index.js:365:14)
     at param (E:\restro-backend\node_modules\express\lib\router\index.js:376:14)
+2026-02-17 10:34:36 [ERROR]: Failed to start server: {"code":"ECONNREFUSED","fatal":true}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)

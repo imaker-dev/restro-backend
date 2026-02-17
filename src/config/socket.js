@@ -31,9 +31,9 @@ const initializeSocket = (server) => {
     cors: socketCors,
     pingInterval: parseInt(process.env.WS_PING_INTERVAL, 10) || 25000,
     pingTimeout: parseInt(process.env.WS_PING_TIMEOUT, 10) || 60000,
-    transports: ['websocket', 'polling'],
+    transports: ['polling', 'websocket'],
     allowEIO3: true,
-    path: process.env.SOCKET_PATH || '/socket.io/',
+    path: '/socket.io/',
     // Mobile app compatibility settings
     cookie: false, // Disable cookies - mobile apps use query params for session tracking
     allowUpgrades: true, // Allow transport upgrade from polling to websocket
