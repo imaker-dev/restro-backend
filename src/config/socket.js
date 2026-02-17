@@ -18,6 +18,8 @@ const initializeSocket = (server) => {
       if (!origin) return callback(null, true);
       // In development, allow all
       if (process.env.NODE_ENV !== 'production') return callback(null, true);
+      // Always allow localhost origins for development/testing
+      if (origin.includes('localhost') || origin.includes('127.0.0.1')) return callback(null, true);
       // In production, check against allowed origins
       if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
         return callback(null, true);
