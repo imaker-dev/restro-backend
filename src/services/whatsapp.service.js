@@ -244,7 +244,9 @@ const sendBillingPDFTemplate = async (to, invoice, outlet = {}, templateName = '
       parameters: [
         { type: 'text', text: invoice.customerName || 'Customer' },
         { type: 'text', text: invoice.invoiceNumber || '' },
+        { type: 'text', text: outlet.name || 'Restaurant' },
         { type: 'text', text: `₹${parseFloat(invoice.grandTotal).toFixed(2)}` },
+        { type: 'text', text: invoice.paymentStatus === 'paid' ? 'Paid' : 'Pending' },
       ],
     },
   ];
