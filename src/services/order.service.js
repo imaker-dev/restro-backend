@@ -1955,7 +1955,7 @@ const orderService = {
         inv.grand_total as invoice_total,
         inv.payment_status as invoice_payment_status,
         (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,
-        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,
+        (SELECT COUNT(*) FROM kot_items WHERE order_id = o.id) as kot_count,
         (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount
        FROM orders o
        LEFT JOIN outlets outlet ON o.outlet_id = outlet.id

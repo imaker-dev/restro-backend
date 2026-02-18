@@ -12,6 +12,7 @@ const orderService = require('./order.service');
 const tableService = require('./table.service');
 const billingService = require('./billing.service');
 const kotService = require('./kot.service');
+const whatsappService = require('./whatsapp.service');
 
 const PAYMENT_MODES = {
   CASH: 'cash',
@@ -375,6 +376,13 @@ const paymentService = {
       }
     }
 
+    // Send WhatsApp bill to customer on full payment completion
+    if (paymentStatus === 'completed') {
+      this.sendWhatsAppBillOnCompletion(invoiceId, outletId).catch(err =>
+        logger.warn('WhatsApp bill send failed (non-critical):', err.message)
+      );
+    }
+
     // Build detailed response for all scenarios
     return this.buildPaymentResponse(payment, orderId, invoiceId, orderStatus, paymentStatus, tableId);
   },
@@ -557,6 +565,11 @@ const paymentService = {
         logger.error('Failed to emit KOT served events:', err.message);
       }
 
+      // Send WhatsApp bill to customer on split payment completion
+      this.sendWhatsAppBillOnCompletion(invoiceId, outletId).catch(err =>
+        logger.warn('WhatsApp bill send failed (non-critical):', err.message)
+      );
+
       return this.buildPaymentResponse(payment, orderId, invoiceId, 'completed', 'completed', order.table_id);
     } catch (error) {
       await connection.rollback();
@@ -564,6 +577,44 @@ const paymentService = {
     } finally {
       connection.release();
     }
+  },
+
+  // ========================
+  // WHATSAPP NOTIFICATION
+  // ========================
+
+  /**
+   * Fetch invoice + outlet info and send WhatsApp bill template to customer.
+   * Silently skips if customer has no phone or WhatsApp is not configured.
+   */
+  async sendWhatsAppBillOnCompletion(invoiceId, outletId) {
+    if (!invoiceId) return;
+    if (!process.env.WHATSAPP_PHONE_NUMBER_ID || !process.env.WHATSAPP_ACCESS_TOKEN) return;
+
+    const pool = getPool();
+
+    const invoice = await billingService.getInvoiceById(invoiceId);
+    if (!invoice) return;
+
+    const phone = invoice.customerPhone;
+    if (!phone) return;
+
+    const [outletRows] = await pool.query(
+      `SELECT name, CONCAT_WS(', ', NULLIF(address_line1,''), NULLIF(city,''), NULLIF(state,'')) as address, phone
+       FROM outlets WHERE id = ?`,
+      [outletId]
+    );
+    const outlet = outletRows[0] || {};
+
+    await whatsappService.sendBillingPDFTemplate(
+      phone,
+      invoice,
+      outlet,
+      process.env.WHATSAPP_INVOICE_TEMPLATE || 'send_invoice',
+      process.env.WHATSAPP_TEMPLATE_LANG || 'en'
+    );
+
+    logger.info(`WhatsApp invoice sent to ${phone} for invoice ${invoice.invoiceNumber}`);
   },
 
   // ========================
