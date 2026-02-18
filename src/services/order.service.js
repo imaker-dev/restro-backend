@@ -1796,6 +1796,661 @@ const orderService = {
       [outletId, type]
     );
     return reasons;
+  },
+
+  // ========================
+  // ADMIN ORDER LISTING
+  // ========================
+
+  /**
+   * Get all orders for admin with comprehensive filters, pagination, and sorting
+   * @param {Object} params - Query parameters
+   * @returns {Object} - Paginated orders with summary
+   */
+  async getAdminOrderList(params) {
+    const pool = getPool();
+    const {
+      outletId = null,
+      status = null, // 'pending', 'confirmed', 'preparing', 'ready', 'served', 'billed', 'paid', 'completed', 'cancelled', 'all'
+      orderType = null, // 'dine_in', 'takeaway', 'delivery', 'all'
+      paymentStatus = null, // 'pending', 'partial', 'completed', 'all'
+      startDate = null,
+      endDate = null,
+      search = null, // Search by order number, table number, customer name/phone
+      captainId = null,
+      cashierId = null,
+      tableId = null,
+      floorId = null,
+      minAmount = null,
+      maxAmount = null,
+      page = 1,
+      limit = 20,
+      sortBy = 'created_at',
+      sortOrder = 'DESC'
+    } = params;
+
+    const offset = (page - 1) * limit;
+    const conditions = [];
+    const queryParams = [];
+
+    // Outlet filter
+    if (outletId) {
+      conditions.push('o.outlet_id = ?');
+      queryParams.push(outletId);
+    }
+
+    // Status filter
+    if (status && status !== 'all') {
+      conditions.push('o.status = ?');
+      queryParams.push(status);
+    }
+
+    // Order type filter
+    if (orderType && orderType !== 'all') {
+      conditions.push('o.order_type = ?');
+      queryParams.push(orderType);
+    }
+
+    // Payment status filter
+    if (paymentStatus && paymentStatus !== 'all') {
+      conditions.push('o.payment_status = ?');
+      queryParams.push(paymentStatus);
+    }
+
+    // Date range filter
+    if (startDate) {
+      conditions.push('DATE(o.created_at) >= ?');
+      queryParams.push(startDate);
+    }
+    if (endDate) {
+      conditions.push('DATE(o.created_at) <= ?');
+      queryParams.push(endDate);
+    }
+
+    // Captain filter
+    if (captainId) {
+      conditions.push('o.created_by = ?');
+      queryParams.push(captainId);
+    }
+
+    // Cashier filter (who processed payment)
+    if (cashierId) {
+      conditions.push('EXISTS (SELECT 1 FROM payments p WHERE p.order_id = o.id AND p.received_by = ?)');
+      queryParams.push(cashierId);
+    }
+
+    // Table filter
+    if (tableId) {
+      conditions.push('o.table_id = ?');
+      queryParams.push(tableId);
+    }
+
+    // Floor filter
+    if (floorId) {
+      conditions.push('t.floor_id = ?');
+      queryParams.push(floorId);
+    }
+
+    // Amount range filter
+    if (minAmount) {
+      conditions.push('o.total_amount >= ?');
+      queryParams.push(minAmount);
+    }
+    if (maxAmount) {
+      conditions.push('o.total_amount <= ?');
+      queryParams.push(maxAmount);
+    }
+
+    // Search filter
+    if (search) {
+      conditions.push(`(
+        o.order_number LIKE ? OR 
+        t.table_number LIKE ? OR 
+        o.customer_name LIKE ? OR 
+        o.customer_phone LIKE ? OR
+        inv.invoice_number LIKE ?
+      )`);
+      const searchPattern = `%${search}%`;
+      queryParams.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    // Validate sort columns
+    const allowedSortColumns = ['created_at', 'order_number', 'total_amount', 'status', 'order_type', 'table_number'];
+    const sortColumnMap = {
+      'created_at': 'o.created_at',
+      'order_number': 'o.order_number',
+      'total_amount': 'o.total_amount',
+      'status': 'o.status',
+      'order_type': 'o.order_type',
+      'table_number': 't.table_number'
+    };
+    const safeSort = allowedSortColumns.includes(sortBy) ? sortColumnMap[sortBy] : 'o.created_at';
+    const safeOrder = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    // Get total count
+    const [countResult] = await pool.query(
+      `SELECT COUNT(DISTINCT o.id) as total 
+       FROM orders o
+       LEFT JOIN tables t ON o.table_id = t.id
+       LEFT JOIN invoices inv ON o.id = inv.order_id
+       ${whereClause}`,
+      queryParams
+    );
+    const total = countResult[0].total;
+
+    // Get orders with all related data
+    const [orders] = await pool.query(
+      `SELECT 
+        o.*,
+        out.name as outlet_name,
+        t.table_number,
+        t.name as table_name,
+        f.name as floor_name,
+        s.name as section_name,
+        captain.name as captain_name,
+        inv.id as invoice_id,
+        inv.invoice_number,
+        inv.grand_total as invoice_total,
+        inv.payment_status as invoice_payment_status,
+        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,
+        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,
+        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount
+       FROM orders o
+       LEFT JOIN outlets out ON o.outlet_id = out.id
+       LEFT JOIN tables t ON o.table_id = t.id
+       LEFT JOIN floors f ON t.floor_id = f.id
+       LEFT JOIN sections s ON t.section_id = s.id
+       LEFT JOIN users captain ON o.created_by = captain.id
+       LEFT JOIN invoices inv ON o.id = inv.order_id
+       ${whereClause}
+       GROUP BY o.id
+       ORDER BY ${safeSort} ${safeOrder}
+       LIMIT ? OFFSET ?`,
+      [...queryParams, parseInt(limit), parseInt(offset)]
+    );
+
+    // Format orders
+    const formattedOrders = orders.map(order => ({
+      id: order.id,
+      uuid: order.uuid,
+      orderNumber: order.order_number,
+      outletId: order.outlet_id,
+      outletName: order.outlet_name,
+      orderType: order.order_type,
+      status: order.status,
+      paymentStatus: order.payment_status,
+      tableId: order.table_id,
+      tableNumber: order.table_number,
+      tableName: order.table_name,
+      floorName: order.floor_name,
+      sectionName: order.section_name,
+      customerName: order.customer_name,
+      customerPhone: order.customer_phone,
+      numberOfGuests: order.number_of_guests,
+      subtotal: parseFloat(order.subtotal) || 0,
+      discountAmount: parseFloat(order.discount_amount) || 0,
+      taxAmount: parseFloat(order.tax_amount) || 0,
+      serviceCharge: parseFloat(order.service_charge) || 0,
+      totalAmount: parseFloat(order.total_amount) || 0,
+      paidAmount: parseFloat(order.paid_amount) || 0,
+      captainId: order.created_by,
+      captainName: order.captain_name,
+      invoiceId: order.invoice_id,
+      invoiceNumber: order.invoice_number,
+      invoiceTotal: parseFloat(order.invoice_total) || 0,
+      invoicePaymentStatus: order.invoice_payment_status,
+      itemCount: order.item_count || 0,
+      kotCount: order.kot_count || 0,
+      specialInstructions: order.special_instructions,
+      createdAt: order.created_at,
+      updatedAt: order.updated_at
+    }));
+
+    // Get summary statistics for the filtered results
+    const [summaryResult] = await pool.query(
+      `SELECT 
+        COUNT(DISTINCT o.id) as total_orders,
+        SUM(o.total_amount) as total_amount,
+        SUM(CASE WHEN o.status = 'completed' OR o.status = 'paid' THEN o.total_amount ELSE 0 END) as completed_amount,
+        SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_count,
+        SUM(CASE WHEN o.order_type = 'dine_in' THEN 1 ELSE 0 END) as dine_in_count,
+        SUM(CASE WHEN o.order_type = 'takeaway' THEN 1 ELSE 0 END) as takeaway_count,
+        SUM(CASE WHEN o.order_type = 'delivery' THEN 1 ELSE 0 END) as delivery_count,
+        AVG(o.total_amount) as avg_order_value
+       FROM orders o
+       LEFT JOIN tables t ON o.table_id = t.id
+       LEFT JOIN invoices inv ON o.id = inv.order_id
+       ${whereClause}`,
+      queryParams
+    );
+
+    return {
+      orders: formattedOrders,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        totalPages: Math.ceil(total / limit)
+      },
+      summary: {
+        totalOrders: summaryResult[0]?.total_orders || 0,
+        totalAmount: parseFloat(summaryResult[0]?.total_amount) || 0,
+        completedAmount: parseFloat(summaryResult[0]?.completed_amount) || 0,
+        cancelledCount: summaryResult[0]?.cancelled_count || 0,
+        dineInCount: summaryResult[0]?.dine_in_count || 0,
+        takeawayCount: summaryResult[0]?.takeaway_count || 0,
+        deliveryCount: summaryResult[0]?.delivery_count || 0,
+        avgOrderValue: parseFloat(summaryResult[0]?.avg_order_value) || 0
+      }
+    };
+  },
+
+  /**
+   * Get comprehensive order details for admin view
+   * @param {number} orderId - Order ID
+   * @returns {Object} - Complete order details
+   */
+  async getAdminOrderDetail(orderId) {
+    const pool = getPool();
+
+    // Get order with all related data
+    const [orders] = await pool.query(
+      `SELECT 
+        o.*,
+        out.name as outlet_name,
+        out.address_line1 as outlet_address,
+        out.city as outlet_city,
+        out.phone as outlet_phone,
+        out.gstin as outlet_gstin,
+        t.table_number,
+        t.name as table_name,
+        t.capacity as table_capacity,
+        f.name as floor_name,
+        s.name as section_name,
+        s.section_type,
+        captain.name as captain_name,
+        captain.email as captain_email,
+        captain.phone as captain_phone,
+        ts.id as session_id,
+        ts.started_at as session_started_at,
+        ts.ended_at as session_ended_at
+       FROM orders o
+       LEFT JOIN outlets out ON o.outlet_id = out.id
+       LEFT JOIN tables t ON o.table_id = t.id
+       LEFT JOIN floors f ON t.floor_id = f.id
+       LEFT JOIN sections s ON t.section_id = s.id
+       LEFT JOIN users captain ON o.created_by = captain.id
+       LEFT JOIN table_sessions ts ON o.table_session_id = ts.id
+       WHERE o.id = ?`,
+      [orderId]
+    );
+
+    if (!orders[0]) {
+      throw new Error('Order not found');
+    }
+
+    const order = orders[0];
+
+    // Get order items with full details
+    const [items] = await pool.query(
+      `SELECT 
+        oi.*,
+        mi.name as item_name,
+        mi.short_code,
+        mi.image_url,
+        c.name as category_name,
+        v.name as variant_name,
+        oi.addons as addons_json
+       FROM order_items oi
+       LEFT JOIN menu_items mi ON oi.menu_item_id = mi.id
+       LEFT JOIN categories c ON mi.category_id = c.id
+       LEFT JOIN menu_item_variants v ON oi.variant_id = v.id
+       WHERE oi.order_id = ?
+       ORDER BY oi.created_at`,
+      [orderId]
+    );
+
+    // Get KOTs
+    const [kots] = await pool.query(
+      `SELECT 
+        k.*,
+        u.name as created_by_name,
+        (SELECT COUNT(*) FROM kot_items WHERE kot_id = k.id) as item_count
+       FROM kots k
+       LEFT JOIN users u ON k.created_by = u.id
+       WHERE k.order_id = ?
+       ORDER BY k.created_at`,
+      [orderId]
+    );
+
+    // Get KOT items for each KOT
+    for (const kot of kots) {
+      const [kotItems] = await pool.query(
+        `SELECT 
+          ki.*,
+          mi.name as item_name
+         FROM kot_items ki
+         LEFT JOIN menu_items mi ON ki.menu_item_id = mi.id
+         WHERE ki.kot_id = ?`,
+        [kot.id]
+      );
+      kot.items = kotItems;
+    }
+
+    // Get invoice
+    const [invoices] = await pool.query(
+      `SELECT 
+        inv.*,
+        u.name as generated_by_name,
+        cu.name as cancelled_by_name
+       FROM invoices inv
+       LEFT JOIN users u ON inv.generated_by = u.id
+       LEFT JOIN users cu ON inv.cancelled_by = cu.id
+       WHERE inv.order_id = ?`,
+      [orderId]
+    );
+
+    // Get payments
+    const [payments] = await pool.query(
+      `SELECT 
+        p.*,
+        u.name as received_by_name,
+        vu.name as verified_by_name
+       FROM payments p
+       LEFT JOIN users u ON p.received_by = u.id
+       LEFT JOIN users vu ON p.verified_by = vu.id
+       WHERE p.order_id = ?
+       ORDER BY p.created_at`,
+      [orderId]
+    );
+
+    // Get split payments for each payment
+    for (const payment of payments) {
+      if (payment.payment_mode === 'split') {
+        const [splits] = await pool.query(
+          `SELECT * FROM split_payments WHERE payment_id = ?`,
+          [payment.id]
+        );
+        payment.splits = splits;
+      }
+    }
+
+    // Get discounts applied
+    const [discounts] = await pool.query(
+      `SELECT 
+        od.*,
+        d.name as discount_name,
+        d.code as discount_code,
+        au.name as approved_by_name,
+        cu.name as created_by_name
+       FROM order_discounts od
+       LEFT JOIN discounts d ON od.discount_id = d.id
+       LEFT JOIN users au ON od.approved_by = au.id
+       LEFT JOIN users cu ON od.created_by = cu.id
+       WHERE od.order_id = ?`,
+      [orderId]
+    );
+
+    // Get order timeline/logs
+    const [logs] = await pool.query(
+      `SELECT 
+        ol.*,
+        u.name as performed_by_name
+       FROM order_logs ol
+       LEFT JOIN users u ON ol.performed_by = u.id
+       WHERE ol.order_id = ?
+       ORDER BY ol.created_at`,
+      [orderId]
+    );
+
+    // Get cancellations
+    const [cancellations] = await pool.query(
+      `SELECT 
+        cl.*,
+        u.name as cancelled_by_name,
+        au.name as approved_by_name,
+        mi.name as item_name
+       FROM cancellation_logs cl
+       LEFT JOIN users u ON cl.cancelled_by = u.id
+       LEFT JOIN users au ON cl.approved_by = au.id
+       LEFT JOIN menu_items mi ON cl.menu_item_id = mi.id
+       WHERE cl.order_id = ?
+       ORDER BY cl.created_at`,
+      [orderId]
+    );
+
+    // Format items
+    const formattedItems = items.map(item => {
+      let addons = [];
+      try {
+        addons = item.addons_json ? JSON.parse(item.addons_json) : [];
+      } catch (e) {
+        addons = [];
+      }
+
+      return {
+        id: item.id,
+        menuItemId: item.menu_item_id,
+        itemName: item.item_name,
+        shortCode: item.short_code,
+        imageUrl: prefixImageUrl(item.image_url),
+        categoryName: item.category_name,
+        variantId: item.variant_id,
+        variantName: item.variant_name,
+        quantity: item.quantity,
+        unitPrice: parseFloat(item.unit_price) || 0,
+        totalPrice: parseFloat(item.total_price) || 0,
+        discountAmount: parseFloat(item.discount_amount) || 0,
+        taxAmount: parseFloat(item.tax_amount) || 0,
+        status: item.status,
+        kotStatus: item.kot_status,
+        specialInstructions: item.special_instructions,
+        addons,
+        isCancelled: item.is_cancelled === 1,
+        cancelReason: item.cancel_reason,
+        createdAt: item.created_at
+      };
+    });
+
+    // Format KOTs
+    const formattedKots = kots.map(kot => ({
+      id: kot.id,
+      kotNumber: kot.kot_number,
+      station: kot.station,
+      status: kot.status,
+      itemCount: kot.item_count,
+      createdBy: kot.created_by,
+      createdByName: kot.created_by_name,
+      printedAt: kot.printed_at,
+      acceptedAt: kot.accepted_at,
+      preparingAt: kot.preparing_at,
+      readyAt: kot.ready_at,
+      servedAt: kot.served_at,
+      createdAt: kot.created_at,
+      items: kot.items?.map(ki => ({
+        id: ki.id,
+        menuItemId: ki.menu_item_id,
+        itemName: ki.item_name,
+        quantity: ki.quantity,
+        status: ki.status,
+        specialInstructions: ki.special_instructions
+      })) || []
+    }));
+
+    // Format invoice
+    const invoice = invoices[0] ? {
+      id: invoices[0].id,
+      uuid: invoices[0].uuid,
+      invoiceNumber: invoices[0].invoice_number,
+      invoiceDate: invoices[0].invoice_date,
+      invoiceTime: invoices[0].invoice_time,
+      customerName: invoices[0].customer_name,
+      customerPhone: invoices[0].customer_phone,
+      customerEmail: invoices[0].customer_email,
+      customerGstin: invoices[0].customer_gstin,
+      subtotal: parseFloat(invoices[0].subtotal) || 0,
+      discountAmount: parseFloat(invoices[0].discount_amount) || 0,
+      taxableAmount: parseFloat(invoices[0].taxable_amount) || 0,
+      cgstAmount: parseFloat(invoices[0].cgst_amount) || 0,
+      sgstAmount: parseFloat(invoices[0].sgst_amount) || 0,
+      totalTax: parseFloat(invoices[0].total_tax) || 0,
+      serviceCharge: parseFloat(invoices[0].service_charge) || 0,
+      roundOff: parseFloat(invoices[0].round_off) || 0,
+      grandTotal: parseFloat(invoices[0].grand_total) || 0,
+      paymentStatus: invoices[0].payment_status,
+      isCancelled: invoices[0].is_cancelled === 1,
+      cancelledAt: invoices[0].cancelled_at,
+      cancelledByName: invoices[0].cancelled_by_name,
+      cancelReason: invoices[0].cancel_reason,
+      generatedBy: invoices[0].generated_by,
+      generatedByName: invoices[0].generated_by_name,
+      createdAt: invoices[0].created_at
+    } : null;
+
+    // Format payments
+    const formattedPayments = payments.map(p => ({
+      id: p.id,
+      uuid: p.uuid,
+      paymentNumber: p.payment_number,
+      paymentMode: p.payment_mode,
+      amount: parseFloat(p.amount) || 0,
+      tipAmount: parseFloat(p.tip_amount) || 0,
+      totalAmount: parseFloat(p.total_amount) || 0,
+      status: p.status,
+      transactionId: p.transaction_id,
+      referenceNumber: p.reference_number,
+      cardLastFour: p.card_last_four,
+      cardType: p.card_type,
+      upiId: p.upi_id,
+      notes: p.notes,
+      receivedBy: p.received_by,
+      receivedByName: p.received_by_name,
+      verifiedBy: p.verified_by,
+      verifiedByName: p.verified_by_name,
+      refundAmount: parseFloat(p.refund_amount) || 0,
+      refundedAt: p.refunded_at,
+      refundReason: p.refund_reason,
+      createdAt: p.created_at,
+      splits: p.splits?.map(s => ({
+        id: s.id,
+        paymentMode: s.payment_mode,
+        amount: parseFloat(s.amount) || 0,
+        transactionId: s.transaction_id,
+        referenceNumber: s.reference_number
+      })) || []
+    }));
+
+    // Format discounts
+    const formattedDiscounts = discounts.map(d => ({
+      id: d.id,
+      discountId: d.discount_id,
+      discountCode: d.discount_code,
+      discountName: d.discount_name,
+      discountType: d.discount_type,
+      discountValue: parseFloat(d.discount_value) || 0,
+      discountAmount: parseFloat(d.discount_amount) || 0,
+      appliedOn: d.applied_on,
+      approvedBy: d.approved_by,
+      approvedByName: d.approved_by_name,
+      approvalReason: d.approval_reason,
+      createdBy: d.created_by,
+      createdByName: d.created_by_name,
+      createdAt: d.created_at
+    }));
+
+    // Format timeline
+    const timeline = logs.map(l => ({
+      id: l.id,
+      action: l.action,
+      description: l.description,
+      oldValue: l.old_value,
+      newValue: l.new_value,
+      performedBy: l.performed_by,
+      performedByName: l.performed_by_name,
+      createdAt: l.created_at
+    }));
+
+    // Format cancellations
+    const formattedCancellations = cancellations.map(c => ({
+      id: c.id,
+      cancelType: c.cancel_type,
+      menuItemId: c.menu_item_id,
+      itemName: c.item_name,
+      quantity: c.quantity,
+      amount: parseFloat(c.amount) || 0,
+      reason: c.reason,
+      cancelledBy: c.cancelled_by,
+      cancelledByName: c.cancelled_by_name,
+      approvedBy: c.approved_by,
+      approvedByName: c.approved_by_name,
+      createdAt: c.created_at
+    }));
+
+    return {
+      id: order.id,
+      uuid: order.uuid,
+      orderNumber: order.order_number,
+      outletId: order.outlet_id,
+      outletName: order.outlet_name,
+      outletAddress: order.outlet_address,
+      outletCity: order.outlet_city,
+      outletPhone: order.outlet_phone,
+      outletGstin: order.outlet_gstin,
+      orderType: order.order_type,
+      status: order.status,
+      paymentStatus: order.payment_status,
+      table: order.table_id ? {
+        id: order.table_id,
+        tableNumber: order.table_number,
+        tableName: order.table_name,
+        capacity: order.table_capacity,
+        floorName: order.floor_name,
+        sectionName: order.section_name,
+        sectionType: order.section_type
+      } : null,
+      session: order.session_id ? {
+        id: order.session_id,
+        startedAt: order.session_started_at,
+        endedAt: order.session_ended_at
+      } : null,
+      customer: {
+        name: order.customer_name,
+        phone: order.customer_phone,
+        email: order.customer_email,
+        address: order.customer_address,
+        numberOfGuests: order.number_of_guests
+      },
+      captain: {
+        id: order.created_by,
+        name: order.captain_name,
+        email: order.captain_email,
+        phone: order.captain_phone
+      },
+      amounts: {
+        subtotal: parseFloat(order.subtotal) || 0,
+        discountAmount: parseFloat(order.discount_amount) || 0,
+        taxAmount: parseFloat(order.tax_amount) || 0,
+        serviceCharge: parseFloat(order.service_charge) || 0,
+        packagingCharge: parseFloat(order.packaging_charge) || 0,
+        deliveryCharge: parseFloat(order.delivery_charge) || 0,
+        roundOff: parseFloat(order.round_off) || 0,
+        totalAmount: parseFloat(order.total_amount) || 0,
+        paidAmount: parseFloat(order.paid_amount) || 0,
+        balanceAmount: parseFloat(order.total_amount) - parseFloat(order.paid_amount || 0)
+      },
+      specialInstructions: order.special_instructions,
+      items: formattedItems,
+      kots: formattedKots,
+      invoice,
+      payments: formattedPayments,
+      discounts: formattedDiscounts,
+      cancellations: formattedCancellations,
+      timeline,
+      createdAt: order.created_at,
+      updatedAt: order.updated_at
+    };
   }
 };
 

@@ -565,4 +565,74 @@ router.get('/reports/:outletId/cancellations/detail', authorize('super_admin', '
  */
 router.post('/reports/:outletId/aggregate', authorize('super_admin', 'admin'), orderController.aggregateDailySales);
 
+// ========================
+// SHIFT HISTORY
+// ========================
+
+/**
+ * @route   GET /api/v1/orders/shifts/:outletId/history
+ * @desc    Get shift history with pagination and filters
+ * @access  Private (cashier, manager, admin)
+ * @query   userId - Filter by specific user (opened_by or closed_by)
+ * @query   startDate - Filter from date (YYYY-MM-DD)
+ * @query   endDate - Filter to date (YYYY-MM-DD)
+ * @query   status - 'open' | 'closed' | 'all'
+ * @query   page - Page number (default: 1)
+ * @query   limit - Items per page (default: 20)
+ * @query   sortBy - session_date | opening_time | closing_time | total_sales | total_orders | cash_variance
+ * @query   sortOrder - ASC | DESC (default: DESC)
+ */
+router.get('/shifts/:outletId/history', authorize('super_admin', 'admin', 'manager', 'cashier'), orderController.getShiftHistory);
+
+/**
+ * @route   GET /api/v1/orders/shifts/:shiftId/detail
+ * @desc    Get detailed shift information with transactions, payments, staff activity
+ * @access  Private (cashier, manager, admin)
+ */
+router.get('/shifts/:shiftId/detail', authorize('super_admin', 'admin', 'manager', 'cashier'), orderController.getShiftDetail);
+
+/**
+ * @route   GET /api/v1/orders/shifts/:outletId/summary
+ * @desc    Get shift summary statistics across date range
+ * @access  Private (cashier, manager, admin)
+ * @query   startDate - Filter from date (YYYY-MM-DD)
+ * @query   endDate - Filter to date (YYYY-MM-DD)
+ */
+router.get('/shifts/:outletId/summary', authorize('super_admin', 'admin', 'manager', 'cashier'), orderController.getShiftSummary);
+
+// ========================
+// ADMIN ORDER MANAGEMENT
+// ========================
+
+/**
+ * @route   GET /api/v1/orders/admin/list
+ * @desc    Get all orders for admin with comprehensive filters, pagination, sorting
+ * @access  Private (admin, manager)
+ * @query   outletId - Filter by outlet
+ * @query   status - pending | confirmed | preparing | ready | served | billed | paid | completed | cancelled | all
+ * @query   orderType - dine_in | takeaway | delivery | all
+ * @query   paymentStatus - pending | partial | completed | all
+ * @query   startDate - Filter from date (YYYY-MM-DD)
+ * @query   endDate - Filter to date (YYYY-MM-DD)
+ * @query   search - Search by order number, table number, customer name/phone, invoice number
+ * @query   captainId - Filter by captain who created order
+ * @query   cashierId - Filter by cashier who processed payment
+ * @query   tableId - Filter by specific table
+ * @query   floorId - Filter by floor
+ * @query   minAmount - Minimum order amount
+ * @query   maxAmount - Maximum order amount
+ * @query   page - Page number (default: 1)
+ * @query   limit - Items per page (default: 20)
+ * @query   sortBy - created_at | order_number | total_amount | status | order_type | table_number
+ * @query   sortOrder - ASC | DESC (default: DESC)
+ */
+router.get('/admin/list', authorize('super_admin', 'admin', 'manager'), orderController.getAdminOrderList);
+
+/**
+ * @route   GET /api/v1/orders/admin/detail/:orderId
+ * @desc    Get comprehensive order details for admin — items, KOTs, payments, discounts, cancellations, timeline
+ * @access  Private (admin, manager)
+ */
+router.get('/admin/detail/:orderId', authorize('super_admin', 'admin', 'manager'), orderController.getAdminOrderDetail);
+
 module.exports = router;
