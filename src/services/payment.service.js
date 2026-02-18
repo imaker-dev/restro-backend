@@ -378,7 +378,7 @@ const paymentService = {
 
     // Send WhatsApp bill to customer on full payment completion
     if (paymentStatus === 'completed') {
-      this.sendWhatsAppBillOnCompletion(invoiceId, outletId).catch(err =>
+      this.sendWhatsAppBillOnCompletion(invoiceId, outletId, orderId).catch(err =>
         logger.warn('WhatsApp bill send failed (non-critical):', err.message)
       );
     }
@@ -566,7 +566,7 @@ const paymentService = {
       }
 
       // Send WhatsApp bill to customer on split payment completion
-      this.sendWhatsAppBillOnCompletion(invoiceId, outletId).catch(err =>
+      this.sendWhatsAppBillOnCompletion(invoiceId, outletId, orderId).catch(err =>
         logger.warn('WhatsApp bill send failed (non-critical):', err.message)
       );
 
@@ -587,13 +587,9 @@ const paymentService = {
    * Fetch invoice + outlet info and send WhatsApp bill template to customer.
    * Silently skips if customer has no phone or WhatsApp is not configured.
    */
-  async sendWhatsAppBillOnCompletion(invoiceId, outletId) {
-    logger.info(`[WhatsApp] Triggered for invoiceId=${invoiceId} outletId=${outletId}`);
+  async sendWhatsAppBillOnCompletion(invoiceId, outletId, orderId = null) {
+    logger.info(`[WhatsApp] Triggered for invoiceId=${invoiceId} orderId=${orderId} outletId=${outletId}`);
 
-    if (!invoiceId) {
-      logger.warn('[WhatsApp] Skipped: no invoiceId');
-      return;
-    }
     if (!process.env.WHATSAPP_PHONE_NUMBER_ID || !process.env.WHATSAPP_ACCESS_TOKEN) {
       logger.warn('[WhatsApp] Skipped: WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_ACCESS_TOKEN not set');
       return;
@@ -601,9 +597,24 @@ const paymentService = {
 
     const pool = getPool();
 
-    const invoice = await billingService.getInvoiceById(invoiceId);
+    let invoice = null;
+
+    if (invoiceId) {
+      invoice = await billingService.getInvoiceById(invoiceId);
+    } else if (orderId) {
+      // Fallback: look up invoice by orderId
+      logger.info(`[WhatsApp] No invoiceId provided, looking up invoice by orderId=${orderId}`);
+      const [rows] = await pool.query(
+        `SELECT id FROM invoices WHERE order_id = ? AND is_cancelled = 0 ORDER BY id DESC LIMIT 1`,
+        [orderId]
+      );
+      if (rows[0]) {
+        invoice = await billingService.getInvoiceById(rows[0].id);
+      }
+    }
+
     if (!invoice) {
-      logger.warn(`[WhatsApp] Skipped: invoice ${invoiceId} not found`);
+      logger.warn(`[WhatsApp] Skipped: no invoice found for invoiceId=${invoiceId} orderId=${orderId}`);
       return;
     }
     logger.info(`[WhatsApp] Invoice fetched: ${invoice.invoiceNumber} | customer: ${invoice.customerName} | phone: ${invoice.customerPhone}`);
