@@ -588,16 +588,31 @@ const paymentService = {
    * Silently skips if customer has no phone or WhatsApp is not configured.
    */
   async sendWhatsAppBillOnCompletion(invoiceId, outletId) {
-    if (!invoiceId) return;
-    if (!process.env.WHATSAPP_PHONE_NUMBER_ID || !process.env.WHATSAPP_ACCESS_TOKEN) return;
+    logger.info(`[WhatsApp] Triggered for invoiceId=${invoiceId} outletId=${outletId}`);
+
+    if (!invoiceId) {
+      logger.warn('[WhatsApp] Skipped: no invoiceId');
+      return;
+    }
+    if (!process.env.WHATSAPP_PHONE_NUMBER_ID || !process.env.WHATSAPP_ACCESS_TOKEN) {
+      logger.warn('[WhatsApp] Skipped: WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_ACCESS_TOKEN not set');
+      return;
+    }
 
     const pool = getPool();
 
     const invoice = await billingService.getInvoiceById(invoiceId);
-    if (!invoice) return;
+    if (!invoice) {
+      logger.warn(`[WhatsApp] Skipped: invoice ${invoiceId} not found`);
+      return;
+    }
+    logger.info(`[WhatsApp] Invoice fetched: ${invoice.invoiceNumber} | customer: ${invoice.customerName} | phone: ${invoice.customerPhone}`);
 
     const phone = invoice.customerPhone;
-    if (!phone) return;
+    if (!phone) {
+      logger.warn(`[WhatsApp] Skipped: no customer phone on invoice ${invoice.invoiceNumber}`);
+      return;
+    }
 
     const [outletRows] = await pool.query(
       `SELECT name, CONCAT_WS(', ', NULLIF(address_line1,''), NULLIF(city,''), NULLIF(state,'')) as address, phone
@@ -605,7 +620,9 @@ const paymentService = {
       [outletId]
     );
     const outlet = outletRows[0] || {};
+    logger.info(`[WhatsApp] Outlet: ${outlet.name} | template: ${process.env.WHATSAPP_INVOICE_TEMPLATE || 'send_invoice'}`);
 
+    logger.info(`[WhatsApp] Generating PDF and uploading for invoice ${invoice.invoiceNumber}...`);
     await whatsappService.sendBillingPDFTemplate(
       phone,
       invoice,
@@ -614,7 +631,7 @@ const paymentService = {
       process.env.WHATSAPP_TEMPLATE_LANG || 'en'
     );
 
-    logger.info(`WhatsApp invoice sent to ${phone} for invoice ${invoice.invoiceNumber}`);
+    logger.info(`[WhatsApp] ✓ Invoice ${invoice.invoiceNumber} sent to ${phone}`);
   },
 
   // ========================
