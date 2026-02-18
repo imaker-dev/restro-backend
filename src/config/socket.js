@@ -34,7 +34,6 @@ const initializeSocket = (server) => {
     pingInterval: parseInt(process.env.WS_PING_INTERVAL, 10) || 25000,
     pingTimeout: parseInt(process.env.WS_PING_TIMEOUT, 10) || 60000,
     transports: ['polling', 'websocket'],
-    transports: ['websocket', 'polling'], // Allow both transports for better compatibility
     allowEIO3: true,
     path: process.env.SOCKET_PATH || '/socket.io',
     // Mobile app compatibility settings
