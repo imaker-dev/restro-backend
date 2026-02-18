@@ -2059,11 +2059,11 @@ const orderService = {
     const [orders] = await pool.query(
       `SELECT 
         o.*,
-        out.name as outlet_name,
-        out.address_line1 as outlet_address,
-        out.city as outlet_city,
-        out.phone as outlet_phone,
-        out.gstin as outlet_gstin,
+        outlet.name as outlet_name,
+        outlet.address_line1 as outlet_address,
+        outlet.city as outlet_city,
+        outlet.phone as outlet_phone,
+        outlet.gstin as outlet_gstin,
         t.table_number,
         t.name as table_name,
         t.capacity as table_capacity,
@@ -2077,7 +2077,7 @@ const orderService = {
         ts.started_at as session_started_at,
         ts.ended_at as session_ended_at
        FROM orders o
-       LEFT JOIN outlets out ON o.outlet_id = out.id
+       LEFT JOIN outlets outlet ON o.outlet_id = outlet.id
        LEFT JOIN tables t ON o.table_id = t.id
        LEFT JOIN floors f ON t.floor_id = f.id
        LEFT JOIN sections s ON t.section_id = s.id
@@ -2086,10 +2086,6 @@ const orderService = {
        WHERE o.id = ?`,
       [orderId]
     );
-
-    if (!orders[0]) {
-      throw new Error('Order not found');
-    }
 
     const order = orders[0];
 
