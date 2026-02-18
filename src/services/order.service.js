@@ -1944,7 +1944,7 @@ const orderService = {
     const [orders] = await pool.query(
       `SELECT 
         o.*,
-        out.name as outlet_name,
+        outlet.name as outlet_name,
         t.table_number,
         t.name as table_name,
         f.name as floor_name,
@@ -1958,7 +1958,7 @@ const orderService = {
         (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,
         (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount
        FROM orders o
-       LEFT JOIN outlets out ON o.outlet_id = out.id
+       LEFT JOIN outlets outlet ON o.outlet_id = outlet.id
        LEFT JOIN tables t ON o.table_id = t.id
        LEFT JOIN floors f ON t.floor_id = f.id
        LEFT JOIN sections s ON t.section_id = s.id
