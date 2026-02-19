@@ -22,6 +22,20 @@ function floorFilter(floorIds, alias = 'o') {
   };
 }
 
+/**
+ * Build SQL snippet + params for service type restriction (restaurant/bar/both).
+ * @param {string} serviceType - 'restaurant', 'bar', or null/all for no restriction
+ * @param {string} categoryAlias - table alias for categories, default 'c'
+ * @returns {{ sql: string, params: string[] }}
+ */
+function serviceTypeFilter(serviceType, categoryAlias = 'c') {
+  if (!serviceType || serviceType === 'all') return { sql: '', params: [] };
+  return {
+    sql: ` AND (${categoryAlias}.service_type = ? OR ${categoryAlias}.service_type = 'both')`,
+    params: [serviceType]
+  };
+}
+
 const reportsService = {
   // ========================
   // DAILY SALES AGGREGATION
@@ -348,16 +362,19 @@ const reportsService = {
 
   /**
    * 8.2 Item Sales Report — live from order_items + orders
+   * @param {string} serviceType - 'restaurant', 'bar', or null/all for no restriction
    */
-  async getItemSalesReport(outletId, startDate, endDate, limit = 50, floorIds = []) {
+  async getItemSalesReport(outletId, startDate, endDate, limit = 50, floorIds = [], serviceType = null) {
     const pool = getPool();
     const { start, end } = this._dateRange(startDate, endDate);
     const ff = floorFilter(floorIds);
+    const stf = serviceTypeFilter(serviceType);
 
     const [rows] = await pool.query(
       `SELECT 
         oi.item_id, oi.item_name, oi.variant_name,
         c.name as category_name, i.category_id,
+        c.service_type as category_service_type,
         SUM(CASE WHEN oi.status != 'cancelled' THEN oi.quantity ELSE 0 END) as total_quantity,
         SUM(CASE WHEN oi.status = 'cancelled' THEN oi.quantity ELSE 0 END) as cancelled_quantity,
         SUM(CASE WHEN oi.status != 'cancelled' THEN oi.total_price ELSE 0 END) as gross_revenue,
@@ -370,26 +387,29 @@ const reportsService = {
        JOIN orders o ON oi.order_id = o.id
        LEFT JOIN items i ON oi.item_id = i.id
        LEFT JOIN categories c ON i.category_id = c.id
-       WHERE o.outlet_id = ? AND DATE(o.created_at) BETWEEN ? AND ?${ff.sql}
-       GROUP BY oi.item_id, oi.item_name, oi.variant_name, c.name, i.category_id
+       WHERE o.outlet_id = ? AND DATE(o.created_at) BETWEEN ? AND ?${ff.sql}${stf.sql}
+       GROUP BY oi.item_id, oi.item_name, oi.variant_name, c.name, i.category_id, c.service_type
        ORDER BY total_quantity DESC
        LIMIT ?`,
-      [outletId, start, end, ...ff.params, limit]
+      [outletId, start, end, ...ff.params, ...stf.params, limit]
     );
     return rows;
   },
 
   /**
    * 8.3 Category Sales Report — live from order_items + items + categories
+   * @param {string} serviceType - 'restaurant', 'bar', or null/all for no restriction
    */
-  async getCategorySalesReport(outletId, startDate, endDate, floorIds = []) {
+  async getCategorySalesReport(outletId, startDate, endDate, floorIds = [], serviceType = null) {
     const pool = getPool();
     const { start, end } = this._dateRange(startDate, endDate);
     const ff = floorFilter(floorIds);
+    const stf = serviceTypeFilter(serviceType);
 
     const [rows] = await pool.query(
       `SELECT 
         i.category_id, c.name as category_name,
+        c.service_type as category_service_type,
         SUM(CASE WHEN oi.status != 'cancelled' THEN oi.quantity ELSE 0 END) as total_quantity,
         SUM(CASE WHEN oi.status != 'cancelled' THEN oi.total_price ELSE 0 END) as gross_revenue,
         SUM(CASE WHEN oi.status != 'cancelled' THEN oi.discount_amount ELSE 0 END) as discount_amount,
@@ -400,10 +420,10 @@ const reportsService = {
        JOIN orders o ON oi.order_id = o.id
        LEFT JOIN items i ON oi.item_id = i.id
        LEFT JOIN categories c ON i.category_id = c.id
-       WHERE o.outlet_id = ? AND DATE(o.created_at) BETWEEN ? AND ?${ff.sql}
-       GROUP BY i.category_id, c.name
+       WHERE o.outlet_id = ? AND DATE(o.created_at) BETWEEN ? AND ?${ff.sql}${stf.sql}
+       GROUP BY i.category_id, c.name, c.service_type
        ORDER BY net_revenue DESC`,
-      [outletId, start, end, ...ff.params]
+      [outletId, start, end, ...ff.params, ...stf.params]
     );
 
     const totalRevenue = rows.reduce((sum, r) => sum + parseFloat(r.net_revenue || 0), 0);
@@ -3870,6 +3890,76 @@ const reportsService = {
       grossSales: 0, totalDiscount: 0, totalTax: 0, netSales: 0,
       totalPaid: 0, totalTips: 0, averageOrderValue: 0,
       paymentModeBreakdown: {}
+    };
+  },
+
+  /**
+   * Get sales breakdown by service type (restaurant vs bar)
+   * Provides separate calculations for restaurant items, bar items, and combined
+   */
+  async getServiceTypeSalesBreakdown(outletId, startDate, endDate, floorIds = []) {
+    const pool = getPool();
+    const { start, end } = this._dateRange(startDate, endDate);
+    const ff = floorFilter(floorIds);
+
+    const [rows] = await pool.query(
+      `SELECT 
+        COALESCE(c.service_type, 'both') as service_type,
+        COUNT(DISTINCT o.id) as order_count,
+        SUM(CASE WHEN oi.status != 'cancelled' THEN oi.quantity ELSE 0 END) as total_quantity,
+        SUM(CASE WHEN oi.status != 'cancelled' THEN oi.total_price ELSE 0 END) as gross_revenue,
+        SUM(CASE WHEN oi.status != 'cancelled' THEN oi.discount_amount ELSE 0 END) as discount_amount,
+        SUM(CASE WHEN oi.status != 'cancelled' THEN oi.tax_amount ELSE 0 END) as tax_amount,
+        SUM(CASE WHEN oi.status != 'cancelled' THEN (oi.total_price - oi.discount_amount) ELSE 0 END) as net_revenue,
+        COUNT(DISTINCT oi.item_id) as unique_items
+       FROM order_items oi
+       JOIN orders o ON oi.order_id = o.id
+       LEFT JOIN items i ON oi.item_id = i.id
+       LEFT JOIN categories c ON i.category_id = c.id
+       WHERE o.outlet_id = ? AND DATE(o.created_at) BETWEEN ? AND ?${ff.sql}
+       GROUP BY COALESCE(c.service_type, 'both')
+       ORDER BY net_revenue DESC`,
+      [outletId, start, end, ...ff.params]
+    );
+
+    // Calculate totals
+    const totalRevenue = rows.reduce((sum, r) => sum + parseFloat(r.net_revenue || 0), 0);
+    const totalQuantity = rows.reduce((sum, r) => sum + parseInt(r.total_quantity || 0), 0);
+
+    // Build breakdown with percentages
+    const breakdown = {
+      restaurant: { quantity: 0, gross_revenue: 0, net_revenue: 0, discount: 0, tax: 0, order_count: 0, unique_items: 0, percentage: 0 },
+      bar: { quantity: 0, gross_revenue: 0, net_revenue: 0, discount: 0, tax: 0, order_count: 0, unique_items: 0, percentage: 0 },
+      both: { quantity: 0, gross_revenue: 0, net_revenue: 0, discount: 0, tax: 0, order_count: 0, unique_items: 0, percentage: 0 }
+    };
+
+    for (const row of rows) {
+      const type = row.service_type || 'both';
+      if (breakdown[type]) {
+        breakdown[type] = {
+          quantity: parseInt(row.total_quantity || 0),
+          gross_revenue: parseFloat(row.gross_revenue || 0),
+          net_revenue: parseFloat(row.net_revenue || 0),
+          discount: parseFloat(row.discount_amount || 0),
+          tax: parseFloat(row.tax_amount || 0),
+          order_count: parseInt(row.order_count || 0),
+          unique_items: parseInt(row.unique_items || 0),
+          percentage: totalRevenue > 0 ? ((parseFloat(row.net_revenue) / totalRevenue) * 100).toFixed(2) : '0.00'
+        };
+      }
+    }
+
+    return {
+      dateRange: { start, end },
+      outletId,
+      summary: {
+        total_revenue: totalRevenue.toFixed(2),
+        total_quantity: totalQuantity,
+        restaurant_revenue: breakdown.restaurant.net_revenue.toFixed(2),
+        bar_revenue: breakdown.bar.net_revenue.toFixed(2),
+        shared_revenue: breakdown.both.net_revenue.toFixed(2)
+      },
+      breakdown
     };
   }
 };

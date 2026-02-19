@@ -406,13 +406,21 @@ const menuController = {
   async getCaptainMenu(req, res) {
     try {
       const { outletId } = req.params;
-      const { floorId, sectionId, timeSlotId, tableId, filter } = req.query;
+      const { floorId, sectionId, timeSlotId, tableId, filter, serviceType } = req.query;
       
-      // Validate filter if provided
+      // Validate filter if provided (veg/non_veg/liquor)
       if (filter && !['veg', 'non_veg', 'nonveg', 'liquor'].includes(filter.toLowerCase())) {
         return res.status(400).json({ 
           success: false, 
           message: 'Invalid filter. Use: veg, non_veg, or liquor' 
+        });
+      }
+
+      // Validate serviceType if provided (restaurant/bar/all)
+      if (serviceType && !['restaurant', 'bar', 'all'].includes(serviceType.toLowerCase())) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Invalid serviceType. Use: restaurant, bar, or all' 
         });
       }
       
@@ -421,7 +429,8 @@ const menuController = {
         sectionId: sectionId ? parseInt(sectionId) : null,
         timeSlotId: timeSlotId ? parseInt(timeSlotId) : null,
         tableId: tableId ? parseInt(tableId) : null,
-        filter: filter || null
+        filter: filter || null,
+        serviceType: serviceType ? serviceType.toLowerCase() : null
       };
       const menu = await menuEngineService.getCaptainMenu(outletId, context);
       res.json({ success: true, data: menu });

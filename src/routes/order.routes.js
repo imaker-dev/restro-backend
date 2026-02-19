@@ -565,6 +565,15 @@ router.get('/reports/:outletId/cancellations/detail', authorize('super_admin', '
  */
 router.post('/reports/:outletId/aggregate', authorize('super_admin', 'admin'), orderController.aggregateDailySales);
 
+/**
+ * @route   GET /api/v1/orders/reports/:outletId/service-type-breakdown
+ * @desc    Get sales breakdown by service type (restaurant vs bar)
+ * @access  Private (admin, manager, cashier)
+ * @query   startDate - Filter from date (YYYY-MM-DD)
+ * @query   endDate - Filter to date (YYYY-MM-DD)
+ */
+router.get('/reports/:outletId/service-type-breakdown', authorize('super_admin', 'admin', 'manager', 'cashier'), orderController.getServiceTypeSalesBreakdown);
+
 // ========================
 // SHIFT HISTORY
 // ========================

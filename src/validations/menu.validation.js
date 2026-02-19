@@ -9,6 +9,7 @@ const ADJUSTMENT_TYPES = ['fixed', 'percentage', 'override'];
 const RULE_TYPES = ['floor', 'section', 'time_slot', 'day_of_week', 'date_range', 'happy_hour'];
 const DISCOUNT_TYPES = ['percentage', 'flat', 'item_level', 'bill_level', 'buy_x_get_y'];
 const DAYS_OF_WEEK = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+const SERVICE_TYPES = ['restaurant', 'bar', 'both'];
 
 module.exports = {
   // ========================
@@ -96,12 +97,13 @@ module.exports = {
     name: Joi.string().max(100).required(),
     slug: Joi.string().max(100).allow('', null),
     description: Joi.string().allow('', null),
-    imageUrl: Joi.string().uri().max(500).allow('', null),
+    imageUrl: Joi.string().max(500).allow('', null),
     icon: Joi.string().max(50).allow('', null),
     colorCode: Joi.string().pattern(/^#[0-9A-Fa-f]{6}$/).allow('', null),
     displayOrder: Joi.number().integer().min(0).default(0),
     isActive: Joi.boolean().default(true),
     isGlobal: Joi.boolean().default(false),
+    serviceType: Joi.string().valid(...SERVICE_TYPES).default('both'),
     floorIds: Joi.array().items(Joi.number().integer().positive()).default([]),
     sectionIds: Joi.array().items(Joi.number().integer().positive()).default([]),
     timeSlotIds: Joi.array().items(Joi.number().integer().positive()).default([])
@@ -112,12 +114,13 @@ module.exports = {
     name: Joi.string().max(100),
     slug: Joi.string().max(100).allow('', null),
     description: Joi.string().allow('', null),
-    imageUrl: Joi.string().uri().max(500).allow('', null),
+    imageUrl: Joi.string().max(500).allow('', null),
     icon: Joi.string().max(50).allow('', null),
     colorCode: Joi.string().pattern(/^#[0-9A-Fa-f]{6}$/).allow('', null),
     displayOrder: Joi.number().integer().min(0),
     isActive: Joi.boolean(),
     isGlobal: Joi.boolean(),
+    serviceType: Joi.string().valid(...SERVICE_TYPES),
     floorIds: Joi.array().items(Joi.number().integer().positive()),
     sectionIds: Joi.array().items(Joi.number().integer().positive()),
     timeSlotIds: Joi.array().items(Joi.number().integer().positive())
@@ -257,7 +260,7 @@ module.exports = {
     name: Joi.string().max(100).required(),
     price: Joi.number().min(0).default(0),
     itemType: Joi.string().valid(...ITEM_TYPES).default('veg'),
-    imageUrl: Joi.string().uri().max(500).allow('', null),
+    imageUrl: Joi.string().max(500).allow('', null),
     isDefault: Joi.boolean().default(false),
     displayOrder: Joi.number().integer().min(0).default(0),
     isActive: Joi.boolean().default(true)
@@ -267,7 +270,7 @@ module.exports = {
     name: Joi.string().max(100),
     price: Joi.number().min(0),
     itemType: Joi.string().valid(...ITEM_TYPES),
-    imageUrl: Joi.string().uri().max(500).allow('', null),
+    imageUrl: Joi.string().max(500).allow('', null),
     isDefault: Joi.boolean(),
     displayOrder: Joi.number().integer().min(0),
     isActive: Joi.boolean()

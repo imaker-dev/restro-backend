@@ -24,6 +24,7 @@ const categoryService = {
       const {
         outletId, parentId, name, slug, description,
         imageUrl, icon, colorCode, displayOrder = 0, isActive = true, isGlobal = false,
+        serviceType = 'both', // 'restaurant', 'bar', or 'both'
         // Visibility rules
         floorIds = [], sectionIds = [], timeSlotIds = []
       } = data;
@@ -31,9 +32,9 @@ const categoryService = {
       const categorySlug = slug || name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 
       const [result] = await connection.query(
-        `INSERT INTO categories (outlet_id, parent_id, name, slug, description, image_url, icon, color_code, display_order, is_active, is_global)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [outletId, parentId, name, categorySlug, description, imageUrl, icon, colorCode, displayOrder, isActive, isGlobal]
+        `INSERT INTO categories (outlet_id, parent_id, name, slug, description, image_url, icon, color_code, display_order, is_active, is_global, service_type)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [outletId, parentId, name, categorySlug, description, imageUrl, icon, colorCode, displayOrder, isActive, isGlobal, serviceType]
       );
 
       const categoryId = result.insertId;
@@ -177,6 +178,7 @@ const categoryService = {
       if (data.displayOrder !== undefined) { fields.push('display_order = ?'); values.push(data.displayOrder); }
       if (data.isActive !== undefined) { fields.push('is_active = ?'); values.push(data.isActive); }
       if (data.isGlobal !== undefined) { fields.push('is_global = ?'); values.push(data.isGlobal); }
+      if (data.serviceType !== undefined) { fields.push('service_type = ?'); values.push(data.serviceType); }
 
       if (fields.length > 0) {
         values.push(id);
@@ -297,10 +299,10 @@ const categoryService = {
   },
 
   /**
-   * Get categories filtered by context (floor, section, time)
+   * Get categories filtered by context (floor, section, time, serviceType)
    */
   async getVisibleCategories(outletId, context = {}) {
-    const { floorId, sectionId, timeSlotId } = context;
+    const { floorId, sectionId, timeSlotId, serviceType } = context;
     const pool = getPool();
 
     let query = `
@@ -312,6 +314,12 @@ const categoryService = {
       WHERE c.outlet_id = ? AND c.is_active = 1 AND c.deleted_at IS NULL
     `;
     const params = [outletId];
+
+    // Service type filter (restaurant/bar/both)
+    if (serviceType && serviceType !== 'all') {
+      query += ` AND (c.service_type = ? OR c.service_type = 'both')`;
+      params.push(serviceType);
+    }
 
     // Floor filter - skip if category is global
     if (floorId) {
