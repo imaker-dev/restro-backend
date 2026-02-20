@@ -1,0 +1,82 @@
+/**
+ * Customer Routes
+ * Handles customer management, GST details, and order history
+ */
+
+const express = require('express');
+const router = express.Router();
+const customerController = require('../controllers/customer.controller');
+const { authenticate, authorize } = require('../middlewares/auth.middleware');
+
+// All routes require authentication
+router.use(authenticate);
+
+/**
+ * @route   POST /api/v1/customers/:outletId
+ * @desc    Create a new customer
+ * @access  Private (admin, manager, cashier)
+ */
+router.post('/:outletId', authorize('super_admin', 'admin', 'manager', 'cashier'), customerController.create);
+
+/**
+ * @route   GET /api/v1/customers/:outletId/search
+ * @desc    Search customers by name, phone, company name or GSTIN
+ * @access  Private (admin, manager, cashier)
+ * @query   q - Search query (min 2 chars)
+ * @query   limit - Max results (default 20)
+ */
+router.get('/:outletId/search', authorize('super_admin', 'admin', 'manager', 'cashier'), customerController.search);
+
+/**
+ * @route   GET /api/v1/customers/:outletId/by-phone
+ * @desc    Get customer by phone number
+ * @access  Private (admin, manager, cashier)
+ * @query   phone - Phone number
+ */
+router.get('/:outletId/by-phone', authorize('super_admin', 'admin', 'manager', 'cashier'), customerController.getByPhone);
+
+/**
+ * @route   GET /api/v1/customers/:outletId/list
+ * @desc    List all customers for an outlet
+ * @access  Private (admin, manager, cashier)
+ * @query   page, limit, gstOnly, sortBy, sortOrder
+ */
+router.get('/:outletId/list', authorize('super_admin', 'admin', 'manager', 'cashier'), customerController.list);
+
+/**
+ * @route   GET /api/v1/customers/:id
+ * @desc    Get customer by ID
+ * @access  Private (admin, manager, cashier)
+ */
+router.get('/:id', authorize('super_admin', 'admin', 'manager', 'cashier'), customerController.getById);
+
+/**
+ * @route   PUT /api/v1/customers/:id
+ * @desc    Update customer
+ * @access  Private (admin, manager, cashier)
+ */
+router.put('/:id', authorize('super_admin', 'admin', 'manager', 'cashier'), customerController.update);
+
+/**
+ * @route   GET /api/v1/customers/:id/orders
+ * @desc    Get customer order history
+ * @access  Private (admin, manager, cashier)
+ * @query   page, limit
+ */
+router.get('/:id/orders', authorize('super_admin', 'admin', 'manager', 'cashier'), customerController.getOrderHistory);
+
+/**
+ * @route   POST /api/v1/customers/link-order/:orderId
+ * @desc    Link customer to an order (create if not exists)
+ * @access  Private (admin, manager, cashier)
+ */
+router.post('/link-order/:orderId', authorize('super_admin', 'admin', 'manager', 'cashier'), customerController.linkToOrder);
+
+/**
+ * @route   PUT /api/v1/customers/order-gst/:orderId
+ * @desc    Update order with customer GST details
+ * @access  Private (admin, manager, cashier)
+ */
+router.put('/order-gst/:orderId', authorize('super_admin', 'admin', 'manager', 'cashier'), customerController.updateOrderGst);
+
+module.exports = router;

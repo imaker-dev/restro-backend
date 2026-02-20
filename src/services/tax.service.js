@@ -468,7 +468,7 @@ const taxService = {
   // TAX CALCULATION
   // ========================
 
-  async calculateTax(items, taxGroupId, isInclusive = false) {
+  async calculateTax(items, taxGroupId, isInclusive = false, options = {}) {
     const taxGroup = await this.getTaxGroupById(taxGroupId);
     if (!taxGroup) {
       return { taxAmount: 0, breakdown: [] };
@@ -482,13 +482,28 @@ const taxService = {
       taxableAmount = subtotal / (1 + taxGroup.total_rate / 100);
     }
 
-    const breakdown = taxGroup.components.map(comp => ({
-      componentId: comp.id,
-      componentName: comp.name,
-      componentCode: comp.code,
-      rate: parseFloat(comp.rate),
-      amount: parseFloat(((taxableAmount * comp.rate) / 100).toFixed(2))
-    }));
+    const { isInterstate = false } = options;
+    let breakdown;
+
+    if (isInterstate) {
+      // For interstate: combine CGST+SGST into IGST
+      const totalRate = parseFloat(taxGroup.total_rate);
+      breakdown = [{
+        componentId: null,
+        componentName: 'IGST',
+        componentCode: 'IGST',
+        rate: totalRate,
+        amount: parseFloat(((taxableAmount * totalRate) / 100).toFixed(2))
+      }];
+    } else {
+      breakdown = taxGroup.components.map(comp => ({
+        componentId: comp.id,
+        componentName: comp.name,
+        componentCode: comp.code,
+        rate: parseFloat(comp.rate),
+        amount: parseFloat(((taxableAmount * comp.rate) / 100).toFixed(2))
+      }));
+    }
 
     const taxAmount = breakdown.reduce((sum, b) => sum + b.amount, 0);
 
@@ -497,6 +512,7 @@ const taxService = {
       taxAmount: parseFloat(taxAmount.toFixed(2)),
       totalRate: parseFloat(taxGroup.total_rate),
       isInclusive: isInclusive || taxGroup.is_inclusive,
+      isInterstate,
       breakdown
     };
   },

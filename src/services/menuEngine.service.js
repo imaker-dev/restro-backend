@@ -72,7 +72,7 @@ const menuEngineService = {
    * Returns categories with items, variants, addons, and calculated prices
    */
   async buildMenu(outletId, context = {}) {
-    const { floorId, sectionId, tableId, time, includeDetails = true, skipTimeSlotFilter = false } = context;
+    const { floorId, sectionId, tableId, time, includeDetails = true, skipTimeSlotFilter = false, serviceType } = context;
     const pool = getPool();
 
     // Get current time slot (skip if skipTimeSlotFilter is true)
@@ -85,9 +85,9 @@ const menuEngineService = {
       }
     }
 
-    const menuContext = { floorId, sectionId, timeSlotId, time, skipTimeSlotFilter };
+    const menuContext = { floorId, sectionId, timeSlotId, time, skipTimeSlotFilter, serviceType };
 
-    // Get visible categories
+    // Get visible categories (filtered by serviceType if provided)
     const categories = await categoryService.getVisibleCategories(outletId, menuContext);
 
     // Build menu structure
@@ -200,18 +200,21 @@ const menuEngineService = {
    * Get simplified menu for captain (clean, easy to use)
    * Structure: categories[] → items[] → variants[], addons[]
    * No time slot filtering - shows ALL items
+   * Supports serviceType filter: 'restaurant', 'bar', or 'all'
    */
   async getCaptainMenu(outletId, context = {}) {
-    const { filter } = context;
+    const { filter, serviceType } = context;
     
     // Skip time slot filtering for captain - show all items
+    // Pass serviceType to filter categories at database level
     const menu = await this.buildMenu(outletId, { 
       ...context, 
       includeDetails: true,
-      skipTimeSlotFilter: true 
+      skipTimeSlotFilter: true,
+      serviceType: serviceType || null
     });
 
-    // Apply filter if specified
+    // Apply item type filter if specified (veg/non_veg/liquor)
     let filteredCategories = menu.categories;
     
     if (filter) {
@@ -248,6 +251,7 @@ const menuEngineService = {
       outletId: menu.outletId,
       generatedAt: menu.generatedAt,
       filter: filter || null,
+      serviceType: serviceType || 'all',
       summary: {
         categories: filteredCategories.length,
         items: totalItems
@@ -258,6 +262,7 @@ const menuEngineService = {
         description: cat.description || null,
         icon: cat.icon,
         color: cat.colorCode,
+        serviceType: cat.service_type || 'both',
         img: cat.imageUrl || null,
         count: cat.items.length,
         items: cat.items.map(item => {

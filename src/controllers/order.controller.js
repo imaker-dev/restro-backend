@@ -787,9 +787,9 @@ const orderController = {
   async getItemSalesReport(req, res) {
     try {
       const { outletId } = req.params;
-      const { startDate, endDate, limit } = req.query;
+      const { startDate, endDate, limit, serviceType } = req.query;
       const floorIds = await getUserFloorIds(req.user.userId, outletId);
-      const report = await reportsService.getItemSalesReport(outletId, startDate, endDate, parseInt(limit) || 20, floorIds);
+      const report = await reportsService.getItemSalesReport(outletId, startDate, endDate, parseInt(limit) || 20, floorIds, serviceType || null);
       res.json({ success: true, data: report });
     } catch (error) {
       logger.error('Get item sales report error:', error);
@@ -841,9 +841,9 @@ const orderController = {
   async getCategorySalesReport(req, res) {
     try {
       const { outletId } = req.params;
-      const { startDate, endDate } = req.query;
+      const { startDate, endDate, serviceType } = req.query;
       const floorIds = await getUserFloorIds(req.user.userId, outletId);
-      const report = await reportsService.getCategorySalesReport(outletId, startDate, endDate, floorIds);
+      const report = await reportsService.getCategorySalesReport(outletId, startDate, endDate, floorIds, serviceType || null);
       res.json({ success: true, data: report });
     } catch (error) {
       logger.error('Get category sales report error:', error);
@@ -1333,6 +1333,23 @@ const orderController = {
       if (error.message === 'Order not found') {
         return res.status(404).json({ success: false, message: error.message });
       }
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
+   * Get sales breakdown by service type (restaurant vs bar)
+   * GET /api/v1/orders/reports/:outletId/service-type-breakdown
+   */
+  async getServiceTypeSalesBreakdown(req, res) {
+    try {
+      const { outletId } = req.params;
+      const { startDate, endDate } = req.query;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const report = await reportsService.getServiceTypeSalesBreakdown(outletId, startDate, endDate, floorIds);
+      res.json({ success: true, data: report });
+    } catch (error) {
+      logger.error('Get service type sales breakdown error:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   }

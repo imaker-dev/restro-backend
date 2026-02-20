@@ -95,6 +95,10 @@ function formatInvoice(invoice) {
     customerPhone: invoice.customer_phone || null,
     customerEmail: invoice.customer_email || null,
     customerGstin: invoice.customer_gstin || null,
+    customerCompanyName: invoice.customer_company_name || null,
+    customerGstState: invoice.customer_gst_state || null,
+    customerGstStateCode: invoice.customer_gst_state_code || null,
+    isInterstate: !!invoice.is_interstate,
     customerAddress: invoice.customer_address || null,
     billingAddress: invoice.billing_address || null,
     subtotal: parseFloat(invoice.subtotal) || 0,
@@ -356,37 +360,48 @@ const billingService = {
       const {
         customerId, customerName, customerPhone, customerEmail,
         customerGstin, customerAddress, billingAddress,
+        customerCompanyName, customerGstState, customerGstStateCode,
         applyServiceCharge = false, notes, termsConditions,
         generatedBy
       } = data;
 
-      // Calculate totals
-      const billDetails = await this.calculateBillDetails(order, { applyServiceCharge });
+      // Check if interstate (customer from different state)
+      const isInterstate = order.is_interstate || false;
+
+      // Calculate totals with interstate flag
+      const billDetails = await this.calculateBillDetails(order, { applyServiceCharge, isInterstate });
 
       // Generate invoice number
       const invoiceNumber = await this.generateInvoiceNumber(order.outlet_id, connection);
       const uuid = uuidv4();
       const today = new Date();
 
-      // Create invoice
+      // Create invoice with customer GST details
       const [result] = await connection.query(
         `INSERT INTO invoices (
           uuid, outlet_id, order_id, invoice_number, invoice_date, invoice_time,
           customer_id, customer_name, customer_phone, customer_email,
           customer_gstin, customer_address, billing_address,
+          is_interstate, customer_company_name, customer_gst_state, customer_gst_state_code,
           subtotal, discount_amount, taxable_amount,
           cgst_amount, sgst_amount, igst_amount, vat_amount, cess_amount, total_tax,
           service_charge, packaging_charge, delivery_charge, round_off, grand_total,
           amount_in_words, payment_status, tax_breakup, hsn_summary,
           notes, terms_conditions, generated_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
         [
           uuid, order.outlet_id, orderId, invoiceNumber,
           today.toISOString().slice(0, 10), today.toTimeString().slice(0, 8),
           customerId || order.customer_id,
           customerName || order.customer_name,
           customerPhone || order.customer_phone,
-          customerEmail, customerGstin, customerAddress, billingAddress,
+          customerEmail,
+          customerGstin || order.customer_gstin,
+          customerAddress, billingAddress,
+          isInterstate,
+          customerCompanyName || order.customer_company_name,
+          customerGstState || order.customer_gst_state,
+          customerGstStateCode || order.customer_gst_state_code,
           billDetails.subtotal, billDetails.discountAmount, billDetails.taxableAmount,
           billDetails.cgstAmount, billDetails.sgstAmount, billDetails.igstAmount,
           billDetails.vatAmount, billDetails.cessAmount, billDetails.totalTax,
@@ -497,10 +512,15 @@ const billingService = {
 
   /**
    * Calculate bill details with tax breakup
+   * @param {Object} order - Order object with items
+   * @param {Object} options - { applyServiceCharge, isInterstate }
    */
   async calculateBillDetails(order, options = {}) {
     const pool = getPool();
     const { applyServiceCharge = false } = options;
+    
+    // Check if interstate from order or options
+    const isInterstate = options.isInterstate || order.is_interstate || false;
 
     let subtotal = 0;
     let cgstAmount = 0;
@@ -525,35 +545,75 @@ const billingService = {
           : item.tax_details;
 
         if (Array.isArray(taxDetails)) {
-          for (const tax of taxDetails) {
-            // DB stores componentCode/componentName; API may use code/name
-            const taxCode = tax.componentCode || tax.code || tax.componentName || tax.name || 'TAX';
-            const taxName = tax.componentName || tax.name || taxCode;
-            const taxAmt = tax.amount || (itemTotal * tax.rate / 100);
-
-            if (!taxBreakup[taxCode]) {
-              taxBreakup[taxCode] = {
-                name: taxName,
-                rate: tax.rate,
-                taxableAmount: 0,
-                taxAmount: 0
-              };
+          // For interstate: convert CGST+SGST to IGST
+          if (isInterstate) {
+            // Calculate total GST rate from components
+            let totalGstRate = 0;
+            let totalGstAmount = 0;
+            for (const tax of taxDetails) {
+              const codeUpper = (tax.componentCode || tax.code || '').toUpperCase();
+              if (codeUpper.includes('CGST') || codeUpper.includes('SGST')) {
+                totalGstRate += parseFloat(tax.rate) || 0;
+                totalGstAmount += parseFloat(tax.amount) || 0;
+              } else if (codeUpper.includes('IGST')) {
+                // Already IGST
+                totalGstRate += parseFloat(tax.rate) || 0;
+                totalGstAmount += parseFloat(tax.amount) || 0;
+              } else {
+                // VAT, CESS etc - keep as is
+                const taxCode = tax.componentCode || tax.code || tax.componentName || tax.name || 'TAX';
+                const taxName = tax.componentName || tax.name || taxCode;
+                const taxAmt = parseFloat(tax.amount) || (itemTotal * tax.rate / 100);
+                if (!taxBreakup[taxCode]) {
+                  taxBreakup[taxCode] = { name: taxName, rate: tax.rate, taxableAmount: 0, taxAmount: 0 };
+                }
+                taxBreakup[taxCode].taxableAmount += itemTotal;
+                taxBreakup[taxCode].taxAmount += taxAmt;
+                const cUpper = taxCode.toUpperCase();
+                if (cUpper.includes('VAT')) vatAmount += taxAmt;
+                else if (cUpper.includes('CESS')) cessAmount += taxAmt;
+              }
             }
-            taxBreakup[taxCode].taxableAmount += itemTotal;
-            taxBreakup[taxCode].taxAmount += taxAmt;
+            // Add combined IGST
+            if (totalGstRate > 0) {
+              if (!taxBreakup['IGST']) {
+                taxBreakup['IGST'] = { name: 'IGST', rate: totalGstRate, taxableAmount: 0, taxAmount: 0 };
+              }
+              taxBreakup['IGST'].taxableAmount += itemTotal;
+              taxBreakup['IGST'].taxAmount += totalGstAmount;
+              igstAmount += totalGstAmount;
+            }
+          } else {
+            // Normal intrastate: CGST + SGST
+            for (const tax of taxDetails) {
+              const taxCode = tax.componentCode || tax.code || tax.componentName || tax.name || 'TAX';
+              const taxName = tax.componentName || tax.name || taxCode;
+              const taxAmt = tax.amount || (itemTotal * tax.rate / 100);
 
-            // Categorize tax by code
-            const codeUpper = taxCode.toUpperCase();
-            if (codeUpper.includes('CGST')) {
-              cgstAmount += taxAmt;
-            } else if (codeUpper.includes('SGST')) {
-              sgstAmount += taxAmt;
-            } else if (codeUpper.includes('IGST')) {
-              igstAmount += taxAmt;
-            } else if (codeUpper.includes('VAT')) {
-              vatAmount += taxAmt;
-            } else if (codeUpper.includes('CESS')) {
-              cessAmount += taxAmt;
+              if (!taxBreakup[taxCode]) {
+                taxBreakup[taxCode] = {
+                  name: taxName,
+                  rate: tax.rate,
+                  taxableAmount: 0,
+                  taxAmount: 0
+                };
+              }
+              taxBreakup[taxCode].taxableAmount += itemTotal;
+              taxBreakup[taxCode].taxAmount += taxAmt;
+
+              // Categorize tax by code
+              const codeUpper = taxCode.toUpperCase();
+              if (codeUpper.includes('CGST')) {
+                cgstAmount += taxAmt;
+              } else if (codeUpper.includes('SGST')) {
+                sgstAmount += taxAmt;
+              } else if (codeUpper.includes('IGST')) {
+                igstAmount += taxAmt;
+              } else if (codeUpper.includes('VAT')) {
+                vatAmount += taxAmt;
+              } else if (codeUpper.includes('CESS')) {
+                cessAmount += taxAmt;
+              }
             }
           }
         }

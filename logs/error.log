@@ -8036,6 +8036,7 @@ Error: FUNCTION restro.JSON_ARRAYAGG does not exist
 AggregateError [ECONNREFUSED]: 
     at internalConnectMultiple (node:net:1139:18)
     at afterConnectMultiple (node:net:1712:7)
+<<<<<<< HEAD
 2026-02-18 12:09:57 [ERROR]: Failed to start server: Access denied for user 'restro'@'localhost' (using password: YES) {"code":"ER_ACCESS_DENIED_ERROR","errno":1045,"sqlState":"28000","sqlMessage":"Access denied for user 'restro'@'localhost' (using password: YES)"}
 Error: Access denied for user 'restro'@'localhost' (using password: YES)
     at Packet.asError (D:\Projects\restro-backend\node_modules\mysql2\lib\packets\packet.js:739:17)
@@ -8096,3 +8097,99 @@ Error: Access denied for user 'restro'@'localhost' (using password: YES)
     at addChunk (node:internal/streams/readable:561:12)
     at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
     at Readable.push (node:internal/streams/readable:392:5)
+=======
+2026-02-19 21:46:52 [ERROR]: Get shift detail error: Shift not found
+Error: Shift not found
+    at Object.getShiftDetail (E:\restro-backend\src\services\payment.service.js:1113:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getShiftDetail (E:\restro-backend\src\controllers\order.controller.js:1232:21)
+2026-02-19 21:46:53 [ERROR]: Get shift detail error: Shift not found
+Error: Shift not found
+    at Object.getShiftDetail (E:\restro-backend\src\services\payment.service.js:1113:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getShiftDetail (E:\restro-backend\src\controllers\order.controller.js:1232:21)
+2026-02-19 22:41:59 [ERROR]: Direct cancel slip print failed:
+2026-02-19 22:41:59 [ERROR]: Failed to print cancel slip for KOT KOT0214008:
+2026-02-19 22:44:02 [ERROR]: Generate bill error: Column count doesn't match value count at row 1 {"code":"ER_WRONG_VALUE_COUNT_ON_ROW","errno":1136,"sql":"INSERT INTO invoices (\n          uuid, outlet_id, order_id, invoice_number, invoice_date, invoice_time,\n          customer_id, customer_name, customer_phone, customer_email,\n          customer_gstin, customer_address, billing_address,\n          is_interstate, customer_company_name, customer_gst_state, customer_gst_state_code,\n          subtotal, discount_amount, taxable_amount,\n          cgst_amount, sgst_amount, igst_amount, vat_amount, cess_amount, total_tax,\n          service_charge, packaging_charge, delivery_charge, round_off, grand_total,\n          amount_in_words, payment_status, tax_breakup, hsn_summary,\n          notes, terms_conditions, generated_by\n        ) VALUES ('6b665d64-f578-4bb1-8d43-1eb910696ec9', 4, '508', 'INV/2526/000297', '2026-02-19', '22:44:02', NULL, 'riu', '4889915112', NULL, NULL, NULL, NULL, false, NULL, NULL, NULL, 60, 0, 60, 1.5, 1.5, 0, 0, 0, 3, 0, 0, 0, 0, 63, 'pending', 'Sixty Three Rupees Only', '{\\\"CGST_2.5\\\":{\\\"name\\\":\\\"CGST 2.5%\\\",\\\"rate\\\":2.5,\\\"taxableAmount\\\":60,\\\"taxAmount\\\":1.5},\\\"SGST_2.5\\\":{\\\"name\\\":\\\"SGST 2.5%\\\",\\\"rate\\\":2.5,\\\"taxableAmount\\\":60,\\\"taxAmount\\\":1.5}}', '{}', NULL, NULL)","sqlState":"21S01","sqlMessage":"Column count doesn't match value count at row 1"}
+Error: Column count doesn't match value count at row 1
+    at PromisePoolConnection.query (E:\restro-backend\node_modules\mysql2\lib\promise\connection.js:29:22)
+    at Object.generateBill (E:\restro-backend\src\services\billing.service.js:380:41)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async generateBill (E:\restro-backend\src\controllers\order.controller.js:387:23)
+2026-02-19 22:44:11 [ERROR]: Generate bill error: Column count doesn't match value count at row 1 {"code":"ER_WRONG_VALUE_COUNT_ON_ROW","errno":1136,"sql":"INSERT INTO invoices (\n          uuid, outlet_id, order_id, invoice_number, invoice_date, invoice_time,\n          customer_id, customer_name, customer_phone, customer_email,\n          customer_gstin, customer_address, billing_address,\n          is_interstate, customer_company_name, customer_gst_state, customer_gst_state_code,\n          subtotal, discount_amount, taxable_amount,\n          cgst_amount, sgst_amount, igst_amount, vat_amount, cess_amount, total_tax,\n          service_charge, packaging_charge, delivery_charge, round_off, grand_total,\n          amount_in_words, payment_status, tax_breakup, hsn_summary,\n          notes, terms_conditions, generated_by\n        ) VALUES ('7e7b3c90-1617-4142-a8ea-4727cd1a18ab', 4, '508', 'INV/2526/000297', '2026-02-19', '22:44:11', NULL, 'riu', '4889915112', NULL, NULL, NULL, NULL, false, NULL, NULL, NULL, 60, 0, 60, 1.5, 1.5, 0, 0, 0, 3, 0, 0, 0, 0, 63, 'pending', 'Sixty Three Rupees Only', '{\\\"CGST_2.5\\\":{\\\"name\\\":\\\"CGST 2.5%\\\",\\\"rate\\\":2.5,\\\"taxableAmount\\\":60,\\\"taxAmount\\\":1.5},\\\"SGST_2.5\\\":{\\\"name\\\":\\\"SGST 2.5%\\\",\\\"rate\\\":2.5,\\\"taxableAmount\\\":60,\\\"taxAmount\\\":1.5}}', '{}', NULL, NULL)","sqlState":"21S01","sqlMessage":"Column count doesn't match value count at row 1"}
+Error: Column count doesn't match value count at row 1
+    at PromisePoolConnection.query (E:\restro-backend\node_modules\mysql2\lib\promise\connection.js:29:22)
+    at Object.generateBill (E:\restro-backend\src\services\billing.service.js:380:41)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async generateBill (E:\restro-backend\src\controllers\order.controller.js:387:23)
+2026-02-19 22:46:05 [ERROR]: Direct Bill print failed for INV/2526/000297:
+2026-02-19 22:46:05 [ERROR]: Direct bill print failed for INV/2526/000297:
+2026-02-19 23:32:07 [ERROR]: Direct Bill print failed for INV/2526/000297:
+2026-02-19 23:32:07 [ERROR]: Direct bill print failed for INV/2526/000297:
+2026-02-19 23:32:57 [ERROR]: Direct Bill print failed for INV/2526/000298:
+2026-02-19 23:32:57 [ERROR]: Direct bill print failed for INV/2526/000298:
+2026-02-19 23:33:53 [ERROR]: Create customer error: Unknown column 'is_gst_customer' in 'field list' {"code":"ER_BAD_FIELD_ERROR","errno":1054,"sql":"INSERT INTO customers \n        (uuid, outlet_id, name, phone, email, address,\n         is_gst_customer, company_name, gstin, gst_state, gst_state_code,\n         company_phone, company_address, notes)\n       VALUES ('9316a201-dbc9-4f65-b7fb-94ecba19023d', '4', 'new', '7903838017', NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, NULL, NULL)","sqlState":"42S22","sqlMessage":"Unknown column 'is_gst_customer' in 'field list'"}
+Error: Unknown column 'is_gst_customer' in 'field list'
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.create (E:\restro-backend\src\services\customer.service.js:24:33)
+    at create (E:\restro-backend\src\controllers\customer.controller.js:13:46)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (E:\restro-backend\node_modules\express\lib\router\route.js:149:13)
+    at E:\restro-backend\src\middlewares\auth.middleware.js:134:5
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (E:\restro-backend\node_modules\express\lib\router\route.js:149:13)
+    at Route.dispatch (E:\restro-backend\node_modules\express\lib\router\route.js:119:3)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+2026-02-19 23:34:03 [ERROR]: Create customer error: Unknown column 'is_gst_customer' in 'field list' {"code":"ER_BAD_FIELD_ERROR","errno":1054,"sql":"INSERT INTO customers \n        (uuid, outlet_id, name, phone, email, address,\n         is_gst_customer, company_name, gstin, gst_state, gst_state_code,\n         company_phone, company_address, notes)\n       VALUES ('2246a260-fd44-4fd8-98fe-216eee90a0d3', '4', 'new', '7903838017', NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, NULL, NULL)","sqlState":"42S22","sqlMessage":"Unknown column 'is_gst_customer' in 'field list'"}
+Error: Unknown column 'is_gst_customer' in 'field list'
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.create (E:\restro-backend\src\services\customer.service.js:24:33)
+    at create (E:\restro-backend\src\controllers\customer.controller.js:13:46)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (E:\restro-backend\node_modules\express\lib\router\route.js:149:13)
+    at E:\restro-backend\src\middlewares\auth.middleware.js:134:5
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (E:\restro-backend\node_modules\express\lib\router\route.js:149:13)
+    at Route.dispatch (E:\restro-backend\node_modules\express\lib\router\route.js:119:3)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+2026-02-19 23:34:28 [ERROR]: Create customer error: Unknown column 'is_gst_customer' in 'field list' {"code":"ER_BAD_FIELD_ERROR","errno":1054,"sql":"INSERT INTO customers \n        (uuid, outlet_id, name, phone, email, address,\n         is_gst_customer, company_name, gstin, gst_state, gst_state_code,\n         company_phone, company_address, notes)\n       VALUES ('75e21bb3-d38b-4909-b2ee-f2c4de93cc94', '4', 'new', '7903838017', NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, NULL, NULL)","sqlState":"42S22","sqlMessage":"Unknown column 'is_gst_customer' in 'field list'"}
+Error: Unknown column 'is_gst_customer' in 'field list'
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.create (E:\restro-backend\src\services\customer.service.js:24:33)
+    at create (E:\restro-backend\src\controllers\customer.controller.js:13:46)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (E:\restro-backend\node_modules\express\lib\router\route.js:149:13)
+    at E:\restro-backend\src\middlewares\auth.middleware.js:134:5
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (E:\restro-backend\node_modules\express\lib\router\route.js:149:13)
+    at Route.dispatch (E:\restro-backend\node_modules\express\lib\router\route.js:119:3)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+2026-02-19 23:39:44 [ERROR]: Create customer error: Unknown column 'is_gst_customer' in 'field list' {"code":"ER_BAD_FIELD_ERROR","errno":1054,"sql":"INSERT INTO customers \n        (uuid, outlet_id, name, phone, email, address,\n         is_gst_customer, company_name, gstin, gst_state, gst_state_code,\n         company_phone, company_address, notes)\n       VALUES ('87ff9b4b-2778-49ae-8b8a-87bcd9865bb1', '4', 'new', '7903838017', NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, NULL, NULL)","sqlState":"42S22","sqlMessage":"Unknown column 'is_gst_customer' in 'field list'"}
+Error: Unknown column 'is_gst_customer' in 'field list'
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.create (E:\restro-backend\src\services\customer.service.js:24:33)
+    at create (E:\restro-backend\src\controllers\customer.controller.js:13:46)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (E:\restro-backend\node_modules\express\lib\router\route.js:149:13)
+    at E:\restro-backend\src\middlewares\auth.middleware.js:134:5
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (E:\restro-backend\node_modules\express\lib\router\route.js:149:13)
+    at Route.dispatch (E:\restro-backend\node_modules\express\lib\router\route.js:119:3)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+2026-02-19 23:43:28 [ERROR]: Socket error: wD8GK1AFUesy1xw7AAAC invalid payload
+Error: invalid payload
+    at Decoder.decodeString (E:\restro-backend\node_modules\socket.io-parser\build\cjs\index.js:235:23)
+    at Decoder.add (E:\restro-backend\node_modules\socket.io-parser\build\cjs\index.js:138:27)
+    at Client.ondata (E:\restro-backend\node_modules\socket.io\dist\client.js:185:26)
+    at Socket.emit (node:events:518:28)
+    at Socket.onPacket (E:\restro-backend\node_modules\engine.io\build\socket.js:117:22)
+    at WebSocket.emit (node:events:518:28)
+    at WebSocket.onPacket (E:\restro-backend\node_modules\engine.io\build\transport.js:96:14)
+    at WebSocket.onData (E:\restro-backend\node_modules\engine.io\build\transport.js:105:14)
+    at WebSocket.<anonymous> (E:\restro-backend\node_modules\engine.io\build\transports\websocket.js:40:19)
+    at WebSocket.emit (node:events:518:28)
+2026-02-19 23:56:49 [ERROR]: Direct Bill print failed for INV/2526/000298:
+2026-02-19 23:56:49 [ERROR]: Direct bill print failed for INV/2526/000298:
+2026-02-19 23:59:12 [ERROR]: Direct Bill print failed for INV/2526/000298:
+2026-02-19 23:59:12 [ERROR]: Direct bill print failed for INV/2526/000298:
+>>>>>>> cbabc0d2e169ef384cc2fc192e3c0fe74370d7ad
