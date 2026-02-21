@@ -34,7 +34,7 @@ const CONFIG = {
   BRIDGE_CODE: process.env.BRIDGE_CODE || 'KITCHEN-BRIDGE-1',
   
   // API key (provided when bridge was created via API)
-  API_KEY: process.env.API_KEY || '8573e2b31d02ee62aa026a510923c35cb3a88ef7ac31d86e77002601fa913e49',
+  API_KEY: process.env.API_KEY || '',
   
   // Polling interval in milliseconds
   POLL_INTERVAL: parseInt(process.env.POLL_INTERVAL) || 2000,
@@ -54,6 +54,12 @@ const CONFIG = {
   // Fallback printer if station not found
   DEFAULT_PRINTER: { ip: '192.168.1.13', port: 9100 }
 };
+
+// Normalize critical config values to avoid auth mismatches from whitespace.
+CONFIG.CLOUD_URL = String(CONFIG.CLOUD_URL || '').trim();
+CONFIG.OUTLET_ID = String(CONFIG.OUTLET_ID || '').trim();
+CONFIG.BRIDGE_CODE = String(CONFIG.BRIDGE_CODE || '').trim();
+CONFIG.API_KEY = String(CONFIG.API_KEY || '').trim();
 
 // ========================
 // PRINTER COMMUNICATION
@@ -111,6 +117,7 @@ const api = axios.create({
   baseURL: CONFIG.CLOUD_URL,
   headers: {
     'x-api-key': CONFIG.API_KEY,
+    Authorization: `Bearer ${CONFIG.API_KEY}`,
     'Content-Type': 'application/json'
   },
   timeout: 15000
@@ -128,7 +135,8 @@ async function pollForJob() {
     return response.data;
   } catch (error) {
     if (error.response?.status === 401) {
-      console.error('❌ Authentication failed. Check API key and bridge code.');
+      const serverMessage = error.response?.data?.message || 'Invalid credentials';
+      console.error(`Authentication failed (${serverMessage}). Check API key, outlet ID, and bridge code.`);
     }
     throw error;
   }
@@ -255,6 +263,11 @@ function testPrinterConnections() {
 }
 
 // Start the agent
+if (!CONFIG.API_KEY) {
+  console.error('Missing API_KEY. Set API_KEY in environment before starting bridge-agent.');
+  process.exit(1);
+}
+
 printBanner();
 
 // Optional: Test printer connections on startup
@@ -279,3 +292,4 @@ process.on('SIGINT', () => {
 process.on('uncaughtException', (err) => {
   console.error('Uncaught exception:', err);
 });
+

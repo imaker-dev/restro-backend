@@ -6,6 +6,23 @@
 const printerService = require('../services/printer.service');
 const logger = require('../utils/logger');
 
+function extractBridgeApiKey(headers = {}) {
+  const xApiKey = headers['x-api-key'];
+  if (typeof xApiKey === 'string' && xApiKey.trim()) {
+    return xApiKey.trim();
+  }
+
+  const authorization = headers.authorization;
+  if (typeof authorization === 'string') {
+    const match = authorization.match(/^Bearer\s+(.+)$/i);
+    if (match && match[1].trim()) {
+      return match[1].trim();
+    }
+  }
+
+  return null;
+}
+
 const printerController = {
   // ========================
   // PRINTER MANAGEMENT
@@ -204,7 +221,7 @@ const printerController = {
   async bridgePoll(req, res) {
     try {
       const { outletId, bridgeCode } = req.params;
-      const apiKey = req.headers['x-api-key'];
+      const apiKey = extractBridgeApiKey(req.headers);
 
       if (!apiKey) {
         return res.status(401).json({ success: false, message: 'API key required' });
@@ -243,8 +260,12 @@ const printerController = {
   async bridgeAck(req, res) {
     try {
       const { outletId, bridgeCode, jobId } = req.params;
-      const apiKey = req.headers['x-api-key'];
+      const apiKey = extractBridgeApiKey(req.headers);
       const { status, error } = req.body;
+
+      if (!apiKey) {
+        return res.status(401).json({ success: false, message: 'API key required' });
+      }
 
       // Validate bridge
       const bridge = await printerService.validateBridgeApiKey(outletId, bridgeCode, apiKey);

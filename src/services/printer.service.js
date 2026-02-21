@@ -313,7 +313,14 @@ const printerService = {
 
   async validateBridgeApiKey(outletId, bridgeCode, apiKey) {
     const pool = getPool();
-    const hashedKey = crypto.createHash('sha256').update(apiKey).digest('hex');
+    if (!apiKey || typeof apiKey !== 'string') {
+      return null;
+    }
+    const normalizedApiKey = apiKey.trim();
+    if (!normalizedApiKey) {
+      return null;
+    }
+    const hashedKey = crypto.createHash('sha256').update(normalizedApiKey).digest('hex');
 
     const [bridges] = await pool.query(
       `SELECT * FROM printer_bridges 
