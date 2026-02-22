@@ -136,12 +136,7 @@ const orderService = {
         const existingSession = await tableService.getActiveSession(tableId);
         
         if (existingSession) {
-          // Session exists - verify ownership or authorization
-          if (existingSession.order_id) {
-            throw new Error(`Table already has an active order (Order ID: ${existingSession.order_id}). Use existing order or end session first.`);
-          }
-          
-          // Check if captain owns this session OR is admin/manager
+          // Check if user is privileged (admin/manager/cashier)
           const [userRoles] = await connection.query(
             `SELECT r.slug as role_name FROM user_roles ur 
              JOIN roles r ON ur.role_id = r.id 
@@ -150,22 +145,71 @@ const orderService = {
           );
           const isPrivileged = userRoles.some(r => ['admin', 'manager', 'super_admin', 'cashier'].includes(r.role_name));
           
-          // Convert to numbers for comparison (handle type mismatch)
-          const sessionOwnerId = parseInt(existingSession.started_by, 10);
-          const currentUserId = parseInt(createdBy, 10);
-          
-          if (sessionOwnerId !== currentUserId && !isPrivileged) {
-            // Get session owner name for better error message
-            const [sessionOwner] = await connection.query(
-              'SELECT name FROM users WHERE id = ?',
-              [sessionOwnerId]
+          // Session exists - verify ownership or authorization
+          if (existingSession.order_id) {
+            // Check if the existing order is in a terminal state (paid/completed/cancelled)
+            const [existingOrder] = await connection.query(
+              'SELECT id, status, payment_status FROM orders WHERE id = ?',
+              [existingSession.order_id]
             );
-            const ownerName = sessionOwner[0]?.name || `User ID ${sessionOwnerId}`;
-            throw new Error(`This table session was started by ${ownerName}. Only they can create orders for this table, or contact a manager to transfer the table.`);
+            const orderStatus = existingOrder[0]?.status;
+            const paymentStatus = existingOrder[0]?.payment_status;
+            
+            // If order is completed/paid/cancelled, end the old session and create new one
+            if (['paid', 'completed', 'cancelled'].includes(orderStatus) || paymentStatus === 'paid') {
+              // End the old session
+              await connection.query(
+                `UPDATE table_sessions SET status = 'completed', ended_at = NOW() WHERE id = ?`,
+                [existingSession.id]
+              );
+              // Create new session below
+              const session = await tableService.startSession(tableId, {
+                guestCount,
+                guestName: customerName,
+                guestPhone: customerPhone,
+                waiterId: createdBy,
+                notes: specialInstructions
+              }, createdBy);
+              tableSessionId = session.sessionId;
+            } else if (isPrivileged) {
+              // Privileged user can force-end a stuck session (e.g., 'billed' with partial payment)
+              // End the old session
+              await connection.query(
+                `UPDATE table_sessions SET status = 'completed', ended_at = NOW(), ended_by = ? WHERE id = ?`,
+                [createdBy, existingSession.id]
+              );
+              // Create new session
+              const session = await tableService.startSession(tableId, {
+                guestCount,
+                guestName: customerName,
+                guestPhone: customerPhone,
+                waiterId: createdBy,
+                notes: specialInstructions
+              }, createdBy);
+              tableSessionId = session.sessionId;
+            } else {
+              throw new Error(`Table already has an active order (Order ID: ${existingSession.order_id}). Use existing order or end session first.`);
+            }
+          } else {
+            // Session exists but has no order_id - check ownership
+            
+            // Convert to numbers for comparison (handle type mismatch)
+            const sessionOwnerId = parseInt(existingSession.started_by, 10);
+            const currentUserId = parseInt(createdBy, 10);
+            
+            if (sessionOwnerId !== currentUserId && !isPrivileged) {
+              // Get session owner name for better error message
+              const [sessionOwner] = await connection.query(
+                'SELECT name FROM users WHERE id = ?',
+                [sessionOwnerId]
+              );
+              const ownerName = sessionOwner[0]?.name || `User ID ${sessionOwnerId}`;
+              throw new Error(`This table session was started by ${ownerName}. Only they can create orders for this table, or contact a manager to transfer the table.`);
+            }
+            
+            // Use existing session
+            tableSessionId = existingSession.id;
           }
-          
-          // Use existing session
-          tableSessionId = existingSession.id;
         } else {
           // No session exists - create new one
           const session = await tableService.startSession(tableId, {
@@ -586,7 +630,7 @@ const orderService = {
     const pool = getPool();
     const {
       search, sortBy = 'created_at', sortOrder = 'DESC',
-      status
+      status, floorIds = []
     } = filters;
     const page = Math.max(1, parseInt(filters.page) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(filters.limit) || 20));
@@ -598,6 +642,12 @@ const orderService = {
 
     let whereClause = `WHERE o.outlet_id = ? AND o.order_type = 'takeaway'`;
     const params = [outletId];
+
+    // Floor restriction for strict floor assignments
+    if (floorIds && floorIds.length > 0) {
+      whereClause += ` AND o.floor_id IN (${floorIds.map(() => '?').join(',')})`;
+      params.push(...floorIds);
+    }
 
     // Status filter: 'pending' (active/not paid), 'completed', 'cancelled', 'all'
     if (status === 'completed') {
@@ -1631,7 +1681,55 @@ const orderService = {
       'SELECT * FROM invoices WHERE order_id = ? ORDER BY created_at DESC LIMIT 1',
       [orderId]
     );
-    order.invoice = invoices[0] || null;
+    if (invoices[0]) {
+      const inv = invoices[0];
+      const isInterstate = !!inv.is_interstate;
+      let taxBreakup = inv.tax_breakup
+        ? (typeof inv.tax_breakup === 'string' ? JSON.parse(inv.tax_breakup) : inv.tax_breakup)
+        : null;
+      
+      // Transform taxBreakup for interstate: convert CGST+SGST to IGST
+      if (isInterstate && taxBreakup) {
+        const transformedBreakup = {};
+        let totalGstRate = 0;
+        let totalGstTaxable = 0;
+        let totalGstAmount = 0;
+        
+        for (const [code, data] of Object.entries(taxBreakup)) {
+          const codeUpper = code.toUpperCase();
+          if (codeUpper.includes('CGST') || codeUpper.includes('SGST')) {
+            totalGstRate += parseFloat(data.rate) || 0;
+            totalGstTaxable = Math.max(totalGstTaxable, parseFloat(data.taxableAmount) || 0);
+            totalGstAmount += parseFloat(data.taxAmount) || 0;
+          } else {
+            transformedBreakup[code] = data;
+          }
+        }
+        
+        if (totalGstAmount > 0) {
+          transformedBreakup['IGST'] = {
+            name: `IGST ${totalGstRate}%`,
+            rate: totalGstRate,
+            taxableAmount: totalGstTaxable,
+            taxAmount: totalGstAmount
+          };
+        }
+        taxBreakup = transformedBreakup;
+      }
+      
+      order.invoice = {
+        ...inv,
+        is_interstate: isInterstate,
+        tax_breakup: taxBreakup,
+        cgst_amount: isInterstate ? 0 : parseFloat(inv.cgst_amount) || 0,
+        sgst_amount: isInterstate ? 0 : parseFloat(inv.sgst_amount) || 0,
+        igst_amount: isInterstate 
+          ? (parseFloat(inv.cgst_amount) || 0) + (parseFloat(inv.sgst_amount) || 0) + (parseFloat(inv.igst_amount) || 0) 
+          : parseFloat(inv.igst_amount) || 0
+      };
+    } else {
+      order.invoice = null;
+    }
 
     // Get payments if exists
     const [payments] = await pool.query(
@@ -1944,7 +2042,7 @@ const orderService = {
     const [orders] = await pool.query(
       `SELECT 
         o.*,
-        out.name as outlet_name,
+        ol.name as outlet_name,
         t.table_number,
         t.name as table_name,
         f.name as floor_name,
@@ -1955,10 +2053,10 @@ const orderService = {
         inv.grand_total as invoice_total,
         inv.payment_status as invoice_payment_status,
         (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,
-        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,
+        (SELECT COUNT(*) FROM kot_tickets WHERE order_id = o.id) as kot_count,
         (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount
        FROM orders o
-       LEFT JOIN outlets out ON o.outlet_id = out.id
+       LEFT JOIN outlets ol ON o.outlet_id = ol.id
        LEFT JOIN tables t ON o.table_id = t.id
        LEFT JOIN floors f ON t.floor_id = f.id
        LEFT JOIN sections s ON t.section_id = s.id
@@ -2059,11 +2157,11 @@ const orderService = {
     const [orders] = await pool.query(
       `SELECT 
         o.*,
-        out.name as outlet_name,
-        out.address_line1 as outlet_address,
-        out.city as outlet_city,
-        out.phone as outlet_phone,
-        out.gstin as outlet_gstin,
+        ol.name as outlet_name,
+        ol.address_line1 as outlet_address,
+        ol.city as outlet_city,
+        ol.phone as outlet_phone,
+        ol.gstin as outlet_gstin,
         t.table_number,
         t.name as table_name,
         t.capacity as table_capacity,
@@ -2077,7 +2175,7 @@ const orderService = {
         ts.started_at as session_started_at,
         ts.ended_at as session_ended_at
        FROM orders o
-       LEFT JOIN outlets out ON o.outlet_id = out.id
+       LEFT JOIN outlets ol ON o.outlet_id = ol.id
        LEFT JOIN tables t ON o.table_id = t.id
        LEFT JOIN floors f ON t.floor_id = f.id
        LEFT JOIN sections s ON t.section_id = s.id
@@ -2280,33 +2378,40 @@ const orderService = {
     }));
 
     // Format invoice
-    const invoice = invoices[0] ? {
-      id: invoices[0].id,
-      uuid: invoices[0].uuid,
-      invoiceNumber: invoices[0].invoice_number,
-      invoiceDate: invoices[0].invoice_date,
-      invoiceTime: invoices[0].invoice_time,
-      customerName: invoices[0].customer_name,
-      customerPhone: invoices[0].customer_phone,
-      customerEmail: invoices[0].customer_email,
-      customerGstin: invoices[0].customer_gstin,
-      subtotal: parseFloat(invoices[0].subtotal) || 0,
-      discountAmount: parseFloat(invoices[0].discount_amount) || 0,
-      taxableAmount: parseFloat(invoices[0].taxable_amount) || 0,
-      cgstAmount: parseFloat(invoices[0].cgst_amount) || 0,
-      sgstAmount: parseFloat(invoices[0].sgst_amount) || 0,
-      totalTax: parseFloat(invoices[0].total_tax) || 0,
-      serviceCharge: parseFloat(invoices[0].service_charge) || 0,
-      roundOff: parseFloat(invoices[0].round_off) || 0,
-      grandTotal: parseFloat(invoices[0].grand_total) || 0,
-      paymentStatus: invoices[0].payment_status,
-      isCancelled: invoices[0].is_cancelled === 1,
-      cancelledAt: invoices[0].cancelled_at,
-      cancelledByName: invoices[0].cancelled_by_name,
-      cancelReason: invoices[0].cancel_reason,
-      generatedBy: invoices[0].generated_by,
-      generatedByName: invoices[0].generated_by_name,
-      createdAt: invoices[0].created_at
+    const inv = invoices[0];
+    const isInterstate = inv ? !!inv.is_interstate : false;
+    const invoice = inv ? {
+      id: inv.id,
+      uuid: inv.uuid,
+      invoiceNumber: inv.invoice_number,
+      invoiceDate: inv.invoice_date,
+      invoiceTime: inv.invoice_time,
+      customerName: inv.customer_name,
+      customerPhone: inv.customer_phone,
+      customerEmail: inv.customer_email,
+      customerGstin: inv.customer_gstin,
+      customerCompanyName: inv.customer_company_name || null,
+      isInterstate,
+      taxType: isInterstate ? 'IGST' : 'CGST+SGST',
+      subtotal: parseFloat(inv.subtotal) || 0,
+      discountAmount: parseFloat(inv.discount_amount) || 0,
+      taxableAmount: parseFloat(inv.taxable_amount) || 0,
+      cgstAmount: parseFloat(inv.cgst_amount) || 0,
+      sgstAmount: parseFloat(inv.sgst_amount) || 0,
+      igstAmount: parseFloat(inv.igst_amount) || 0,
+      totalTax: parseFloat(inv.total_tax) || 0,
+      serviceCharge: parseFloat(inv.service_charge) || 0,
+      roundOff: parseFloat(inv.round_off) || 0,
+      grandTotal: parseFloat(inv.grand_total) || 0,
+      paymentStatus: inv.payment_status,
+      taxBreakup: inv.tax_breakup ? (typeof inv.tax_breakup === 'string' ? JSON.parse(inv.tax_breakup) : inv.tax_breakup) : null,
+      isCancelled: inv.is_cancelled === 1,
+      cancelledAt: inv.cancelled_at,
+      cancelledByName: inv.cancelled_by_name,
+      cancelReason: inv.cancel_reason,
+      generatedBy: inv.generated_by,
+      generatedByName: inv.generated_by_name,
+      createdAt: inv.created_at
     } : null;
 
     // Format payments

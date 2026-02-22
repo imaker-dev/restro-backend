@@ -64,15 +64,18 @@ const orderController = {
 
   async getPendingTakeawayOrders(req, res) {
     try {
+      const outletId = parseInt(req.params.outletId);
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
       const filters = {
         search: req.query.search,
         sortBy: req.query.sortBy,
         sortOrder: req.query.sortOrder,
         page: req.query.page,
         limit: req.query.limit,
-        status: req.query.status
+        status: req.query.status,
+        floorIds: floorIds.length > 0 ? floorIds : undefined
       };
-      const result = await orderService.getPendingTakeawayOrders(req.params.outletId, filters);
+      const result = await orderService.getPendingTakeawayOrders(outletId, filters);
       res.json({ success: true, data: result.data, pagination: result.pagination });
     } catch (error) {
       logger.error('Get pending takeaway orders error:', error);

@@ -614,11 +614,24 @@ class AuthService {
 
   /**
    * Get all outlets a user has access to + determine primary outlet.
-   * Staff: outlets from user_roles. Admin/global: all active outlets.
+   * super_admin: all active outlets (global access)
+   * admin with outletId: only assigned outlets
+   * admin without outletId: empty array (must create own outlet)
+   * Staff: outlets from user_roles
    * Primary outlet: from most recent session, else first in list.
    */
   async _getUserOutlets(userId) {
     const pool = getPool();
+
+    // Check if user has super_admin role
+    const [superAdminCheck] = await pool.query(
+      `SELECT 1 FROM user_roles ur
+       JOIN roles r ON ur.role_id = r.id
+       WHERE ur.user_id = ? AND ur.is_active = 1 AND r.slug = 'super_admin'
+       LIMIT 1`,
+      [userId]
+    );
+    const isSuperAdmin = superAdminCheck.length > 0;
 
     // Get outlets assigned via roles
     const [roleOutlets] = await pool.query(
@@ -633,12 +646,15 @@ class AuthService {
     let outlets;
     if (roleOutlets.length > 0) {
       outlets = roleOutlets;
-    } else {
-      // Global role (super_admin) — all active outlets
+    } else if (isSuperAdmin) {
+      // Only super_admin gets all active outlets
       const [allOutlets] = await pool.query(
         `SELECT id, name FROM outlets WHERE is_active = 1 ORDER BY id`
       );
       outlets = allOutlets;
+    } else {
+      // Regular admin/user without assigned outlets gets empty array
+      outlets = [];
     }
 
     if (outlets.length === 0) {

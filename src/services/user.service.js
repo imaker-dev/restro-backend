@@ -65,8 +65,12 @@ class UserService {
 
   /**
    * Get all users with pagination and filters
+   * Outlet-wise filtering based on userContext:
+   * - super_admin: sees all users
+   * - admin/manager with outlet: sees users assigned to their outlet
+   * - admin/manager without outlet: sees only users without outlet assignments
    */
-  async getUsers(options = {}) {
+  async getUsers(options = {}, userContext = null) {
     const pool = getPool();
     const {
       page = 1,
@@ -82,6 +86,25 @@ class UserService {
     const offset = (page - 1) * limit;
     const params = [];
     let whereClause = 'WHERE u.deleted_at IS NULL';
+
+    // Outlet-wise filtering based on user's role and outlet access
+    let effectiveOutletId = outletId; // Query param takes precedence if super_admin
+    
+    if (userContext) {
+      const isSuperAdmin = userContext.roles.includes('super_admin');
+      
+      if (!isSuperAdmin) {
+        // Non-super_admin users can only see users from their outlet
+        if (userContext.outletId) {
+          // Admin/manager with outlet: filter by their outlet
+          effectiveOutletId = userContext.outletId;
+        } else {
+          // Admin without outlet: can only see users without outlet assignments
+          whereClause += ' AND (ur.outlet_id IS NULL OR ur.id IS NULL)';
+        }
+      }
+      // super_admin: no automatic filtering, can use query param or see all
+    }
 
     if (search) {
       whereClause += ' AND (u.name LIKE ? OR u.email LIKE ? OR u.employee_code LIKE ? OR u.phone LIKE ?)';
@@ -99,9 +122,10 @@ class UserService {
       params.push(roleId);
     }
 
-    if (outletId) {
-      whereClause += ' AND (ur.outlet_id = ? OR ur.outlet_id IS NULL)';
-      params.push(outletId);
+    if (effectiveOutletId) {
+      // ONLY show users assigned to this specific outlet (not NULL outlet users)
+      whereClause += ' AND ur.outlet_id = ?';
+      params.push(effectiveOutletId);
     }
 
     // Get total count
@@ -135,8 +159,40 @@ class UserService {
       [...params, limit, offset]
     );
 
+    // Get station assignments for all users in one query (primary station only)
+    const userIds = users.map(u => u.id);
+    let stationMap = {};
+    if (userIds.length > 0) {
+      const [stations] = await pool.query(
+        `SELECT us.user_id, us.station_id, us.is_primary,
+                ks.name as station_name, ks.code as station_code, ks.station_type,
+                us.outlet_id
+         FROM user_stations us
+         JOIN kitchen_stations ks ON us.station_id = ks.id
+         WHERE us.user_id IN (?) AND us.is_active = 1
+         ORDER BY us.is_primary DESC`,
+        [userIds]
+      );
+      for (const s of stations) {
+        // Only store the first (primary) station per user
+        if (!stationMap[s.user_id]) {
+          stationMap[s.user_id] = {
+            stationId: s.station_id,
+            stationName: s.station_name,
+            stationCode: s.station_code,
+            stationType: s.station_type,
+            outletId: s.outlet_id,
+            isPrimary: Boolean(s.is_primary)
+          };
+        }
+      }
+    }
+
     return {
-      data: users.map(u => this.formatUser(u)),
+      data: users.map(u => ({
+        ...this.formatUser(u),
+        station: stationMap[u.id] || null
+      })),
       pagination: {
         page,
         limit,
@@ -192,6 +248,10 @@ class UserService {
     // Get floor and section assignments
     const assignedFloors = await this.getUserFloors(id);
     const assignedSections = await this.getUserSections(id);
+    
+    // Get station assignment (primary station only)
+    const stations = await this.getUserStations(id);
+    const assignedStation = stations.find(s => s.isPrimary) || stations[0] || null;
 
     return {
       ...this.formatUser(user),
@@ -208,6 +268,7 @@ class UserService {
       permissionCount: permissions.length,
       assignedFloors,
       assignedSections,
+      assignedStation,
     };
   }
 
@@ -627,19 +688,66 @@ class UserService {
   }
 
   /**
-   * Get all roles
+   * Get all roles (filtered by requester's role)
+   * Role Hierarchy - users can only see roles BELOW them:
+   * - super_admin sees: admin, manager, staff roles
+   * - admin sees: manager, staff roles (NOT admin or super_admin)
+   * - manager sees: only staff roles
    */
-  async getRoles() {
+  async getRoles(requesterRole) {
     const pool = getPool();
 
-    const [roles] = await pool.query(
+    // Define role hierarchy
+    const STAFF_ROLES = ['captain', 'waiter', 'bartender', 'kitchen', 'cashier', 'inventory'];
+
+    const [allRoles] = await pool.query(
       `SELECT id, name, slug, description, is_system_role, is_active, priority
        FROM roles
        WHERE is_active = 1
        ORDER BY priority DESC, name ASC`
     );
 
-    return roles;
+    // Determine which roles the requester can SEE and MANAGE
+    // Users can only see roles BELOW their level
+    let visibleRoleSlugs = [];
+    let manageableRoles = [];
+
+    if (requesterRole === 'super_admin') {
+      // Super admin can see and manage: admin, manager, staff
+      visibleRoleSlugs = ['admin', 'manager', ...STAFF_ROLES];
+      manageableRoles = ['admin', 'manager', ...STAFF_ROLES];
+    } else if (requesterRole === 'admin') {
+      // Admin can see and manage: manager, staff (NOT admin or super_admin)
+      visibleRoleSlugs = ['manager', ...STAFF_ROLES];
+      manageableRoles = ['manager', ...STAFF_ROLES];
+    } else if (requesterRole === 'manager') {
+      // Manager can see and manage: only staff roles
+      visibleRoleSlugs = STAFF_ROLES;
+      manageableRoles = STAFF_ROLES;
+    } else {
+      // Staff roles see nothing
+      visibleRoleSlugs = [];
+      manageableRoles = [];
+    }
+
+    // Filter roles to only show visible ones
+    const visibleRoles = allRoles
+      .filter(role => visibleRoleSlugs.includes(role.slug))
+      .map(role => ({
+        ...role,
+        category: ['super_admin', 'admin', 'manager'].includes(role.slug) ? 'admin' : 'staff',
+        canManage: manageableRoles.includes(role.slug)
+      }));
+
+    return {
+      roles: visibleRoles,
+      hierarchy: {
+        staffRoles: STAFF_ROLES,
+        requesterRole,
+        visibleRoles: visibleRoleSlugs,
+        canManageRoles: manageableRoles
+      }
+    };
   }
 
   /**
@@ -770,6 +878,161 @@ class UserService {
     );
     const nextNum = (result[0].maxCode || 0) + 1;
     return `EMP${String(nextNum).padStart(4, '0')}`;
+  }
+
+  // =====================================================
+  // USER STATION METHODS (for kitchen/bar staff)
+  // =====================================================
+
+  /**
+   * Get user's assigned stations with printer info
+   */
+  async getUserStations(userId, outletId = null) {
+    const pool = getPool();
+    let query = `
+      SELECT us.id, us.station_id, us.outlet_id, us.is_primary, us.is_active,
+             ks.name as station_name, ks.code as station_code, ks.station_type,
+             ks.printer_id,
+             p.name as printer_name, p.ip_address as printer_ip, p.port as printer_port,
+             p.station as printer_station,
+             o.name as outlet_name
+      FROM user_stations us
+      JOIN kitchen_stations ks ON us.station_id = ks.id
+      LEFT JOIN printers p ON ks.printer_id = p.id
+      LEFT JOIN outlets o ON us.outlet_id = o.id
+      WHERE us.user_id = ? AND us.is_active = 1
+    `;
+    const params = [userId];
+    if (outletId) {
+      query += ' AND us.outlet_id = ?';
+      params.push(outletId);
+    }
+    query += ' ORDER BY us.is_primary DESC, ks.name';
+    const [rows] = await pool.query(query, params);
+    
+    return rows.map(r => ({
+      id: r.id,
+      stationId: r.station_id,
+      stationName: r.station_name,
+      stationCode: r.station_code,
+      stationType: r.station_type,
+      outletId: r.outlet_id,
+      outletName: r.outlet_name,
+      isPrimary: Boolean(r.is_primary),
+      printer: r.printer_id ? {
+        id: r.printer_id,
+        name: r.printer_name,
+        ip: r.printer_ip,
+        port: r.printer_port,
+        station: r.printer_station
+      } : null
+    }));
+  }
+
+  /**
+   * Assign station to user
+   */
+  async assignStation(userId, stationId, outletId, assignedBy, isPrimary = false) {
+    const pool = getPool();
+    
+    // Verify station exists and belongs to outlet
+    const [station] = await pool.query(
+      'SELECT id FROM kitchen_stations WHERE id = ? AND outlet_id = ? AND is_active = 1',
+      [stationId, outletId]
+    );
+    if (!station.length) {
+      throw new Error('Station not found or not active in this outlet');
+    }
+
+    // If setting as primary, unset other primaries for this user in this outlet
+    if (isPrimary) {
+      await pool.query(
+        'UPDATE user_stations SET is_primary = 0 WHERE user_id = ? AND outlet_id = ?',
+        [userId, outletId]
+      );
+    }
+
+    // Insert or update
+    await pool.query(
+      `INSERT INTO user_stations (user_id, station_id, outlet_id, is_primary, assigned_by)
+       VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE is_primary = VALUES(is_primary), is_active = 1, assigned_by = VALUES(assigned_by)`,
+      [userId, stationId, outletId, isPrimary ? 1 : 0, assignedBy]
+    );
+
+    return this.getUserStations(userId, outletId);
+  }
+
+  /**
+   * Remove station from user
+   */
+  async removeStation(userId, stationId) {
+    const pool = getPool();
+    await pool.query(
+      'UPDATE user_stations SET is_active = 0 WHERE user_id = ? AND station_id = ?',
+      [userId, stationId]
+    );
+    return { success: true };
+  }
+
+  /**
+   * Get station's printer for a user role
+   * Used when kitchen/bar user needs to know which printer to use
+   */
+  async getStationPrinterForUser(userId, outletId) {
+    const pool = getPool();
+    
+    // Get user's primary station with printer
+    const [rows] = await pool.query(`
+      SELECT p.id, p.name, p.ip_address, p.port, p.station, p.printer_type
+      FROM user_stations us
+      JOIN kitchen_stations ks ON us.station_id = ks.id
+      JOIN printers p ON ks.printer_id = p.id
+      WHERE us.user_id = ? AND us.outlet_id = ? AND us.is_active = 1
+      ORDER BY us.is_primary DESC
+      LIMIT 1
+    `, [userId, outletId]);
+
+    if (rows.length) {
+      return {
+        printerId: rows[0].id,
+        printerName: rows[0].name,
+        printerIp: rows[0].ip_address,
+        printerPort: rows[0].port,
+        printerStation: rows[0].station,
+        printerType: rows[0].printer_type
+      };
+    }
+
+    // Fallback: get printer by role-station mapping
+    const [userRoles] = await pool.query(`
+      SELECT r.slug FROM user_roles ur
+      JOIN roles r ON ur.role_id = r.id
+      WHERE ur.user_id = ? AND ur.is_active = 1
+    `, [userId]);
+
+    const roleSlug = userRoles[0]?.slug;
+    let stationFilter = 'kot_kitchen';
+    if (roleSlug === 'bartender') stationFilter = 'kot_bar';
+    else if (roleSlug === 'cashier') stationFilter = 'bill';
+
+    const [printers] = await pool.query(`
+      SELECT id, name, ip_address, port, station, printer_type
+      FROM printers WHERE outlet_id = ? AND station = ? AND is_active = 1 LIMIT 1
+    `, [outletId, stationFilter]);
+
+    if (printers.length) {
+      return {
+        printerId: printers[0].id,
+        printerName: printers[0].name,
+        printerIp: printers[0].ip_address,
+        printerPort: printers[0].port,
+        printerStation: printers[0].station,
+        printerType: printers[0].printer_type
+      };
+    }
+
+    return null;
   }
 
   formatUser(user) {

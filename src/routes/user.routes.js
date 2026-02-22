@@ -118,4 +118,36 @@ router.post('/:id/permissions/revoke', authorize('super_admin', 'admin', 'manage
  */
 router.get('/:id/permissions/history', authorize('super_admin', 'admin'), permissionController.getPermissionHistory);
 
+// =====================================================
+// USER STATION ROUTES (for kitchen/bar staff)
+// =====================================================
+
+/**
+ * @route   GET /api/v1/users/:id/stations
+ * @desc    Get user's assigned kitchen/bar stations with printer info
+ * @access  Private (admin, manager, self)
+ */
+router.get('/:id/stations', authorize('super_admin', 'admin', 'manager', 'kitchen', 'bartender'), userController.getUserStations);
+
+/**
+ * @route   POST /api/v1/users/:id/stations
+ * @desc    Assign station to user
+ * @access  Private (admin, manager)
+ */
+router.post('/:id/stations', authorize('super_admin', 'admin', 'manager'), userController.assignStation);
+
+/**
+ * @route   DELETE /api/v1/users/:id/stations/:stationId
+ * @desc    Remove station from user
+ * @access  Private (admin, manager)
+ */
+router.delete('/:id/stations/:stationId', authorize('super_admin', 'admin', 'manager'), userController.removeStation);
+
+/**
+ * @route   GET /api/v1/users/:id/station-printer
+ * @desc    Get the printer for user's primary station (for KOT printing)
+ * @access  Private (kitchen, bartender, self)
+ */
+router.get('/:id/station-printer', authorize('super_admin', 'admin', 'manager', 'kitchen', 'bartender'), userController.getStationPrinter);
+
 module.exports = router;

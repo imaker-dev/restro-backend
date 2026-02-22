@@ -22,15 +22,15 @@ router.use('/orders', require('./order.routes'));
 router.use('/printers', require('./printer.routes'));
 router.use('/upload', require('./upload.routes'));
 router.use('/customers', require('./customer.routes'));
+router.use('/settings', require('./settings.routes'));
+router.use('/reports', require('./reports.routes'));
 
 // Future routes (uncomment as modules are developed)
 // router.use('/categories', require('./category.routes'));
 // router.use('/items', require('./item.routes'));
-// router.use('/orders', require('./order.routes'));
 // router.use('/kot', require('./kot.routes'));
 // router.use('/payments', require('./payment.routes'));
 // router.use('/inventory', require('./inventory.routes'));
 // router.use('/reports', require('./report.routes'));
-// router.use('/settings', require('./settings.routes'));
 
 module.exports = router;

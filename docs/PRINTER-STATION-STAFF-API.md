@@ -790,7 +790,7 @@ Creates a new user with roles, floor assignments, and section access.
 | `dessert` | kot | Dessert station orders |
 | `bill` / `cashier` | bill | Customer invoices/bills |
 | `report` | report | Daily reports |
-
+  
 ---
 
 ## Quick Reference
@@ -808,7 +808,7 @@ Creates a new user with roles, floor assignments, and section access.
 ### User Endpoints
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/users/roles` | List available roles |
+| GET | `/users/roles` | List available roles (filtered by requester) |
 | POST | `/users` | Create user |
 | GET | `/users` | List users |
 | GET | `/users/:id` | Get user |
@@ -819,3 +819,208 @@ Creates a new user with roles, floor assignments, and section access.
 | GET | `/users/:id/permissions` | Get permissions |
 | POST | `/users/:id/permissions/grant` | Grant permissions |
 | POST | `/users/:id/permissions/revoke` | Revoke permissions |
+| GET | `/users/:id/stations` | Get user's assigned stations |
+| POST | `/users/:id/stations` | Assign station to user |
+| DELETE | `/users/:id/stations/:stationId` | Remove station from user |
+| GET | `/users/:id/station-printer` | Get printer for user's station |
+
+---
+
+## Part 4: Role Hierarchy & Permissions
+
+### Role Hierarchy
+
+| Category | Roles | Description |
+|----------|-------|-------------|
+| **Admin Roles** | `super_admin`, `admin`, `manager` | Management and administrative roles |
+| **Staff Roles** | `captain`, `waiter`, `bartender`, `kitchen`, `cashier`, `inventory` | Operational staff roles |
+
+### Who Can Manage Which Roles
+
+| Requester Role | Can See | Can Manage |
+|----------------|---------|------------|
+| `super_admin` | All roles | All roles including admin |
+| `admin` | All roles | `manager` + all staff roles |
+| `manager` | Staff roles only | Staff roles only |
+
+### Get Roles API (Role-Filtered)
+**GET** `/api/v1/users/roles`
+
+Response varies based on authenticated user's role.
+
+#### Response for Admin:
+```json
+{
+  "success": true,
+  "data": {
+    "roles": [
+      { "id": 1, "name": "Super Admin", "slug": "super_admin", "category": "admin", "canManage": false },
+      { "id": 2, "name": "Admin", "slug": "admin", "category": "admin", "canManage": false },
+      { "id": 3, "name": "Manager", "slug": "manager", "category": "admin", "canManage": true },
+      { "id": 4, "name": "Captain", "slug": "captain", "category": "staff", "canManage": true },
+      { "id": 5, "name": "Cashier", "slug": "cashier", "category": "staff", "canManage": true },
+      { "id": 6, "name": "Kitchen", "slug": "kitchen", "category": "staff", "canManage": true },
+      { "id": 7, "name": "Bartender", "slug": "bartender", "category": "staff", "canManage": true },
+      { "id": 8, "name": "Inventory", "slug": "inventory", "category": "staff", "canManage": true }
+    ],
+    "hierarchy": {
+      "adminRoles": ["super_admin", "admin", "manager"],
+      "staffRoles": ["captain", "waiter", "bartender", "kitchen", "cashier", "inventory"],
+      "requesterRole": "admin",
+      "canManageAdminRoles": false,
+      "canManageManagerRole": true,
+      "canManageStaffRoles": true
+    }
+  }
+}
+```
+
+#### Response for Manager:
+```json
+{
+  "success": true,
+  "data": {
+    "roles": [
+      { "id": 4, "name": "Captain", "slug": "captain", "category": "staff", "canManage": true },
+      { "id": 5, "name": "Cashier", "slug": "cashier", "category": "staff", "canManage": true },
+      { "id": 6, "name": "Kitchen", "slug": "kitchen", "category": "staff", "canManage": true },
+      { "id": 7, "name": "Bartender", "slug": "bartender", "category": "staff", "canManage": true },
+      { "id": 8, "name": "Inventory", "slug": "inventory", "category": "staff", "canManage": true }
+    ],
+    "hierarchy": {
+      "adminRoles": ["super_admin", "admin", "manager"],
+      "staffRoles": ["captain", "waiter", "bartender", "kitchen", "cashier", "inventory"],
+      "requesterRole": "manager",
+      "canManageAdminRoles": false,
+      "canManageManagerRole": false,
+      "canManageStaffRoles": true
+    }
+  }
+}
+```
+
+> **Note:** Manager cannot see or manage admin-level roles. This prevents managers from creating other managers or admins.
+
+---
+
+## Part 5: User Station Assignment (Kitchen/Bar Staff)
+
+### Overview
+Kitchen and bartender users can be assigned to specific stations. This determines which printer they use for KOTs.
+
+### Flow
+1. Create kitchen stations with printers assigned
+2. Create user with `kitchen` or `bartender` role
+3. Assign station(s) to user
+4. User's KOTs print to their station's printer
+
+### 5.1 Get User's Stations
+**GET** `/api/v1/users/:id/stations?outletId=4`
+
+#### Response:
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "stationId": 7,
+      "stationName": "Main Kitchen",
+      "stationCode": "MAIN",
+      "stationType": "main_kitchen",
+      "outletId": 4,
+      "outletName": "Main Restaurant",
+      "isPrimary": true,
+      "printer": {
+        "id": 1,
+        "name": "Kitchen Printer",
+        "ip": "192.168.1.13",
+        "port": 9100,
+        "station": "kot_kitchen"
+      }
+    }
+  ]
+}
+```
+
+### 5.2 Assign Station to User
+**POST** `/api/v1/users/:id/stations`
+
+#### Request:
+```json
+{
+  "stationId": 7,
+  "outletId": 4,
+  "isPrimary": true
+}
+```
+
+#### Response:
+```json
+{
+  "success": true,
+  "message": "Station assigned successfully",
+  "data": [
+    {
+      "stationId": 7,
+      "stationName": "Main Kitchen",
+      "isPrimary": true,
+      "printer": { "id": 1, "name": "Kitchen Printer", "ip": "192.168.1.13" }
+    }
+  ]
+}
+```
+
+### 5.3 Remove Station from User
+**DELETE** `/api/v1/users/:id/stations/:stationId`
+
+#### Response:
+```json
+{
+  "success": true,
+  "message": "Station removed successfully"
+}
+```
+
+### 5.4 Get User's Station Printer
+**GET** `/api/v1/users/:id/station-printer?outletId=4`
+
+Used by kitchen/bar staff to get their printer for KOT printing.
+
+#### Response:
+```json
+{
+  "success": true,
+  "data": {
+    "printerId": 1,
+    "printerName": "Kitchen Printer",
+    "printerIp": "192.168.1.13",
+    "printerPort": 9100,
+    "printerStation": "kot_kitchen",
+    "printerType": "thermal"
+  }
+}
+```
+
+> **Fallback Logic:** If no station assigned, system falls back to printer matching user's role:
+> - `kitchen` → `kot_kitchen` printer
+> - `bartender` → `kot_bar` printer
+> - `cashier` → `bill` printer
+
+---
+
+## Role-Station-Printer Mapping
+
+| Role | Default Station Type | Default Printer Station |
+|------|---------------------|------------------------|
+| `kitchen` | `main_kitchen`, `tandoor`, `wok` | `kot_kitchen` |
+| `bartender` | `bar`, `mocktail` | `kot_bar` |
+| `cashier` | - | `bill` |
+
+### Setup Flow
+1. **Create Printer:** `POST /printers` with `station: "kot_kitchen"`
+2. **Create Kitchen Station:** `POST /kitchen-stations` with `printer_id`
+3. **Create Kitchen User:** `POST /users` with `roleId: 6` (kitchen)
+4. **Assign Station:** `POST /users/:id/stations`
+
+Now when kitchen user needs to print KOT, call `GET /users/:id/station-printer` to get printer info.

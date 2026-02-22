@@ -8130,3 +8130,754 @@ Error: invalid payload
 2026-02-19 23:56:49 [ERROR]: Direct bill print failed for INV/2526/000298:
 2026-02-19 23:59:12 [ERROR]: Direct Bill print failed for INV/2526/000298:
 2026-02-19 23:59:12 [ERROR]: Direct bill print failed for INV/2526/000298:
+2026-02-20 18:38:52 [ERROR]: Failed to start server: {"code":"ECONNREFUSED","fatal":true}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1712:7)
+2026-02-20 19:47:48 [ERROR]: Direct Bill print failed for INV/2526/000299:
+2026-02-20 19:47:48 [ERROR]: Direct bill print failed for INV/2526/000299:
+2026-02-20 20:27:54 [ERROR]: Direct KOT print failed for KOT0220001:
+2026-02-20 20:27:54 [ERROR]: Failed to print KOT KOT0220001:
+2026-02-20 20:28:01 [ERROR]: Direct Bill print failed for INV/2526/000300:
+2026-02-20 20:28:01 [ERROR]: Direct bill print failed for INV/2526/000300:
+2026-02-20 20:30:58 [ERROR]: Direct KOT print failed for KOT0220002:
+2026-02-20 20:30:58 [ERROR]: Failed to print KOT KOT0220002:
+2026-02-20 20:31:00 [ERROR]: Direct Bill print failed for INV/2526/000301:
+2026-02-20 20:31:00 [ERROR]: Direct bill print failed for INV/2526/000301:
+2026-02-20 20:31:03 [ERROR]: Direct KOT print failed for BOT0220001:
+2026-02-20 20:31:03 [ERROR]: Failed to print KOT BOT0220001:
+2026-02-20 21:27:07 [ERROR]: Direct KOT print failed for KOT0220003:
+2026-02-20 21:27:07 [ERROR]: Failed to print KOT KOT0220003:
+2026-02-20 21:27:10 [ERROR]: Direct Bill print failed for INV/2526/000302:
+2026-02-20 21:27:10 [ERROR]: Direct bill print failed for INV/2526/000302:
+2026-02-20 21:27:12 [ERROR]: Direct KOT print failed for BOT0220002:
+2026-02-20 21:27:12 [ERROR]: Failed to print KOT BOT0220002:
+2026-02-20 21:33:22 [ERROR]: Direct KOT print failed for KOT0220004:
+2026-02-20 21:33:22 [ERROR]: Failed to print KOT KOT0220004:
+2026-02-20 21:33:24 [ERROR]: Direct Bill print failed for INV/2526/000303:
+2026-02-20 21:33:24 [ERROR]: Direct bill print failed for INV/2526/000303:
+2026-02-20 21:34:33 [ERROR]: Get admin order list error: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'out ON o.outlet_id = out.id
+       LEFT JOIN tables t ON o.table_id = t.id
+  ...' at line 17 {"code":"ER_PARSE_ERROR","errno":1064,"sql":"SELECT \n        o.*,\n        out.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets out ON o.outlet_id = out.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42000","sqlMessage":"You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'out ON o.outlet_id = out.id\n       LEFT JOIN tables t ON o.table_id = t.id\n  ...' at line 17"}
+Error: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'out ON o.outlet_id = out.id
+       LEFT JOIN tables t ON o.table_id = t.id
+  ...' at line 17
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:34:33 [ERROR]: Get admin order list error: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'out ON o.outlet_id = out.id
+       LEFT JOIN tables t ON o.table_id = t.id
+  ...' at line 17 {"code":"ER_PARSE_ERROR","errno":1064,"sql":"SELECT \n        o.*,\n        out.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets out ON o.outlet_id = out.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42000","sqlMessage":"You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'out ON o.outlet_id = out.id\n       LEFT JOIN tables t ON o.table_id = t.id\n  ...' at line 17"}
+Error: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'out ON o.outlet_id = out.id
+       LEFT JOIN tables t ON o.table_id = t.id
+  ...' at line 17
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:34:36 [ERROR]: Get admin order list error: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'out ON o.outlet_id = out.id
+       LEFT JOIN tables t ON o.table_id = t.id
+  ...' at line 17 {"code":"ER_PARSE_ERROR","errno":1064,"sql":"SELECT \n        o.*,\n        out.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets out ON o.outlet_id = out.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42000","sqlMessage":"You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'out ON o.outlet_id = out.id\n       LEFT JOIN tables t ON o.table_id = t.id\n  ...' at line 17"}
+Error: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'out ON o.outlet_id = out.id
+       LEFT JOIN tables t ON o.table_id = t.id
+  ...' at line 17
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:34:36 [ERROR]: Get admin order list error: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'out ON o.outlet_id = out.id
+       LEFT JOIN tables t ON o.table_id = t.id
+  ...' at line 17 {"code":"ER_PARSE_ERROR","errno":1064,"sql":"SELECT \n        o.*,\n        out.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets out ON o.outlet_id = out.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42000","sqlMessage":"You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'out ON o.outlet_id = out.id\n       LEFT JOIN tables t ON o.table_id = t.id\n  ...' at line 17"}
+Error: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'out ON o.outlet_id = out.id
+       LEFT JOIN tables t ON o.table_id = t.id
+  ...' at line 17
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:34:39 [ERROR]: Get admin order list error: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'out ON o.outlet_id = out.id
+       LEFT JOIN tables t ON o.table_id = t.id
+  ...' at line 17 {"code":"ER_PARSE_ERROR","errno":1064,"sql":"SELECT \n        o.*,\n        out.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets out ON o.outlet_id = out.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42000","sqlMessage":"You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'out ON o.outlet_id = out.id\n       LEFT JOIN tables t ON o.table_id = t.id\n  ...' at line 17"}
+Error: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'out ON o.outlet_id = out.id
+       LEFT JOIN tables t ON o.table_id = t.id
+  ...' at line 17
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:34:40 [ERROR]: Get admin order list error: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'out ON o.outlet_id = out.id
+       LEFT JOIN tables t ON o.table_id = t.id
+  ...' at line 17 {"code":"ER_PARSE_ERROR","errno":1064,"sql":"SELECT \n        o.*,\n        out.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets out ON o.outlet_id = out.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42000","sqlMessage":"You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'out ON o.outlet_id = out.id\n       LEFT JOIN tables t ON o.table_id = t.id\n  ...' at line 17"}
+Error: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'out ON o.outlet_id = out.id
+       LEFT JOIN tables t ON o.table_id = t.id
+  ...' at line 17
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:36:07 [ERROR]: Direct KOT print failed for KOT0220005:
+2026-02-20 21:36:07 [ERROR]: Failed to print KOT KOT0220005:
+2026-02-20 21:36:10 [ERROR]: Direct Bill print failed for INV/2526/000304:
+2026-02-20 21:36:10 [ERROR]: Direct bill print failed for INV/2526/000304:
+2026-02-20 21:36:12 [ERROR]: Direct KOT print failed for BOT0220003:
+2026-02-20 21:36:13 [ERROR]: Failed to print KOT BOT0220003:
+2026-02-20 21:44:57 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:44:57 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:51:31 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:51:31 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:51:33 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:51:33 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:51:45 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:51:45 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:51:48 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:51:48 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:51:50 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:51:50 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:51:52 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:52:32 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:52:33 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:52:35 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:52:35 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:52:45 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:52:45 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:52:49 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:52:49 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:52:52 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:52:52 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:53:00 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:53:00 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:53:05 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:53:05 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:53:11 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:53:11 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:53:17 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:53:17 [ERROR]: Get admin order list error: Table 'restro.kots' doesn't exist {"code":"ER_NO_SUCH_TABLE","errno":1146,"sql":"SELECT \n        o.*,\n        ol.name as outlet_name,\n        t.table_number,\n        t.name as table_name,\n        f.name as floor_name,\n        s.name as section_name,\n        captain.name as captain_name,\n        inv.id as invoice_id,\n        inv.invoice_number,\n        inv.grand_total as invoice_total,\n        inv.payment_status as invoice_payment_status,\n        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,\n        (SELECT COUNT(*) FROM kots WHERE order_id = o.id) as kot_count,\n        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as paid_amount\n       FROM orders o\n       LEFT JOIN outlets ol ON o.outlet_id = ol.id\n       LEFT JOIN tables t ON o.table_id = t.id\n       LEFT JOIN floors f ON t.floor_id = f.id\n       LEFT JOIN sections s ON t.section_id = s.id\n       LEFT JOIN users captain ON o.created_by = captain.id\n       LEFT JOIN invoices inv ON o.id = inv.order_id\n       WHERE o.outlet_id = '4'\n       GROUP BY o.id\n       ORDER BY o.created_at DESC\n       LIMIT 10 OFFSET 0","sqlState":"42S02","sqlMessage":"Table 'restro.kots' doesn't exist"}
+Error: Table 'restro.kots' doesn't exist
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.getAdminOrderList (E:\restro-backend\src\services\order.service.js:1944:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAdminOrderList (E:\restro-backend\src\controllers\order.controller.js:1295:22)
+2026-02-20 21:53:52 [ERROR]: Direct Bill print failed for INV/2526/000304:
+2026-02-20 21:53:52 [ERROR]: Direct bill print failed for INV/2526/000304:
+2026-02-20 21:57:24 [ERROR]: Direct Bill print failed for INV/2526/000305:
+2026-02-20 21:57:24 [ERROR]: Direct bill print failed for INV/2526/000305:
+2026-02-20 22:02:48 [ERROR]: Direct KOT print failed for KOT0220006:
+2026-02-20 22:02:48 [ERROR]: Failed to print KOT KOT0220006:
+2026-02-20 22:02:53 [ERROR]: Direct KOT print failed for BOT0220004:
+2026-02-20 22:02:53 [ERROR]: Failed to print KOT BOT0220004:
+2026-02-20 22:03:31 [ERROR]: Direct Bill print failed for INV/2526/000306:
+2026-02-20 22:03:31 [ERROR]: Direct bill print failed for INV/2526/000306:
+2026-02-20 22:47:09 [ERROR]: Direct KOT print failed for KOT0220007:
+2026-02-20 22:47:09 [ERROR]: Failed to print KOT KOT0220007:
+2026-02-20 22:47:12 [ERROR]: Direct Bill print failed for INV/2526/000307:
+2026-02-20 22:47:12 [ERROR]: Direct bill print failed for INV/2526/000307:
+2026-02-20 22:48:39 [ERROR]: Create order error: Table already has an active order (Order ID: 513). Use existing order or end session first.
+Error: Table already has an active order (Order ID: 513). Use existing order or end session first.
+    at Object.createOrder (E:\restro-backend\src\services\order.service.js:141:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async createOrder (E:\restro-backend\src\controllers\order.controller.js:22:21)
+2026-02-20 22:49:30 [ERROR]: Direct KOT print failed for KOT0220008:
+2026-02-20 22:49:30 [ERROR]: Failed to print KOT KOT0220008:
+2026-02-20 22:49:31 [ERROR]: Direct Bill print failed for INV/2526/000308:
+2026-02-20 22:49:31 [ERROR]: Direct bill print failed for INV/2526/000308:
+2026-02-20 22:52:02 [ERROR]: Direct Bill print failed for INV/2526/000308:
+2026-02-20 22:52:02 [ERROR]: Direct bill print failed for INV/2526/000308:
+2026-02-20 22:59:14 [ERROR]: Create order error: Table already has an active order (Order ID: 513). Use existing order or end session first.
+Error: Table already has an active order (Order ID: 513). Use existing order or end session first.
+    at Object.createOrder (E:\restro-backend\src\services\order.service.js:141:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async createOrder (E:\restro-backend\src\controllers\order.controller.js:22:21)
+2026-02-20 22:59:22 [ERROR]: Create order error: Table already has an active order (Order ID: 513). Use existing order or end session first.
+Error: Table already has an active order (Order ID: 513). Use existing order or end session first.
+    at Object.createOrder (E:\restro-backend\src\services\order.service.js:141:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async createOrder (E:\restro-backend\src\controllers\order.controller.js:22:21)
+2026-02-20 22:59:30 [ERROR]: Create order error: Table already has an active order (Order ID: 513). Use existing order or end session first.
+Error: Table already has an active order (Order ID: 513). Use existing order or end session first.
+    at Object.createOrder (E:\restro-backend\src\services\order.service.js:141:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async createOrder (E:\restro-backend\src\controllers\order.controller.js:22:21)
+2026-02-20 22:59:48 [ERROR]: Create order error: Table already has an active order (Order ID: 513). Use existing order or end session first.
+Error: Table already has an active order (Order ID: 513). Use existing order or end session first.
+    at Object.createOrder (E:\restro-backend\src\services\order.service.js:141:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async createOrder (E:\restro-backend\src\controllers\order.controller.js:22:21)
+2026-02-20 23:02:29 [ERROR]: Add items error: Cannot add items to this order
+Error: Cannot add items to this order
+    at Object.addItems (E:\restro-backend\src\services\order.service.js:276:15)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async addItems (E:\restro-backend\src\controllers\order.controller.js:106:22)
+2026-02-20 23:02:33 [ERROR]: Add items error: Cannot add items to this order
+Error: Cannot add items to this order
+    at Object.addItems (E:\restro-backend\src\services\order.service.js:276:15)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async addItems (E:\restro-backend\src\controllers\order.controller.js:106:22)
+2026-02-20 23:02:44 [ERROR]: Create order error: Table already has an active order (Order ID: 513). Use existing order or end session first.
+Error: Table already has an active order (Order ID: 513). Use existing order or end session first.
+    at Object.createOrder (E:\restro-backend\src\services\order.service.js:141:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async createOrder (E:\restro-backend\src\controllers\order.controller.js:22:21)
+2026-02-20 23:02:53 [ERROR]: Create order error: Table already has an active order (Order ID: 513). Use existing order or end session first.
+Error: Table already has an active order (Order ID: 513). Use existing order or end session first.
+    at Object.createOrder (E:\restro-backend\src\services\order.service.js:141:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async createOrder (E:\restro-backend\src\controllers\order.controller.js:22:21)
+2026-02-20 23:03:01 [ERROR]: Create order error: Table already has an active order (Order ID: 513). Use existing order or end session first.
+Error: Table already has an active order (Order ID: 513). Use existing order or end session first.
+    at Object.createOrder (E:\restro-backend\src\services\order.service.js:141:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async createOrder (E:\restro-backend\src\controllers\order.controller.js:22:21)
+2026-02-20 23:03:24 [ERROR]: Direct KOT print failed for KOT0220009:
+2026-02-20 23:03:24 [ERROR]: Failed to print KOT KOT0220009:
+2026-02-20 23:03:29 [ERROR]: Direct KOT print failed for BOT0220005:
+2026-02-20 23:03:29 [ERROR]: Failed to print KOT BOT0220005:
+2026-02-20 23:03:31 [ERROR]: Direct Bill print failed for INV/2526/000309:
+2026-02-20 23:03:31 [ERROR]: Direct bill print failed for INV/2526/000309:
+2026-02-20 23:11:11 [ERROR]: Direct Bill print failed for INV/2526/000306:
+2026-02-20 23:11:11 [ERROR]: Direct bill print failed for INV/2526/000306:
+2026-02-20 23:42:34 [ERROR]: Get captain order detail error: You can only view your own orders
+Error: You can only view your own orders
+    at Object.getCaptainOrderDetail (E:\restro-backend\src\services\order.service.js:1629:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getCaptainOrderDetail (E:\restro-backend\src\controllers\order.controller.js:1156:21)
+2026-02-20 23:42:36 [ERROR]: Get captain order detail error: You can only view your own orders
+Error: You can only view your own orders
+    at Object.getCaptainOrderDetail (E:\restro-backend\src\services\order.service.js:1629:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getCaptainOrderDetail (E:\restro-backend\src\controllers\order.controller.js:1156:21)
+2026-02-20 23:58:25 [ERROR]: Direct Bill print failed for INV/2526/000309:
+2026-02-20 23:58:25 [ERROR]: Direct bill print failed for INV/2526/000309:
+2026-02-21 00:01:08 [ERROR]: Direct KOT print failed for KOT0220001:
+2026-02-21 00:01:08 [ERROR]: Failed to print KOT KOT0220001:
+2026-02-21 00:01:09 [ERROR]: Direct Bill print failed for INV/2526/000310:
+2026-02-21 00:01:09 [ERROR]: Direct bill print failed for INV/2526/000310:
+2026-02-21 07:33:56 [ERROR]: Failed to start server: connect ETIMEDOUT {"errorno":"ETIMEDOUT","code":"ETIMEDOUT","syscall":"connect","fatal":true}
+Error: connect ETIMEDOUT
+    at PoolConnection._handleTimeoutError (E:\restro-backend\node_modules\mysql2\lib\base\connection.js:200:17)
+    at listOnTimeout (node:internal/timers:594:17)
+    at process.processTimers (node:internal/timers:529:7)
+2026-02-21 09:54:28 [ERROR]: Direct KOT print failed for KOT0221002:
+2026-02-21 09:54:28 [ERROR]: Failed to print KOT KOT0221002:
+2026-02-21 09:54:40 [ERROR]: Direct Bill print failed for INV/2526/000311:
+2026-02-21 09:54:40 [ERROR]: Direct bill print failed for INV/2526/000311:
+2026-02-21 10:31:58 [ERROR]: Ping printer error: Unknown column 'is_online' in 'field list' {"code":"ER_BAD_FIELD_ERROR","errno":1054,"sql":"UPDATE printers SET is_online = false, last_seen_at = NOW() WHERE id = 1","sqlState":"42S22","sqlMessage":"Unknown column 'is_online' in 'field list'"}
+Error: Unknown column 'is_online' in 'field list'
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.updatePrinterStatus (E:\restro-backend\src\services\printer.service.js:107:16)
+    at pingPrinter (E:\restro-backend\src\controllers\printer.controller.js:365:28)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+2026-02-21 12:28:37 [ERROR]: Direct KOT print failed for KOT0221003:
+2026-02-21 12:28:37 [ERROR]: Failed to print KOT KOT0221003:
+2026-02-21 12:28:42 [ERROR]: Direct KOT print failed for BOT0221001:
+2026-02-21 12:28:42 [ERROR]: Failed to print KOT BOT0221001:
+2026-02-21 12:31:34 [ERROR]: Direct Bill print failed for INV/2526/000312:
+2026-02-21 12:31:34 [ERROR]: Direct bill print failed for INV/2526/000312:
+2026-02-21 12:50:19 [ERROR]: Direct Bill print failed for INV/2526/000312:
+2026-02-21 12:50:19 [ERROR]: Direct bill print failed for INV/2526/000312:
+2026-02-21 12:50:29 [ERROR]: Add items error: Cannot add items to this order
+Error: Cannot add items to this order
+    at Object.addItems (E:\restro-backend\src\services\order.service.js:320:15)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async addItems (E:\restro-backend\src\controllers\order.controller.js:106:22)
+2026-02-21 12:51:11 [ERROR]: Add items error: Cannot add items to this order
+Error: Cannot add items to this order
+    at Object.addItems (E:\restro-backend\src\services\order.service.js:320:15)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async addItems (E:\restro-backend\src\controllers\order.controller.js:106:22)
+2026-02-21 12:51:49 [ERROR]: Direct Bill print failed for INV/2526/000312:
+2026-02-21 12:51:49 [ERROR]: Direct bill print failed for INV/2526/000312:
+2026-02-21 12:53:01 [ERROR]: Direct KOT print failed for KOT0221004:
+2026-02-21 12:53:01 [ERROR]: Failed to print KOT KOT0221004:
+2026-02-21 12:53:55 [ERROR]: Direct Bill print failed for INV/2526/000313:
+2026-02-21 12:53:55 [ERROR]: Direct bill print failed for INV/2526/000313:
+2026-02-21 13:11:40 [ERROR]: Direct KOT print failed for KOT0221005:
+2026-02-21 13:11:40 [ERROR]: Failed to print KOT KOT0221005:
+2026-02-21 13:11:45 [ERROR]: Direct Bill print failed for INV/2526/000314:
+2026-02-21 13:11:45 [ERROR]: Direct bill print failed for INV/2526/000314:
+2026-02-21 13:11:45 [ERROR]: Direct KOT print failed for BOT0221002:
+2026-02-21 13:11:45 [ERROR]: Failed to print KOT BOT0221002:
+2026-02-21 13:14:18 [ERROR]: Direct KOT print failed for KOT0221006:
+2026-02-21 13:14:18 [ERROR]: Failed to print KOT KOT0221006:
+2026-02-21 13:14:23 [ERROR]: Direct Bill print failed for INV/2526/000315:
+2026-02-21 13:14:23 [ERROR]: Direct bill print failed for INV/2526/000315:
+2026-02-21 13:14:23 [ERROR]: Direct KOT print failed for BOT0221003:
+2026-02-21 13:14:23 [ERROR]: Failed to print KOT BOT0221003:
+2026-02-21 13:15:44 [ERROR]: Direct KOT print failed for KOT0221007:
+2026-02-21 13:15:44 [ERROR]: Failed to print KOT KOT0221007:
+2026-02-21 13:15:53 [ERROR]: Direct Bill print failed for INV/2526/000316:
+2026-02-21 13:15:53 [ERROR]: Direct bill print failed for INV/2526/000316:
+2026-02-21 14:44:45 [ERROR]: Direct KOT print failed for KOT0221008:
+2026-02-21 14:44:45 [ERROR]: Failed to print KOT KOT0221008:
+2026-02-21 14:44:49 [ERROR]: Direct Bill print failed for INV/2526/000317:
+2026-02-21 14:44:49 [ERROR]: Direct bill print failed for INV/2526/000317:
+2026-02-21 14:44:50 [ERROR]: Direct KOT print failed for BOT0221004:
+2026-02-21 14:44:50 [ERROR]: Failed to print KOT BOT0221004:
+2026-02-21 15:39:11 [ERROR]: Direct Bill print failed for INV/2526/000313:
+2026-02-21 15:39:11 [ERROR]: Direct bill print failed for INV/2526/000313:
+2026-02-21 15:40:22 [ERROR]: Direct KOT print failed for KOT0221009:
+2026-02-21 15:40:22 [ERROR]: Failed to print KOT KOT0221009:
+2026-02-21 15:40:27 [ERROR]: Direct Bill print failed for INV/2526/000318:
+2026-02-21 15:40:27 [ERROR]: Direct bill print failed for INV/2526/000318:
+2026-02-21 15:42:21 [ERROR]: Direct KOT print failed for KOT0221010:
+2026-02-21 15:42:21 [ERROR]: Failed to print KOT KOT0221010:
+2026-02-21 15:42:31 [ERROR]: Direct Bill print failed for INV/2526/000319:
+2026-02-21 15:42:31 [ERROR]: Direct bill print failed for INV/2526/000319:
+2026-02-21 16:23:00 [ERROR]: Direct KOT print failed for KOT0221011:
+2026-02-21 16:23:00 [ERROR]: Failed to print KOT KOT0221011:
+2026-02-21 16:23:09 [ERROR]: Direct Bill print failed for INV/2526/000320:
+2026-02-21 16:23:09 [ERROR]: Direct bill print failed for INV/2526/000320:
+2026-02-21 16:37:07 [ERROR]: Direct KOT print failed for KOT0221012:
+2026-02-21 16:37:07 [ERROR]: Failed to print KOT KOT0221012:
+2026-02-21 16:37:48 [ERROR]: Direct Bill print failed for INV/2526/000321:
+2026-02-21 16:37:48 [ERROR]: Direct bill print failed for INV/2526/000321:
+2026-02-21 16:41:12 [ERROR]: Direct Bill print failed for INV/2526/000321:
+2026-02-21 16:41:12 [ERROR]: Direct bill print failed for INV/2526/000321:
+2026-02-21 16:43:50 [ERROR]: Get captain order detail error: You can only view your own orders
+Error: You can only view your own orders
+    at Object.getCaptainOrderDetail (E:\restro-backend\src\services\order.service.js:1621:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getCaptainOrderDetail (E:\restro-backend\src\controllers\order.controller.js:1144:21)
+2026-02-21 16:44:45 [ERROR]: Get captain order detail error: You can only view your own orders
+Error: You can only view your own orders
+    at Object.getCaptainOrderDetail (E:\restro-backend\src\services\order.service.js:1621:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getCaptainOrderDetail (E:\restro-backend\src\controllers\order.controller.js:1144:21)
+2026-02-21 16:45:25 [ERROR]: Get captain order detail error: You can only view your own orders
+Error: You can only view your own orders
+    at Object.getCaptainOrderDetail (E:\restro-backend\src\services\order.service.js:1621:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getCaptainOrderDetail (E:\restro-backend\src\controllers\order.controller.js:1144:21)
+2026-02-21 16:48:23 [ERROR]: Generate bill error: Order already paid
+Error: Order already paid
+    at Object.generateBill (E:\restro-backend\src\services\billing.service.js:358:15)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async generateBill (E:\restro-backend\src\controllers\order.controller.js:387:23)
+2026-02-21 16:49:36 [ERROR]: Direct KOT print failed for KOT0221013:
+2026-02-21 16:49:36 [ERROR]: Failed to print KOT KOT0221013:
+2026-02-21 16:51:07 [ERROR]: Direct Bill print failed for INV/2526/000322:
+2026-02-21 16:51:07 [ERROR]: Direct bill print failed for INV/2526/000322:
+2026-02-21 17:16:35 [ERROR]: Direct Bill print failed for INV/2526/000322:
+2026-02-21 17:16:35 [ERROR]: Direct bill print failed for INV/2526/000322:
+2026-02-21 17:23:22 [ERROR]: Direct Bill print failed for INV/2526/000322:
+2026-02-21 17:23:22 [ERROR]: Direct bill print failed for INV/2526/000322:
+2026-02-21 17:27:20 [ERROR]: Direct Bill print failed for INV/2526/000312:
+2026-02-21 17:27:20 [ERROR]: Direct bill print failed for INV/2526/000312:
+2026-02-21 17:28:21 [ERROR]: Create printer error: Unknown column 'uuid' in 'field list' {"code":"ER_BAD_FIELD_ERROR","errno":1054,"sql":"INSERT INTO printers (\n        uuid, outlet_id, name, code, printer_type, station,\n        counter_id, kitchen_station_id, ip_address, port,\n        connection_type, paper_width, characters_per_line,\n        supports_cash_drawer, supports_cutter, supports_logo\n      ) VALUES ('2a42ac9d-b055-4b99-b2df-245867d71aa9', '', 'TEST STATION', 'PRNMLW9M1O4', 'kot', '9', NULL, NULL, '192.168.1.1', 5001, 'network', '80mm', 48, false, true, false)","sqlState":"42S22","sqlMessage":"Unknown column 'uuid' in 'field list'"}
+Error: Unknown column 'uuid' in 'field list'
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.createPrinter (E:\restro-backend\src\services\printer.service.js:24:33)
+    at createPrinter (E:\restro-backend\src\controllers\printer.controller.js:16:44)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (E:\restro-backend\node_modules\express\lib\router\route.js:149:13)
+    at E:\restro-backend\src\middlewares\auth.middleware.js:119:14
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (E:\restro-backend\node_modules\express\lib\router\route.js:149:13)
+    at Route.dispatch (E:\restro-backend\node_modules\express\lib\router\route.js:119:3)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+2026-02-21 17:33:26 [ERROR]: Direct Bill print failed for INV/2526/000322:
+2026-02-21 17:33:26 [ERROR]: Direct bill print failed for INV/2526/000322:
+2026-02-21 17:37:26 [ERROR]: Direct KOT print failed for KOT0221014:
+2026-02-21 17:37:26 [ERROR]: Failed to print KOT KOT0221014:
+2026-02-21 17:37:35 [ERROR]: Direct Bill print failed for INV/2526/000323:
+2026-02-21 17:37:35 [ERROR]: Direct bill print failed for INV/2526/000323:
+2026-02-21 17:41:10 [ERROR]: Ping printer error: Unknown column 'is_online' in 'field list' {"code":"ER_BAD_FIELD_ERROR","errno":1054,"sql":"UPDATE printers SET is_online = false, last_seen_at = NOW() WHERE id = 1","sqlState":"42S22","sqlMessage":"Unknown column 'is_online' in 'field list'"}
+Error: Unknown column 'is_online' in 'field list'
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.updatePrinterStatus (E:\restro-backend\src\services\printer.service.js:107:16)
+    at pingPrinter (E:\restro-backend\src\controllers\printer.controller.js:365:28)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+2026-02-21 17:41:51 [ERROR]: Direct KOT print failed for KOT0221015:
+2026-02-21 17:41:51 [ERROR]: Failed to print KOT KOT0221015:
+2026-02-21 17:41:56 [ERROR]: Direct KOT print failed for BOT0221005:
+2026-02-21 17:41:56 [ERROR]: Failed to print KOT BOT0221005:
+2026-02-21 17:41:58 [ERROR]: Direct Bill print failed for INV/2526/000324:
+2026-02-21 17:41:58 [ERROR]: Direct bill print failed for INV/2526/000324:
+2026-02-21 17:41:59 [ERROR]: Process payment error: Order already paid
+Error: Order already paid
+    at Object.processPayment (E:\restro-backend\src\services\payment.service.js:159:15)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async processPayment (E:\restro-backend\src\controllers\order.controller.js:605:22)
+2026-02-21 17:44:01 [ERROR]: Direct KOT print failed for KOT0221016:
+2026-02-21 17:44:01 [ERROR]: Failed to print KOT KOT0221016:
+2026-02-21 17:44:04 [ERROR]: Direct Bill print failed for INV/2526/000325:
+2026-02-21 17:44:04 [ERROR]: Direct bill print failed for INV/2526/000325:
+2026-02-21 18:00:42 [ERROR]: Direct KOT print failed for KOT0221017:
+2026-02-21 18:00:42 [ERROR]: Failed to print KOT KOT0221017:
+2026-02-21 18:02:41 [ERROR]: Direct KOT print failed for KOT0221018:
+2026-02-21 18:02:41 [ERROR]: Failed to print KOT KOT0221018:
+2026-02-21 18:02:46 [ERROR]: Direct Bill print failed for INV/2526/000326:
+2026-02-21 18:02:46 [ERROR]: Direct bill print failed for INV/2526/000326:
+2026-02-21 18:03:45 [ERROR]: Direct KOT print failed for KOT0221019:
+2026-02-21 18:03:45 [ERROR]: Failed to print KOT KOT0221019:
+2026-02-21 18:03:52 [ERROR]: Direct Bill print failed for INV/2526/000327:
+2026-02-21 18:03:52 [ERROR]: Direct bill print failed for INV/2526/000327:
+2026-02-21 18:08:06 [ERROR]: Direct KOT print failed for KOT0221020:
+2026-02-21 18:08:06 [ERROR]: Failed to print KOT KOT0221020:
+2026-02-21 18:08:07 [ERROR]: Direct Bill print failed for INV/2526/000328:
+2026-02-21 18:08:07 [ERROR]: Direct bill print failed for INV/2526/000328:
+2026-02-21 18:11:30 [ERROR]: Direct Bill print failed for INV/2526/000311:
+2026-02-21 18:11:30 [ERROR]: Direct bill print failed for INV/2526/000311:
+2026-02-21 18:12:01 [ERROR]: Direct Bill print failed for INV/2526/000325:
+2026-02-21 18:12:01 [ERROR]: Direct bill print failed for INV/2526/000325:
+2026-02-21 18:32:15 [ERROR]: Direct KOT print failed for BOT0221007:
+2026-02-21 18:32:15 [ERROR]: Failed to print KOT BOT0221007:
+2026-02-21 18:32:20 [ERROR]: Direct KOT print failed for KOT0221021:
+2026-02-21 18:32:20 [ERROR]: Failed to print KOT KOT0221021:
+2026-02-21 18:32:21 [ERROR]: Create printer error: Cannot add or update a child row: a foreign key constraint fails (`restro`.`printers`, CONSTRAINT `printers_ibfk_1` FOREIGN KEY (`outlet_id`) REFERENCES `outlets` (`id`) ON DELETE CASCADE) {"code":"ER_NO_REFERENCED_ROW_2","errno":1452,"sql":"INSERT INTO printers (\n        uuid, outlet_id, name, code, printer_type, station,\n        station_id, ip_address, port,\n        connection_type, paper_width, characters_per_line,\n        supports_cash_drawer, supports_cutter, supports_logo\n      ) VALUES ('9b6a1704-df13-4206-8073-37f042e40a67', '', 'TEST PRINTER', 'PRNMLWBWC9Q', 'thermal', NULL, '11', '192.168.1.1', 5001, 'network', '80mm', 48, false, true, false)","sqlState":"23000","sqlMessage":"Cannot add or update a child row: a foreign key constraint fails (`restro`.`printers`, CONSTRAINT `printers_ibfk_1` FOREIGN KEY (`outlet_id`) REFERENCES `outlets` (`id`) ON DELETE CASCADE)"}
+Error: Cannot add or update a child row: a foreign key constraint fails (`restro`.`printers`, CONSTRAINT `printers_ibfk_1` FOREIGN KEY (`outlet_id`) REFERENCES `outlets` (`id`) ON DELETE CASCADE)
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.createPrinter (E:\restro-backend\src\services\printer.service.js:24:33)
+    at createPrinter (E:\restro-backend\src\controllers\printer.controller.js:16:44)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (E:\restro-backend\node_modules\express\lib\router\route.js:149:13)
+    at E:\restro-backend\src\middlewares\auth.middleware.js:119:14
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (E:\restro-backend\node_modules\express\lib\router\route.js:149:13)
+    at Route.dispatch (E:\restro-backend\node_modules\express\lib\router\route.js:119:3)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+2026-02-21 18:32:45 [ERROR]: Direct Bill print failed for INV/2526/000329:
+2026-02-21 18:32:45 [ERROR]: Direct bill print failed for INV/2526/000329:
+2026-02-21 19:44:56 [ERROR]: Check printer status error: {"code":"ECONNREFUSED"}
+Error
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.checkPrinterStatus (E:\restro-backend\src\services\printer.service.js:892:35)
+    at checkPrinterStatus (E:\restro-backend\src\controllers\printer.controller.js:281:45)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (E:\restro-backend\node_modules\express\lib\router\route.js:149:13)
+    at Route.dispatch (E:\restro-backend\node_modules\express\lib\router\route.js:119:3)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at E:\restro-backend\node_modules\express\lib\router\index.js:284:15
+    at param (E:\restro-backend\node_modules\express\lib\router\index.js:365:14)
+    at param (E:\restro-backend\node_modules\express\lib\router\index.js:376:14)
+2026-02-21 19:45:01 [ERROR]: Check printer status error: {"code":"ECONNREFUSED"}
+Error
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.checkPrinterStatus (E:\restro-backend\src\services\printer.service.js:892:35)
+    at checkPrinterStatus (E:\restro-backend\src\controllers\printer.controller.js:281:45)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (E:\restro-backend\node_modules\express\lib\router\route.js:149:13)
+    at Route.dispatch (E:\restro-backend\node_modules\express\lib\router\route.js:119:3)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at E:\restro-backend\node_modules\express\lib\router\index.js:284:15
+    at param (E:\restro-backend\node_modules\express\lib\router\index.js:365:14)
+    at param (E:\restro-backend\node_modules\express\lib\router\index.js:376:14)
+2026-02-21 21:07:13 [ERROR]: Direct KOT print failed for KOT0221022:
+2026-02-21 21:07:13 [ERROR]: Failed to print KOT KOT0221022:
+2026-02-21 21:07:18 [ERROR]: Direct KOT print failed for BOT0221008:
+2026-02-21 21:07:18 [ERROR]: Failed to print KOT BOT0221008:
+2026-02-21 21:19:15 [ERROR]: Direct KOT print failed for KOT0221023:
+2026-02-21 21:19:15 [ERROR]: Failed to print KOT KOT0221023:
+2026-02-21 21:42:51 [ERROR]: Direct KOT print failed for KOT0221024:
+2026-02-21 21:42:51 [ERROR]: Failed to print KOT KOT0221024:
+2026-02-21 21:51:26 [ERROR]: Direct KOT print failed for KOT0221025:
+2026-02-21 21:51:26 [ERROR]: Failed to print KOT KOT0221025:
+2026-02-21 21:52:20 [ERROR]: Direct Bill print failed for INV/2526/000330:
+2026-02-21 21:52:20 [ERROR]: Direct bill print failed for INV/2526/000330:
+2026-02-21 21:53:10 [ERROR]: Direct KOT print failed for KOT0221026:
+2026-02-21 21:53:10 [ERROR]: Failed to print KOT KOT0221026:
+2026-02-21 21:55:21 [ERROR]: Direct Bill print failed for INV/2526/000331:
+2026-02-21 21:55:21 [ERROR]: Direct bill print failed for INV/2526/000331:
+2026-02-21 21:56:11 [ERROR]: Direct Bill print failed for INV/2526/000331:
+2026-02-21 21:56:11 [ERROR]: Direct bill print failed for INV/2526/000331:
+2026-02-21 21:57:06 [ERROR]: Direct Bill print failed for INV/2526/000332:
+2026-02-21 21:57:06 [ERROR]: Direct bill print failed for INV/2526/000332:
+2026-02-21 22:30:33 [ERROR]: Direct KOT print failed for KOT0221027:
+2026-02-21 22:30:33 [ERROR]: Failed to print KOT KOT0221027:
+2026-02-21 22:30:35 [ERROR]: Direct Bill print failed for INV/2526/000333:
+2026-02-21 22:30:35 [ERROR]: Direct bill print failed for INV/2526/000333:
+2026-02-21 22:59:12 [ERROR]: Direct KOT print failed for KOT0221028:
+2026-02-21 22:59:12 [ERROR]: Failed to print KOT KOT0221028:
+2026-02-21 22:59:20 [ERROR]: Direct Bill print failed for INV/2526/000334:
+2026-02-21 22:59:20 [ERROR]: Direct bill print failed for INV/2526/000334:
+2026-02-21 23:16:39 [ERROR]: Direct KOT print failed for KOT0221029:
+2026-02-21 23:16:39 [ERROR]: Failed to print KOT KOT0221029:
+2026-02-21 23:16:55 [ERROR]: Mark item ready error: KOT item not found
+Error: KOT item not found
+    at Object.markItemReady (E:\restro-backend\src\services\kot.service.js:454:31)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async markItemReady (E:\restro-backend\src\controllers\order.controller.js:309:19)
+2026-02-21 23:27:12 [ERROR]: Direct KOT print failed for KOT0221030:
+2026-02-21 23:27:12 [ERROR]: Failed to print KOT KOT0221030:
+2026-02-21 23:27:24 [ERROR]: Direct KOT print failed for KOT0221031:
+2026-02-21 23:27:24 [ERROR]: Failed to print KOT KOT0221031:
+2026-02-21 23:28:12 [ERROR]: Direct KOT print failed for BOT0221009:
+2026-02-21 23:28:12 [ERROR]: Failed to print KOT BOT0221009:
+2026-02-21 23:29:49 [ERROR]: Direct KOT print failed for KOT0221032:
+2026-02-21 23:29:49 [ERROR]: Failed to print KOT KOT0221032:
+2026-02-22 13:55:32 [ERROR]: Check printer status error: {"code":"ECONNREFUSED"}
+Error
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.checkPrinterStatus (E:\restro-backend\src\services\printer.service.js:900:35)
+    at checkPrinterStatus (E:\restro-backend\src\controllers\printer.controller.js:282:45)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (E:\restro-backend\node_modules\express\lib\router\route.js:149:13)
+    at Route.dispatch (E:\restro-backend\node_modules\express\lib\router\route.js:119:3)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at E:\restro-backend\node_modules\express\lib\router\index.js:284:15
+    at param (E:\restro-backend\node_modules\express\lib\router\index.js:365:14)
+    at param (E:\restro-backend\node_modules\express\lib\router\index.js:376:14)
+2026-02-22 13:55:37 [ERROR]: Check printer status error: {"code":"ECONNREFUSED"}
+Error
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.checkPrinterStatus (E:\restro-backend\src\services\printer.service.js:900:35)
+    at checkPrinterStatus (E:\restro-backend\src\controllers\printer.controller.js:282:45)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (E:\restro-backend\node_modules\express\lib\router\route.js:149:13)
+    at Route.dispatch (E:\restro-backend\node_modules\express\lib\router\route.js:119:3)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at E:\restro-backend\node_modules\express\lib\router\index.js:284:15
+    at param (E:\restro-backend\node_modules\express\lib\router\index.js:365:14)
+    at param (E:\restro-backend\node_modules\express\lib\router\index.js:376:14)
+2026-02-22 14:03:58 [ERROR]: Direct KOT print failed for KOT0222001:
+2026-02-22 14:03:58 [ERROR]: Failed to print KOT KOT0222001:
+2026-02-22 14:04:01 [ERROR]: Direct Bill print failed for INV/2526/000335:
+2026-02-22 14:04:01 [ERROR]: Direct bill print failed for INV/2526/000335:
+2026-02-22 14:04:13 [ERROR]: Direct Bill print failed for INV/2526/000335:
+2026-02-22 14:04:13 [ERROR]: Direct bill print failed for INV/2526/000335:
+2026-02-22 14:04:25 [ERROR]: Direct Bill print failed for INV/2526/000335:
+2026-02-22 14:04:25 [ERROR]: Direct bill print failed for INV/2526/000335:
+2026-02-22 14:04:34 [ERROR]: Direct Bill print failed for INV/2526/000335:
+2026-02-22 14:04:34 [ERROR]: Direct bill print failed for INV/2526/000335:
+2026-02-22 15:18:37 [ERROR]: Direct KOT print failed for KOT0222002:
+2026-02-22 15:18:37 [ERROR]: Failed to print KOT KOT0222002:
+2026-02-22 15:18:42 [ERROR]: Direct KOT print failed for BOT0222001:
+2026-02-22 15:18:42 [ERROR]: Failed to print KOT BOT0222001:
+2026-02-22 15:19:41 [ERROR]: Direct Bill print failed for INV/2526/000336:
+2026-02-22 15:19:41 [ERROR]: Direct bill print failed for INV/2526/000336:
+2026-02-22 15:22:31 [ERROR]: Direct Bill print failed for INV/2526/000337:
+2026-02-22 15:22:31 [ERROR]: Direct bill print failed for INV/2526/000337:
+2026-02-22 15:50:52 [ERROR]: Direct KOT print failed for KOT0222003:
+2026-02-22 15:50:52 [ERROR]: Failed to print KOT KOT0222003:
+2026-02-22 15:50:57 [ERROR]: Direct KOT print failed for BOT0222002:
+2026-02-22 15:50:57 [ERROR]: Failed to print KOT BOT0222002:
+2026-02-22 15:51:06 [ERROR]: Direct Bill print failed for INV/2526/000338:
+2026-02-22 15:51:06 [ERROR]: Direct bill print failed for INV/2526/000338:
+2026-02-22 15:56:07 [ERROR]: Direct Bill print failed for INV/2526/000338:
+2026-02-22 15:56:07 [ERROR]: Direct bill print failed for INV/2526/000338:
+2026-02-22 16:00:15 [ERROR]: Direct Bill print failed for INV/2526/000338:
+2026-02-22 16:00:15 [ERROR]: Direct bill print failed for INV/2526/000338:
+2026-02-22 16:01:10 [ERROR]: Direct Bill print failed for INV/2526/000338:
+2026-02-22 16:01:10 [ERROR]: Direct bill print failed for INV/2526/000338:
+2026-02-22 16:04:10 [ERROR]: Direct Bill print failed for INV/2526/000338:
+2026-02-22 16:04:10 [ERROR]: Direct bill print failed for INV/2526/000338:
+2026-02-22 16:04:37 [ERROR]: Direct Bill print failed for INV/2526/000338:
+2026-02-22 16:04:37 [ERROR]: Direct bill print failed for INV/2526/000338:
+2026-02-22 16:05:15 [ERROR]: Direct Bill print failed for INV/2526/000338:
+2026-02-22 16:05:15 [ERROR]: Direct bill print failed for INV/2526/000338:
+2026-02-22 18:24:41 [ERROR]: Unhandled error: Duplicate entry 'E2ETEST01' for key 'code' {"code":"ER_DUP_ENTRY","errno":1062,"sql":"INSERT INTO outlets (\n        uuid, code, name, legal_name, outlet_type, \n        address_line1, address_line2, city, state, country, postal_code,\n        phone, email, gstin, fssai_number,\n        opening_time, closing_time, is_24_hours,\n        currency_code, timezone, settings,\n        is_active, created_by\n      ) VALUES ('14f5a532-20f1-40f2-8a19-7af4b79ebf80', 'E2ETEST01', 'E2E Test Restaurant', 'E2E Test Restaurant Pvt Ltd', 'restaurant', '999 E2E Test Street', NULL, 'Mumbai', 'Maharashtra', 'India', '400001', '+91-22-99998888', 'e2e@testrestro.com', '27AABCE2E34R1ZP', '99998888776655', '09:00', '23:00', false, 'INR', 'Asia/Kolkata', '{}', true, 141)","sqlState":"23000","sqlMessage":"Duplicate entry 'E2ETEST01' for key 'code'"}
+Error: Duplicate entry 'E2ETEST01' for key 'code'
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.create (E:\restro-backend\src\services\outlet.service.js:20:33)
+    at createOutlet (E:\restro-backend\src\controllers\outlet.controller.js:17:42)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (E:\restro-backend\node_modules\express\lib\router\route.js:149:13)
+    at E:\restro-backend\src\middlewares\validate.js:36:5
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (E:\restro-backend\node_modules\express\lib\router\route.js:149:13)
+    at E:\restro-backend\src\middlewares\auth.middleware.js:134:5
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+2026-02-22 18:55:16 [ERROR]: Send KOT error: Order not found
+Error: Order not found
+    at Object.sendKot (E:\restro-backend\src\services\kot.service.js:135:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async sendKot (E:\restro-backend\src\controllers\order.controller.js:209:22)
+2026-02-22 18:55:16 [ERROR]: Generate bill error: Order not found
+Error: Order not found
+    at Object.generateBill (E:\restro-backend\src\services\billing.service.js:353:25)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async generateBill (E:\restro-backend\src\controllers\order.controller.js:390:23)
+2026-02-22 18:56:28 [ERROR]: Send KOT error: Order not found
+Error: Order not found
+    at Object.sendKot (E:\restro-backend\src\services\kot.service.js:135:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async sendKot (E:\restro-backend\src\controllers\order.controller.js:209:22)
+2026-02-22 18:56:28 [ERROR]: Generate bill error: Order not found
+Error: Order not found
+    at Object.generateBill (E:\restro-backend\src\services\billing.service.js:353:25)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async generateBill (E:\restro-backend\src\controllers\order.controller.js:390:23)
+2026-02-22 18:57:52 [ERROR]: Send KOT error: Order not found
+Error: Order not found
+    at Object.sendKot (E:\restro-backend\src\services\kot.service.js:135:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async sendKot (E:\restro-backend\src\controllers\order.controller.js:209:22)
+2026-02-22 18:57:52 [ERROR]: Generate bill error: Order not found
+Error: Order not found
+    at Object.generateBill (E:\restro-backend\src\services\billing.service.js:353:25)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async generateBill (E:\restro-backend\src\controllers\order.controller.js:390:23)
+2026-02-22 18:58:51 [ERROR]: Send KOT error: Order not found
+Error: Order not found
+    at Object.sendKot (E:\restro-backend\src\services\kot.service.js:135:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async sendKot (E:\restro-backend\src\controllers\order.controller.js:209:22)
+2026-02-22 18:58:51 [ERROR]: Generate bill error: Order not found
+Error: Order not found
+    at Object.generateBill (E:\restro-backend\src\services\billing.service.js:353:25)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async generateBill (E:\restro-backend\src\controllers\order.controller.js:390:23)
+2026-02-22 19:01:34 [ERROR]: Send KOT error: Order not found
+Error: Order not found
+    at Object.sendKot (E:\restro-backend\src\services\kot.service.js:135:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async sendKot (E:\restro-backend\src\controllers\order.controller.js:209:22)
+2026-02-22 19:01:34 [ERROR]: Generate bill error: Order not found
+Error: Order not found
+    at Object.generateBill (E:\restro-backend\src\services\billing.service.js:353:25)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async generateBill (E:\restro-backend\src\controllers\order.controller.js:390:23)
+2026-02-22 23:44:43 [ERROR]: Direct KOT print failed for KOT0222004:
+2026-02-22 23:44:43 [ERROR]: Failed to print KOT KOT0222004:
+2026-02-22 23:44:47 [ERROR]: Direct Bill print failed for INV/2526/000339:
+2026-02-22 23:44:47 [ERROR]: Direct bill print failed for INV/2526/000339:

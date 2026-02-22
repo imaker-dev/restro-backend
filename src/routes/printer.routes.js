@@ -137,6 +137,32 @@ router.post('/drawer/:outletId/open', printerController.openCashDrawer);
 router.get('/stats/:outletId', authorize('super_admin', 'admin', 'manager'), printerController.getJobStats);
 
 // ========================
+// PRINTER STATUS CHECK (Live Connectivity)
+// ========================
+
+/**
+ * @route   GET /api/v1/printers/status/:outletId
+ * @desc    Check live status of all printers for an outlet
+ * @query   station - Optional filter by station (kot_kitchen, kot_bar, bill, etc.)
+ * @access  Private
+ */
+router.get('/status/:outletId', printerController.checkPrinterStatus);
+
+/**
+ * @route   GET /api/v1/printers/status/:outletId/:stationType
+ * @desc    Check live status for a specific station type (captain, cashier, kitchen, bar, bill, all)
+ * @access  Private
+ */
+router.get('/status/:outletId/:stationType', printerController.checkStationPrinterStatus);
+
+/**
+ * @route   GET /api/v1/printers/:printerId/ping
+ * @desc    Quick ping check for a specific printer
+ * @access  Private
+ */
+router.get('/:printerId/ping', printerController.pingPrinter);
+
+// ========================
 // BRIDGE MANAGEMENT
 // ========================
 

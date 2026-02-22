@@ -244,7 +244,11 @@ const kotService = {
 
       // Emit realtime events for each station and print KOT
       for (const ticket of createdTickets) {
-        await this.emitKotUpdate(order.outlet_id, ticket, 'kot:created');
+        // Fetch properly formatted KOT with correct kot_item IDs for socket event
+        const formattedKot = await this.getKotById(ticket.id);
+        if (formattedKot) {
+          await this.emitKotUpdate(order.outlet_id, formattedKot, 'kot:created');
+        }
 
         // Prepare KOT data for printing
         const kotPrintData = {

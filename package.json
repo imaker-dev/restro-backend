@@ -15,6 +15,8 @@
     "seed:orders": "node src/database/seed-order-data.js",
     "queue:work": "node src/queues/worker.js",
     "test": "jest",
+    "test:e2e": "jest --config tests/e2e/jest.config.js --runInBand",
+    "test:e2e:verbose": "jest --config tests/e2e/jest.config.js --runInBand --verbose",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix"
   },

@@ -24,13 +24,13 @@ const printerService = {
     const [result] = await pool.query(
       `INSERT INTO printers (
         uuid, outlet_id, name, code, printer_type, station,
-        counter_id, kitchen_station_id, ip_address, port,
+        station_id, ip_address, port,
         connection_type, paper_width, characters_per_line,
         supports_cash_drawer, supports_cutter, supports_logo
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        uuid, data.outletId, data.name, code, data.printerType || 'kot',
-        data.station, data.counterId, data.kitchenStationId,
+        uuid, data.outletId, data.name, code, data.printerType || 'thermal',
+        data.station || null, data.stationId || null,
         data.ipAddress, data.port || 9100, data.connectionType || 'network',
         data.paperWidth || '80mm', data.charactersPerLine || 48,
         data.supportsCashDrawer || false, data.supportsCutter !== false,
@@ -38,7 +38,7 @@ const printerService = {
       ]
     );
 
-    return { id: result.insertId, uuid, code };
+    return this.getPrinterById(result.insertId);
   },
 
   async getPrinters(outletId, filters = {}) {
@@ -84,7 +84,8 @@ const printerService = {
     const updates = [];
     const params = [];
 
-    const fields = ['name', 'station', 'ip_address', 'port', 'paper_width', 
+    const fields = ['name', 'code', 'printer_type', 'station', 'station_id',
+                    'ip_address', 'port', 'connection_type', 'paper_width',
                     'characters_per_line', 'supports_cash_drawer', 'supports_cutter',
                     'supports_logo', 'is_active'];
     
@@ -96,9 +97,13 @@ const printerService = {
       }
     }
 
-    if (updates.length === 0) return;
+    if (updates.length === 0) {
+      logger.warn(`updatePrinter(${id}): No fields to update. Received data keys:`, Object.keys(data));
+      return;
+    }
 
     params.push(id);
+    logger.info(`updatePrinter(${id}): Updating fields: ${updates.join(', ')} with params:`, params.slice(0, -1));
     await pool.query(`UPDATE printers SET ${updates.join(', ')} WHERE id = ?`, params);
   },
 
@@ -496,6 +501,27 @@ const printerService = {
     }
     lines.push(dash);
 
+    // Customer details section
+    const custName = billData.customerName || 'Walk-in Customer';
+    lines.push('Customer: ' + custName);
+    if (billData.customerPhone) {
+      lines.push('Phone: ' + billData.customerPhone);
+    }
+    // GST details for B2B customers
+    if (billData.customerGstin) {
+      if (billData.customerCompanyName) {
+        lines.push('Company: ' + billData.customerCompanyName);
+      }
+      lines.push('GSTIN: ' + billData.customerGstin);
+      if (billData.customerGstState) {
+        lines.push('State: ' + billData.customerGstState + (billData.customerGstStateCode ? ' (' + billData.customerGstStateCode + ')' : ''));
+      }
+      if (billData.isInterstate) {
+        lines.push(cmd.BOLD_ON + '** INTERSTATE SUPPLY **' + cmd.BOLD_OFF);
+      }
+    }
+    lines.push(dash);
+
     // Item column header: Item | Qty | Price | Amount
     const cQ = 4, cP = 8, cA = 9;
     const cN = w - cQ - cP - cA;
@@ -846,6 +872,168 @@ const printerService = {
         resolve({ success: false, message: err.message });
       });
     });
+  },
+
+  /**
+   * Check live status of all printers for an outlet
+   * @param {number} outletId - Outlet ID
+   * @param {string} station - Optional specific station to check
+   * @returns {Array} - Printer status array with connectivity info
+   */
+  async checkPrinterStatus(outletId, station = null) {
+    const pool = getPool();
+    
+    let query = `SELECT p.id, p.name, p.station, p.printer_type, p.station_id, 
+                        p.ip_address, p.port, p.is_active,
+                        ks.name as station_name, ks.code as station_code, ks.station_type
+                 FROM printers p
+                 LEFT JOIN kitchen_stations ks ON p.station_id = ks.id
+                 WHERE p.outlet_id = ? AND p.is_active = 1`;
+    const params = [outletId];
+    
+    if (station) {
+      query += ` AND p.station = ?`;
+      params.push(station);
+    }
+    
+    query += ` ORDER BY p.station, p.name`;
+    const [printers] = await pool.query(query, params);
+    
+    // Check connectivity for each printer in parallel
+    const statusChecks = printers.map(async (printer) => {
+      let isOnline = false;
+      let latency = null;
+      let error = null;
+      
+      if (printer.ip_address) {
+        const startTime = Date.now();
+        try {
+          const result = await this.testPrinterConnection(printer.ip_address, printer.port || 9100);
+          isOnline = result.success;
+          latency = Date.now() - startTime;
+          if (!result.success) {
+            error = result.message;
+          }
+        } catch (err) {
+          error = err.message;
+        }
+      } else {
+        error = 'No IP address configured';
+      }
+      
+      return {
+        id: printer.id,
+        name: printer.name,
+        station: printer.station,
+        printerType: printer.printer_type,
+        stationId: printer.station_id,
+        assignedStation: printer.station_id ? {
+          id: printer.station_id,
+          name: printer.station_name,
+          code: printer.station_code,
+          type: printer.station_type
+        } : null,
+        ipAddress: printer.ip_address,
+        port: printer.port || 9100,
+        isActive: printer.is_active === 1,
+        isOnline,
+        latency: latency ? `${latency}ms` : null,
+        error
+      };
+    });
+    
+    return Promise.all(statusChecks);
+  },
+
+  /**
+   * Check live status for a specific station type
+   * @param {number} outletId - Outlet ID
+   * @param {string} stationType - captain | cashier | kitchen | bar | bill
+   * @returns {Object} - Station printer status
+   */
+  async checkStationPrinterStatus(outletId, stationType) {
+    // Map station type to actual station values
+    const stationMap = {
+      'captain': ['kot_kitchen', 'kot_bar'],
+      'cashier': ['bill', 'report'],
+      'kitchen': ['kot_kitchen'],
+      'bar': ['kot_bar'],
+      'bill': ['bill'],
+      'all': null
+    };
+    
+    const stations = stationMap[stationType] || [stationType];
+    const pool = getPool();
+    
+    let query = `SELECT id, name, station, ip_address, port, is_active
+                 FROM printers WHERE outlet_id = ? AND is_active = 1`;
+    const params = [outletId];
+    
+    if (stations) {
+      query += ` AND station IN (${stations.map(() => '?').join(',')})`;
+      params.push(...stations);
+    }
+    
+    const [printers] = await pool.query(query, params);
+    
+    if (printers.length === 0) {
+      return {
+        stationType,
+        hasConfiguredPrinter: false,
+        printers: [],
+        summary: { total: 0, online: 0, offline: 0 }
+      };
+    }
+    
+    // Check connectivity for each printer
+    const statusChecks = printers.map(async (printer) => {
+      let isOnline = false;
+      let latency = null;
+      let error = null;
+      
+      if (printer.ip_address) {
+        const startTime = Date.now();
+        try {
+          const result = await this.testPrinterConnection(printer.ip_address, printer.port || 9100);
+          isOnline = result.success;
+          latency = Date.now() - startTime;
+          if (!result.success) {
+            error = result.message;
+          }
+        } catch (err) {
+          error = err.message;
+        }
+      } else {
+        error = 'No IP address configured';
+      }
+      
+      return {
+        id: printer.id,
+        name: printer.name,
+        station: printer.station,
+        ipAddress: printer.ip_address,
+        port: printer.port || 9100,
+        isOnline,
+        latency: latency ? `${latency}ms` : null,
+        error
+      };
+    });
+    
+    const results = await Promise.all(statusChecks);
+    const onlineCount = results.filter(p => p.isOnline).length;
+    
+    return {
+      stationType,
+      hasConfiguredPrinter: true,
+      allOnline: onlineCount === results.length,
+      anyOnline: onlineCount > 0,
+      printers: results,
+      summary: {
+        total: results.length,
+        online: onlineCount,
+        offline: results.length - onlineCount
+      }
+    };
   },
 
   async getJobStats(outletId, date = null) {

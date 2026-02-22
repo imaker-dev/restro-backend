@@ -340,7 +340,7 @@ const reportsService = {
     const payMap = {};
     payRows.forEach(r => { payMap[r.report_date instanceof Date ? r.report_date.toISOString().slice(0, 10) : r.report_date] = r; });
 
-    return rows.map(r => {
+    const daily = rows.map(r => {
       const dateKey = r.report_date instanceof Date ? r.report_date.toISOString().slice(0, 10) : r.report_date;
       const pay = payMap[dateKey] || {};
       const avgOrderValue = r.total_orders > 0 ? (parseFloat(r.net_sales) / r.total_orders).toFixed(2) : '0.00';
@@ -358,6 +358,51 @@ const reportsService = {
         average_guest_spend: avgGuestSpend
       };
     });
+
+    // Calculate summary totals across all days
+    const totalOrders = rows.reduce((s, r) => s + (r.total_orders || 0), 0);
+    const totalGuests = rows.reduce((s, r) => s + (r.total_guests || 0), 0);
+    const grossSales = rows.reduce((s, r) => s + parseFloat(r.gross_sales || 0), 0);
+    const netSales = rows.reduce((s, r) => s + parseFloat(r.net_sales || 0), 0);
+    const totalDiscount = rows.reduce((s, r) => s + parseFloat(r.discount_amount || 0), 0);
+    const totalTax = rows.reduce((s, r) => s + parseFloat(r.tax_amount || 0), 0);
+    const totalServiceCharge = rows.reduce((s, r) => s + parseFloat(r.service_charge || 0), 0);
+    const totalCollection = payRows.reduce((s, r) => s + parseFloat(r.total_collection || 0), 0);
+    const cashCollection = payRows.reduce((s, r) => s + parseFloat(r.cash_collection || 0), 0);
+    const cardCollection = payRows.reduce((s, r) => s + parseFloat(r.card_collection || 0), 0);
+    const upiCollection = payRows.reduce((s, r) => s + parseFloat(r.upi_collection || 0), 0);
+    const walletCollection = payRows.reduce((s, r) => s + parseFloat(r.wallet_collection || 0), 0);
+    const creditCollection = payRows.reduce((s, r) => s + parseFloat(r.credit_collection || 0), 0);
+    const totalTips = payRows.reduce((s, r) => s + parseFloat(r.tip_amount || 0), 0);
+
+    return {
+      dateRange: { start, end },
+      daily,
+      summary: {
+        total_days: daily.length,
+        total_orders: totalOrders,
+        dine_in_orders: rows.reduce((s, r) => s + (r.dine_in_orders || 0), 0),
+        takeaway_orders: rows.reduce((s, r) => s + (r.takeaway_orders || 0), 0),
+        delivery_orders: rows.reduce((s, r) => s + (r.delivery_orders || 0), 0),
+        cancelled_orders: rows.reduce((s, r) => s + (r.cancelled_orders || 0), 0),
+        total_guests: totalGuests,
+        gross_sales: grossSales.toFixed(2),
+        net_sales: netSales.toFixed(2),
+        discount_amount: totalDiscount.toFixed(2),
+        tax_amount: totalTax.toFixed(2),
+        service_charge: totalServiceCharge.toFixed(2),
+        total_collection: totalCollection.toFixed(2),
+        cash_collection: cashCollection.toFixed(2),
+        card_collection: cardCollection.toFixed(2),
+        upi_collection: upiCollection.toFixed(2),
+        wallet_collection: walletCollection.toFixed(2),
+        credit_collection: creditCollection.toFixed(2),
+        tip_amount: totalTips.toFixed(2),
+        average_order_value: totalOrders > 0 ? (netSales / totalOrders).toFixed(2) : '0.00',
+        average_guest_spend: totalGuests > 0 ? (netSales / totalGuests).toFixed(2) : '0.00',
+        average_daily_sales: daily.length > 0 ? (netSales / daily.length).toFixed(2) : '0.00'
+      }
+    };
   },
 
   /**
@@ -393,7 +438,32 @@ const reportsService = {
        LIMIT ?`,
       [outletId, start, end, ...ff.params, ...stf.params, limit]
     );
-    return rows;
+
+    // Calculate summary totals
+    const totalQuantity = rows.reduce((s, r) => s + parseInt(r.total_quantity || 0), 0);
+    const cancelledQuantity = rows.reduce((s, r) => s + parseInt(r.cancelled_quantity || 0), 0);
+    const grossRevenue = rows.reduce((s, r) => s + parseFloat(r.gross_revenue || 0), 0);
+    const discountAmount = rows.reduce((s, r) => s + parseFloat(r.discount_amount || 0), 0);
+    const taxAmount = rows.reduce((s, r) => s + parseFloat(r.tax_amount || 0), 0);
+    const netRevenue = rows.reduce((s, r) => s + parseFloat(r.net_revenue || 0), 0);
+    const uniqueOrders = new Set(rows.map(r => r.order_count)).size;
+
+    return {
+      dateRange: { start, end },
+      items: rows,
+      summary: {
+        total_items: rows.length,
+        total_quantity: totalQuantity,
+        cancelled_quantity: cancelledQuantity,
+        gross_revenue: grossRevenue.toFixed(2),
+        discount_amount: discountAmount.toFixed(2),
+        tax_amount: taxAmount.toFixed(2),
+        net_revenue: netRevenue.toFixed(2),
+        average_item_revenue: rows.length > 0 ? (netRevenue / rows.length).toFixed(2) : '0.00',
+        top_seller: rows.length > 0 ? rows[0].item_name : null,
+        top_seller_quantity: rows.length > 0 ? rows[0].total_quantity : 0
+      }
+    };
   },
 
   /**
@@ -427,10 +497,28 @@ const reportsService = {
     );
 
     const totalRevenue = rows.reduce((sum, r) => sum + parseFloat(r.net_revenue || 0), 0);
-    return rows.map(r => ({
+    const totalQuantity = rows.reduce((s, r) => s + parseInt(r.total_quantity || 0), 0);
+    const grossRevenue = rows.reduce((s, r) => s + parseFloat(r.gross_revenue || 0), 0);
+    const discountAmount = rows.reduce((s, r) => s + parseFloat(r.discount_amount || 0), 0);
+
+    const categories = rows.map(r => ({
       ...r,
       contribution_percent: totalRevenue > 0 ? ((parseFloat(r.net_revenue) / totalRevenue) * 100).toFixed(2) : '0.00'
     }));
+
+    return {
+      dateRange: { start, end },
+      categories,
+      summary: {
+        total_categories: categories.length,
+        total_quantity: totalQuantity,
+        gross_revenue: grossRevenue.toFixed(2),
+        discount_amount: discountAmount.toFixed(2),
+        net_revenue: totalRevenue.toFixed(2),
+        top_category: categories.length > 0 ? categories[0].category_name : null,
+        top_category_revenue: categories.length > 0 ? parseFloat(categories[0].net_revenue).toFixed(2) : '0.00'
+      }
+    };
   },
 
   /**
@@ -457,15 +545,22 @@ const reportsService = {
     );
 
     const totalAmount = rows.reduce((sum, r) => sum + parseFloat(r.total_amount || 0), 0);
+    const totalBase = rows.reduce((sum, r) => sum + parseFloat(r.base_amount || 0), 0);
+    const totalTips = rows.reduce((sum, r) => sum + parseFloat(r.tip_amount || 0), 0);
+    const totalTransactions = rows.reduce((sum, r) => sum + r.transaction_count, 0);
+
     return {
+      dateRange: { start, end },
       modes: rows.map(r => ({
         ...r,
         percentage_share: totalAmount > 0 ? ((parseFloat(r.total_amount) / totalAmount) * 100).toFixed(2) : '0.00'
       })),
       summary: {
-        total_transactions: rows.reduce((sum, r) => sum + r.transaction_count, 0),
+        total_transactions: totalTransactions,
         total_collected: totalAmount.toFixed(2),
-        total_tips: rows.reduce((sum, r) => sum + parseFloat(r.tip_amount || 0), 0).toFixed(2)
+        total_base_amount: totalBase.toFixed(2),
+        total_tips: totalTips.toFixed(2),
+        average_transaction: totalTransactions > 0 ? (totalAmount / totalTransactions).toFixed(2) : '0.00'
       }
     };
   },
@@ -560,7 +655,7 @@ const reportsService = {
       total_invoices: rows.reduce((s, r) => s + r.invoice_count, 0)
     };
 
-    return { daily: rows, taxComponents, summary };
+    return { dateRange: { start, end }, daily: rows, taxComponents, summary };
   },
 
   /**
@@ -649,12 +744,39 @@ const reportsService = {
     const tipMap = {};
     tips.forEach(t => { tipMap[t.user_id] = parseFloat(t.tips); });
 
-    return rows.map(r => ({
+    const staff = rows.map(r => ({
       ...r,
       total_tips: tipMap[r.user_id] || 0,
       avg_order_value: r.total_orders > 0 ? (parseFloat(r.total_sales) / r.total_orders).toFixed(2) : '0.00',
       avg_guest_spend: r.total_guests > 0 ? (parseFloat(r.total_sales) / r.total_guests).toFixed(2) : '0.00'
     }));
+
+    // Calculate summary totals
+    const totalOrders = rows.reduce((s, r) => s + (r.total_orders || 0), 0);
+    const totalGuests = rows.reduce((s, r) => s + (r.total_guests || 0), 0);
+    const totalSales = rows.reduce((s, r) => s + parseFloat(r.total_sales || 0), 0);
+    const totalDiscounts = rows.reduce((s, r) => s + parseFloat(r.total_discounts || 0), 0);
+    const cancelledOrders = rows.reduce((s, r) => s + (r.cancelled_orders || 0), 0);
+    const cancelledAmount = rows.reduce((s, r) => s + parseFloat(r.cancelled_amount || 0), 0);
+    const totalTips = Object.values(tipMap).reduce((s, t) => s + t, 0);
+
+    return {
+      dateRange: { start, end },
+      staff,
+      summary: {
+        total_staff: staff.length,
+        total_orders: totalOrders,
+        total_guests: totalGuests,
+        total_sales: totalSales.toFixed(2),
+        total_discounts: totalDiscounts.toFixed(2),
+        cancelled_orders: cancelledOrders,
+        cancelled_amount: cancelledAmount.toFixed(2),
+        total_tips: totalTips.toFixed(2),
+        average_per_staff: staff.length > 0 ? (totalSales / staff.length).toFixed(2) : '0.00',
+        top_performer: staff.length > 0 ? staff[0].user_name : null,
+        top_performer_sales: staff.length > 0 ? parseFloat(staff[0].total_sales).toFixed(2) : '0.00'
+      }
+    };
   },
 
   /**
@@ -682,10 +804,32 @@ const reportsService = {
       [outletId, start, end, ...ff.params]
     );
 
-    return rows.map(r => ({
+    const sections = rows.map(r => ({
       ...r,
       avg_order_value: r.order_count > 0 ? (parseFloat(r.net_sales) / r.order_count).toFixed(2) : '0.00'
     }));
+
+    // Calculate summary totals
+    const totalOrders = rows.reduce((s, r) => s + (r.order_count || 0), 0);
+    const totalGuests = rows.reduce((s, r) => s + (r.guest_count || 0), 0);
+    const totalSales = rows.reduce((s, r) => s + parseFloat(r.net_sales || 0), 0);
+    const cancelledOrders = rows.reduce((s, r) => s + (r.cancelled_orders || 0), 0);
+
+    return {
+      dateRange: { start, end },
+      sections,
+      summary: {
+        total_floors: new Set(rows.map(r => r.floor_id)).size,
+        total_sections: sections.length,
+        total_orders: totalOrders,
+        total_guests: totalGuests,
+        total_sales: totalSales.toFixed(2),
+        cancelled_orders: cancelledOrders,
+        average_order_value: totalOrders > 0 ? (totalSales / totalOrders).toFixed(2) : '0.00',
+        top_section: sections.length > 0 ? sections[0].section_name : null,
+        top_section_sales: sections.length > 0 ? parseFloat(sections[0].net_sales).toFixed(2) : '0.00'
+      }
+    };
   },
 
   /**
@@ -713,7 +857,28 @@ const reportsService = {
        ORDER BY ticket_count DESC`,
       [outletId, start, end, ...ff.params]
     );
-    return rows;
+
+    // Calculate summary totals
+    const totalTickets = rows.reduce((s, r) => s + (r.ticket_count || 0), 0);
+    const totalItems = rows.reduce((s, r) => s + (r.item_count || 0), 0);
+    const totalQuantity = rows.reduce((s, r) => s + parseInt(r.total_quantity || 0), 0);
+    const servedCount = rows.reduce((s, r) => s + (r.served_count || 0), 0);
+    const cancelledCount = rows.reduce((s, r) => s + (r.cancelled_count || 0), 0);
+
+    return {
+      dateRange: { start, end },
+      stations: rows,
+      summary: {
+        total_stations: rows.length,
+        total_tickets: totalTickets,
+        total_items: totalItems,
+        total_quantity: totalQuantity,
+        served_count: servedCount,
+        cancelled_count: cancelledCount,
+        busiest_station: rows.length > 0 ? rows[0].station : null,
+        busiest_station_tickets: rows.length > 0 ? rows[0].ticket_count : 0
+      }
+    };
   },
 
   /**
@@ -3960,6 +4125,325 @@ const reportsService = {
         shared_revenue: breakdown.both.net_revenue.toFixed(2)
       },
       breakdown
+    };
+  },
+
+  // ========================
+  // DAY END SUMMARY
+  // ========================
+
+  /**
+   * Day End Summary - Aggregated daily summary for date range
+   * Role-based: cashier sees only their billed orders, others see based on floor assignment
+   */
+  async getDayEndSummary(outletId, startDate, endDate, options = {}) {
+    const pool = getPool();
+    const { start, end } = this._dateRange(startDate, endDate);
+    const { floorIds = [], userId = null, isCashier = false } = options;
+
+    let conditions = ['o.outlet_id = ?', 'DATE(o.created_at) BETWEEN ? AND ?'];
+    let params = [outletId, start, end];
+
+    // Floor restriction
+    if (floorIds.length > 0) {
+      conditions.push(`o.floor_id IN (${floorIds.map(() => '?').join(',')})`);
+      params.push(...floorIds);
+    }
+
+    // Cashier sees only their billed orders
+    if (isCashier && userId) {
+      conditions.push('o.billed_by = ?');
+      params.push(userId);
+    }
+
+    const whereClause = 'WHERE ' + conditions.join(' AND ');
+
+    const [rows] = await pool.query(
+      `SELECT 
+        DATE(o.created_at) as report_date,
+        COUNT(*) as total_orders,
+        COUNT(CASE WHEN o.status IN ('paid', 'completed') THEN 1 END) as completed_orders,
+        COUNT(CASE WHEN o.status = 'cancelled' THEN 1 END) as cancelled_orders,
+        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN o.total_amount ELSE 0 END) as total_sales,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.subtotal ELSE 0 END) as gross_sales,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as total_discount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.tax_amount ELSE 0 END) as total_tax,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.service_charge ELSE 0 END) as total_sc,
+        SUM(o.guest_count) as total_guests
+       FROM orders o
+       ${whereClause}
+       GROUP BY DATE(o.created_at)
+       ORDER BY report_date DESC`,
+      params
+    );
+
+    // Get payment breakdown
+    const [payRows] = await pool.query(
+      `SELECT 
+        DATE(p.created_at) as report_date,
+        p.payment_mode,
+        SUM(p.total_amount) as amount
+       FROM payments p
+       JOIN orders o ON p.order_id = o.id
+       ${whereClause} AND p.status = 'completed'
+       GROUP BY DATE(p.created_at), p.payment_mode`,
+      params
+    );
+
+    const paymentByDate = {};
+    for (const pr of payRows) {
+      const dateKey = pr.report_date instanceof Date ? pr.report_date.toISOString().slice(0, 10) : pr.report_date;
+      if (!paymentByDate[dateKey]) paymentByDate[dateKey] = {};
+      paymentByDate[dateKey][pr.payment_mode] = parseFloat(pr.amount) || 0;
+    }
+
+    const summary = rows.map(r => {
+      const dateKey = r.report_date instanceof Date ? r.report_date.toISOString().slice(0, 10) : r.report_date;
+      return {
+        date: dateKey,
+        totalOrders: parseInt(r.total_orders) || 0,
+        completedOrders: parseInt(r.completed_orders) || 0,
+        cancelledOrders: parseInt(r.cancelled_orders) || 0,
+        totalSales: parseFloat(r.total_sales) || 0,
+        grossSales: parseFloat(r.gross_sales) || 0,
+        totalDiscount: parseFloat(r.total_discount) || 0,
+        totalTax: parseFloat(r.total_tax) || 0,
+        totalServiceCharge: parseFloat(r.total_sc) || 0,
+        totalGuests: parseInt(r.total_guests) || 0,
+        avgOrderValue: r.completed_orders > 0 ? parseFloat((r.total_sales / r.completed_orders).toFixed(2)) : 0,
+        payments: paymentByDate[dateKey] || {}
+      };
+    });
+
+    // Grand totals
+    const grandTotal = {
+      totalOrders: summary.reduce((s, r) => s + r.totalOrders, 0),
+      completedOrders: summary.reduce((s, r) => s + r.completedOrders, 0),
+      cancelledOrders: summary.reduce((s, r) => s + r.cancelledOrders, 0),
+      totalSales: parseFloat(summary.reduce((s, r) => s + r.totalSales, 0).toFixed(2)),
+      totalDiscount: parseFloat(summary.reduce((s, r) => s + r.totalDiscount, 0).toFixed(2)),
+      totalTax: parseFloat(summary.reduce((s, r) => s + r.totalTax, 0).toFixed(2)),
+      totalGuests: summary.reduce((s, r) => s + r.totalGuests, 0)
+    };
+
+    return {
+      dateRange: { start, end },
+      days: summary,
+      grandTotal,
+      dayCount: summary.length
+    };
+  },
+
+  // ========================
+  // RUNNING ORDERS/TABLES DASHBOARD
+  // ========================
+
+  /**
+   * Running Orders Dashboard - Active orders breakdown by type
+   * Role-based: cashier sees only their orders, others see based on floor
+   */
+  async getRunningOrders(outletId, options = {}) {
+    const pool = getPool();
+    const { floorIds = [], userId = null, isCashier = false } = options;
+
+    let conditions = ['o.outlet_id = ?', "o.status NOT IN ('paid', 'completed', 'cancelled')"];
+    let params = [outletId];
+
+    if (floorIds.length > 0) {
+      conditions.push(`o.floor_id IN (${floorIds.map(() => '?').join(',')})`);
+      params.push(...floorIds);
+    }
+
+    if (isCashier && userId) {
+      conditions.push('(o.created_by = ? OR o.billed_by = ?)');
+      params.push(userId, userId);
+    }
+
+    const whereClause = 'WHERE ' + conditions.join(' AND ');
+
+    // Get actual running orders as array
+    const [orders] = await pool.query(
+      `SELECT 
+        o.id, o.order_number, o.order_type, o.status, o.payment_status,
+        o.table_id, o.floor_id, o.customer_name, o.customer_phone,
+        o.guest_count, o.subtotal, o.total_amount, o.discount_amount,
+        o.is_priority, o.special_instructions, o.created_at, o.updated_at,
+        t.table_number, t.name as table_name,
+        f.name as floor_name,
+        u.name as created_by_name,
+        (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id AND oi.status != 'cancelled') as item_count,
+        (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id AND oi.status = 'ready') as ready_count,
+        i.id as invoice_id, i.invoice_number, i.grand_total as invoice_total
+       FROM orders o
+       LEFT JOIN tables t ON o.table_id = t.id
+       LEFT JOIN floors f ON o.floor_id = f.id
+       LEFT JOIN users u ON o.created_by = u.id
+       LEFT JOIN invoices i ON i.order_id = o.id AND i.is_cancelled = 0
+       ${whereClause}
+       ORDER BY o.is_priority DESC, o.created_at DESC`,
+      params
+    );
+
+    return orders;
+  },
+
+  /**
+   * Running Tables - Active tables with order info
+   */
+  async getRunningTables(outletId, options = {}) {
+    const pool = getPool();
+    const { floorIds = [] } = options;
+
+    let conditions = ['t.outlet_id = ?', "t.status = 'occupied'"];
+    let params = [outletId];
+
+    if (floorIds.length > 0) {
+      conditions.push(`t.floor_id IN (${floorIds.map(() => '?').join(',')})`);
+      params.push(...floorIds);
+    }
+
+    const whereClause = 'WHERE ' + conditions.join(' AND ');
+
+    const [tables] = await pool.query(
+      `SELECT 
+        t.id, t.table_number, t.name as table_name, t.capacity, t.status,
+        f.name as floor_name, f.id as floor_id,
+        o.id as order_id, o.order_number, o.status as order_status,
+        o.total_amount, o.guest_count, o.created_at as order_started,
+        u.name as captain_name
+       FROM tables t
+       LEFT JOIN floors f ON t.floor_id = f.id
+       LEFT JOIN orders o ON o.table_id = t.id AND o.status NOT IN ('paid', 'completed', 'cancelled')
+       LEFT JOIN users u ON o.created_by = u.id
+       ${whereClause}
+       ORDER BY f.display_order, t.table_number`,
+      params
+    );
+
+    // Group by floor
+    const byFloor = {};
+    for (const t of tables) {
+      const floorKey = t.floor_name || 'Unassigned';
+      if (!byFloor[floorKey]) {
+        byFloor[floorKey] = { floorId: t.floor_id, tables: [] };
+      }
+      byFloor[floorKey].tables.push({
+        tableId: t.id,
+        tableNumber: t.table_number,
+        tableName: t.table_name,
+        capacity: t.capacity,
+        guestCount: t.guest_count || 0,
+        orderId: t.order_id,
+        orderNumber: t.order_number,
+        orderStatus: t.order_status,
+        totalAmount: parseFloat(t.total_amount) || 0,
+        captainName: t.captain_name,
+        orderStarted: t.order_started,
+        duration: t.order_started ? Math.round((Date.now() - new Date(t.order_started).getTime()) / 60000) : 0
+      });
+    }
+
+    return {
+      totalOccupied: tables.length,
+      totalAmount: tables.reduce((s, t) => s + (parseFloat(t.total_amount) || 0), 0),
+      totalGuests: tables.reduce((s, t) => s + (t.guest_count || 0), 0),
+      byFloor
+    };
+  },
+
+  // ========================
+  // BILLER/CASHIER WISE REPORT
+  // ========================
+
+  /**
+   * Biller-wise sales report
+   */
+  async getBillerWiseReport(outletId, startDate, endDate, options = {}) {
+    const pool = getPool();
+    const { start, end } = this._dateRange(startDate, endDate);
+    const { floorIds = [], userId = null } = options;
+
+    let conditions = ['o.outlet_id = ?', 'DATE(o.created_at) BETWEEN ? AND ?', 'o.billed_by IS NOT NULL'];
+    let params = [outletId, start, end];
+
+    if (floorIds.length > 0) {
+      conditions.push(`o.floor_id IN (${floorIds.map(() => '?').join(',')})`);
+      params.push(...floorIds);
+    }
+
+    // If userId provided (cashier), only show their data
+    if (userId) {
+      conditions.push('o.billed_by = ?');
+      params.push(userId);
+    }
+
+    const whereClause = 'WHERE ' + conditions.join(' AND ');
+
+    const [rows] = await pool.query(
+      `SELECT 
+        o.billed_by as user_id, u.name as biller_name,
+        COUNT(*) as total_bills,
+        SUM(o.guest_count) as total_pax,
+        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN o.total_amount ELSE 0 END) as total_sales,
+        SUM(o.discount_amount) as total_discount,
+        SUM(o.tax_amount) as total_tax,
+        SUM(o.service_charge) as total_sc,
+        COUNT(CASE WHEN o.status = 'cancelled' THEN 1 END) as cancelled_bills
+       FROM orders o
+       JOIN users u ON o.billed_by = u.id
+       ${whereClause}
+       GROUP BY o.billed_by, u.name
+       ORDER BY total_sales DESC`,
+      params
+    );
+
+    // Get payment breakdown per biller
+    const [payments] = await pool.query(
+      `SELECT 
+        o.billed_by as user_id,
+        p.payment_mode,
+        SUM(p.total_amount) as amount
+       FROM payments p
+       JOIN orders o ON p.order_id = o.id
+       JOIN users u ON o.billed_by = u.id
+       ${whereClause} AND p.status = 'completed'
+       GROUP BY o.billed_by, p.payment_mode`,
+      params
+    );
+
+    const paymentByBiller = {};
+    for (const p of payments) {
+      if (!paymentByBiller[p.user_id]) paymentByBiller[p.user_id] = {};
+      paymentByBiller[p.user_id][p.payment_mode] = parseFloat(p.amount) || 0;
+    }
+
+    const billers = rows.map(r => ({
+      userId: r.user_id,
+      billerName: r.biller_name,
+      totalBills: parseInt(r.total_bills) || 0,
+      totalPax: parseInt(r.total_pax) || 0,
+      totalSales: parseFloat(r.total_sales) || 0,
+      totalDiscount: parseFloat(r.total_discount) || 0,
+      totalTax: parseFloat(r.total_tax) || 0,
+      totalServiceCharge: parseFloat(r.total_sc) || 0,
+      cancelledBills: parseInt(r.cancelled_bills) || 0,
+      avgBillValue: r.total_bills > 0 ? parseFloat((r.total_sales / r.total_bills).toFixed(2)) : 0,
+      paxPerBill: r.total_bills > 0 ? parseFloat((r.total_pax / r.total_bills).toFixed(1)) : 0,
+      payments: paymentByBiller[r.user_id] || {}
+    }));
+
+    const grandTotal = {
+      totalBills: billers.reduce((s, b) => s + b.totalBills, 0),
+      totalPax: billers.reduce((s, b) => s + b.totalPax, 0),
+      totalSales: parseFloat(billers.reduce((s, b) => s + b.totalSales, 0).toFixed(2)),
+      totalDiscount: parseFloat(billers.reduce((s, b) => s + b.totalDiscount, 0).toFixed(2))
+    };
+
+    return {
+      dateRange: { start, end },
+      billers,
+      grandTotal,
+      billerCount: billers.length
     };
   }
 };
