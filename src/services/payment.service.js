@@ -1038,7 +1038,7 @@ const paymentService = {
     );
 
     return {
-      session: session[0] || null,
+      session: session,
       currentBalance: balance[0]?.balance_after || 0,
       recentTransactions: transactions
     };
