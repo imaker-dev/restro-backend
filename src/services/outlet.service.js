@@ -21,16 +21,17 @@ const outletService = {
       `INSERT INTO outlets (
         uuid, code, name, legal_name, outlet_type, 
         address_line1, address_line2, city, state, country, postal_code,
-        phone, email, gstin, fssai_number,
+        phone, email, gstin, fssai_number, pan_number,
         opening_time, closing_time, is_24_hours,
         currency_code, timezone, settings,
         is_active, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         uuid, code, data.name, data.legalName || null, data.outletType || 'restaurant',
         data.addressLine1 || null, data.addressLine2 || null, data.city || null, 
         data.state || null, data.country || 'India', data.postalCode || null,
         data.phone || null, data.email || null, data.gstin || null, data.fssaiNumber || null,
+        data.panNumber || null,
         data.openingTime || null, data.closingTime || null, data.is24Hours || false,
         data.currencyCode || 'INR', data.timezone || 'Asia/Kolkata',
         JSON.stringify(data.settings || {}),
@@ -142,7 +143,7 @@ const outletService = {
     const allowedFields = [
       'name', 'legal_name', 'outlet_type', 'address_line1', 'address_line2',
       'city', 'state', 'country', 'postal_code', 'phone', 'email',
-      'gstin', 'fssai_number', 'opening_time', 'closing_time', 'is_24_hours',
+      'gstin', 'fssai_number', 'pan_number', 'opening_time', 'closing_time', 'is_24_hours',
       'currency_code', 'timezone', 'is_active', 'settings'
     ];
 
@@ -153,6 +154,7 @@ const outletService = {
       addressLine2: 'address_line2',
       postalCode: 'postal_code',
       fssaiNumber: 'fssai_number',
+      panNumber: 'pan_number',
       openingTime: 'opening_time',
       closingTime: 'closing_time',
       is24Hours: 'is_24_hours',
