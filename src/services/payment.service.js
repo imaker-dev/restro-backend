@@ -1024,6 +1024,7 @@ const paymentService = {
       [outletId, today]
     );
 
+    console.log("Session: ", session);
     const [balance] = await pool.query(
       `SELECT balance_after FROM cash_drawer 
        WHERE outlet_id = ? ORDER BY id DESC LIMIT 1`,
@@ -1038,7 +1039,7 @@ const paymentService = {
     );
 
     return {
-      session: session,
+      session: session[0] || null,
       currentBalance: balance[0]?.balance_after || 0,
       recentTransactions: transactions
     };
