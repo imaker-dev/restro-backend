@@ -86,16 +86,18 @@ const taxService = {
   },
 
   async getTaxComponents(taxTypeId = null) {
-    const cacheKey = taxTypeId ? `tax:components:${taxTypeId}` : 'tax:components:all';
-    const cached = await cache.get(cacheKey);
-    if (cached) return cached;
-
     const pool = getPool();
+    
+    // Deduplicate by name + rate combination (handles different codes like VAT18 vs VAT_18)
     let query = `
       SELECT tc.*, tt.name as tax_type_name, tt.code as tax_type_code
       FROM tax_components tc
       JOIN tax_types tt ON tc.tax_type_id = tt.id
       WHERE tc.is_active = 1
+        AND tc.id = (
+          SELECT MIN(id) FROM tax_components 
+          WHERE name = tc.name AND rate = tc.rate AND is_active = 1
+        )
     `;
     const params = [];
 
@@ -106,7 +108,6 @@ const taxService = {
     query += ' ORDER BY tt.name, tc.name';
 
     const [components] = await pool.query(query, params);
-    await cache.set(cacheKey, components, CACHE_TTL);
     return components;
   },
 
@@ -221,30 +222,33 @@ const taxService = {
       // Get outlet-specific codes to exclude from global
       const outletCodes = outletGroups.map(g => g.code);
       
-      // Get global tax groups, deduplicated by code (MIN id)
+      // Get global tax groups, deduplicated by name + total_rate (MIN id)
       const [globalGroups] = await pool.query(
         `SELECT tg.* FROM tax_groups tg
          WHERE tg.is_active = 1 AND tg.outlet_id IS NULL
            AND tg.id = (
              SELECT MIN(id) FROM tax_groups 
-             WHERE code = tg.code AND outlet_id IS NULL AND is_active = 1
+             WHERE name = tg.name AND total_rate = tg.total_rate AND outlet_id IS NULL AND is_active = 1
            )
          ORDER BY is_default DESC, name`
       );
       
-      // Filter out global groups that have outlet-specific versions
-      const filteredGlobal = globalGroups.filter(g => !outletCodes.includes(g.code));
+      // Get outlet-specific names to exclude from global
+      const outletNames = outletGroups.map(g => g.name);
+      
+      // Filter out global groups that have outlet-specific versions (by name)
+      const filteredGlobal = globalGroups.filter(g => !outletNames.includes(g.name) && !outletCodes.includes(g.code));
       
       // Combine: outlet-specific first, then global
       groups = [...outletGroups, ...filteredGlobal];
     } else {
-      // No outlet filter - return unique global tax groups (deduplicated by code)
+      // No outlet filter - return unique global tax groups (deduplicated by name + total_rate)
       const [globalGroups] = await pool.query(
         `SELECT tg.* FROM tax_groups tg
          WHERE tg.is_active = 1 AND tg.outlet_id IS NULL
            AND tg.id = (
              SELECT MIN(id) FROM tax_groups 
-             WHERE code = tg.code AND outlet_id IS NULL AND is_active = 1
+             WHERE name = tg.name AND total_rate = tg.total_rate AND outlet_id IS NULL AND is_active = 1
            )
          ORDER BY is_default DESC, name`
       );

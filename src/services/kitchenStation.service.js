@@ -17,14 +17,17 @@ const kitchenStationService = {
   async createStation(data) {
     const pool = getPool();
     const {
-      outletId, name, code, stationType = 'main_kitchen',
+      outletId, name, code, stationType, station_type,
       description, printerId, displayId, isActive = true, displayOrder = 0
     } = data;
+    
+    // Support both camelCase and snake_case, default only if neither provided
+    const finalStationType = stationType || station_type || 'main_kitchen';
 
     const [result] = await pool.query(
       `INSERT INTO kitchen_stations (outlet_id, name, code, station_type, description, printer_id, display_id, is_active, display_order)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [outletId, name, code?.toUpperCase(), stationType, description, printerId, displayId, isActive, displayOrder]
+      [outletId, name, code?.toUpperCase(), finalStationType, description, printerId, displayId, isActive, displayOrder]
     );
 
     await this.invalidateCache(outletId);
@@ -59,7 +62,9 @@ const kitchenStationService = {
 
     if (data.name !== undefined) { fields.push('name = ?'); values.push(data.name); }
     if (data.code !== undefined) { fields.push('code = ?'); values.push(data.code?.toUpperCase()); }
-    if (data.stationType !== undefined) { fields.push('station_type = ?'); values.push(data.stationType); }
+    // Support both camelCase and snake_case for station_type
+    const stationTypeValue = data.stationType ?? data.station_type;
+    if (stationTypeValue !== undefined) { fields.push('station_type = ?'); values.push(stationTypeValue); }
     if (data.description !== undefined) { fields.push('description = ?'); values.push(data.description); }
     if (data.printerId !== undefined) { fields.push('printer_id = ?'); values.push(data.printerId); }
     if (data.displayId !== undefined) { fields.push('display_id = ?'); values.push(data.displayId); }
