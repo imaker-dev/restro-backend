@@ -228,15 +228,20 @@ const printerController = {
         return res.status(401).json({ success: false, message: 'API key required' });
       }
 
+      console.log("API Key: ", apiKey);
+      console.log("Outlet ID: ", outletId);
+      console.log("Bridge Code: ", bridgeCode);
       // Validate bridge
       const bridge = await printerService.validateBridgeApiKey(outletId, bridgeCode, apiKey);
       if (!bridge) {
         return res.status(401).json({ success: false, message: 'Invalid credentials' });
       }
 
+      console.log("Bridge: ", bridge);
       // Get assigned stations
       const stations = bridge.assigned_stations ? JSON.parse(bridge.assigned_stations) : [];
       
+      console.log("Stations: ", stations);
       // Get next pending job for any assigned station
       let job = null;
       for (const station of stations) {
@@ -244,9 +249,12 @@ const printerController = {
         if (job) break;
       }
 
+      console.log("Job: ", job);
+
       // Update bridge status
       await printerService.updateBridgeStatus(bridge.id, true, req.ip);
 
+      console.log("Bridge Status: ", bridge.id);
       res.json({ 
         success: true, 
         data: job,

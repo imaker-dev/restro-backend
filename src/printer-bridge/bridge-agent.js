@@ -34,7 +34,7 @@ const CONFIG = {
   BRIDGE_CODE: process.env.BRIDGE_CODE || 'KITCHEN-BRIDGE-1',
   
   // API key (provided when bridge was created via API)
-  API_KEY: process.env.API_KEY || '',
+  API_KEY: process.env.API_KEY || '855242e269ca0ba825f22a58306ee63bef7d4f75c710ee8d081c24e474989509',
   
   // Polling interval in milliseconds
   POLL_INTERVAL: parseInt(process.env.POLL_INTERVAL) || 2000,
