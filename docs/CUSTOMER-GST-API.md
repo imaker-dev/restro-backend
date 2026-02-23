@@ -118,12 +118,15 @@ Search by name, phone, company name, or GSTIN.
 
 ---
 
-### 3. Get Customer by Phone
+### 3. Get Customer by Phone (Partial Search)
 **GET** `/customers/:outletId/by-phone?phone=9876543210`
 
-Quick lookup for cashier when customer provides phone number.
+Flexible phone search with partial matching. Returns single customer for exact match, or array for multiple partial matches.
 
-#### Response:
+#### Query Parameters:
+- `phone` (required): Full or partial phone number
+
+#### Response (Exact Match - Single Customer):
 ```json
 {
   "success": true,
@@ -139,6 +142,36 @@ Quick lookup for cashier when customer provides phone number.
     "totalOrders": 5,
     "totalSpent": 25000
   }
+}
+```
+
+#### Response (Partial Match - Multiple Customers):
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 15,
+      "name": "Rajesh Kumar",
+      "phone": "9876543210",
+      "isGstCustomer": true,
+      "companyName": "ABC Traders"
+    },
+    {
+      "id": 22,
+      "name": "Suresh Singh",
+      "phone": "9876543211",
+      "isGstCustomer": false
+    }
+  ]
+}
+```
+
+#### Response (No Match):
+```json
+{
+  "success": true,
+  "data": null
 }
 ```
 
@@ -256,7 +289,7 @@ View past orders for a customer (for cashier reference).
 ### 7. Link Customer to Order
 **POST** `/customers/link-order/:orderId`
 
-Link an existing or new customer to an order. Creates customer if not found.
+Link an existing or new customer to an order. Creates customer if not found. Supports GST details for new B2B customers.
 
 #### Request (Existing Customer):
 ```json
@@ -265,11 +298,25 @@ Link an existing or new customer to an order. Creates customer if not found.
 }
 ```
 
-#### Request (New Customer):
+#### Request (New Customer - Basic):
 ```json
 {
   "name": "Amit Sharma",
   "phone": "9988776655"
+}
+```
+
+#### Request (New Customer - With GST Details):
+```json
+{
+  "name": "XYZ Enterprises",
+  "phone": "9988776655",
+  "isGstCustomer": true,
+  "companyName": "XYZ Enterprises Pvt Ltd",
+  "gstin": "27AABCU9603R1ZM",
+  "gstState": "Maharashtra",
+  "gstStateCode": "27",
+  "companyPhone": "022-12345678"
 }
 ```
 
@@ -281,11 +328,28 @@ Link an existing or new customer to an order. Creates customer if not found.
   "data": {
     "customerId": 15,
     "orderId": 245,
-    "customerName": "Rajesh Kumar",
-    "customerPhone": "9876543210"
+    "customerName": "Amit Sharma",
+    "customerPhone": "9988776655",
+    "isGstCustomer": true,
+    "gstin": "27AABCU9603R1ZM",
+    "companyName": "XYZ Enterprises Pvt Ltd",
+    "gstState": "Maharashtra",
+    "gstStateCode": "27",
+    "customer": {
+      "id": 15,
+      "name": "Amit Sharma",
+      "phone": "9988776655",
+      "isGstCustomer": true,
+      "companyName": "XYZ Enterprises Pvt Ltd",
+      "gstin": "27AABCU9603R1ZM",
+      "gstState": "Maharashtra",
+      "gstStateCode": "27"
+    }
   }
 }
 ```
+
+> **Note:** If no customer name provided, system shows "Walk-in Customer" on bills.
 
 ---
 
@@ -294,14 +358,17 @@ Link an existing or new customer to an order. Creates customer if not found.
 
 Add customer GST details to order. **Automatically detects interstate** and sets `is_interstate = true` if customer state differs from outlet state.
 
+**Important:** This also updates the customer record with GST details, so next time the customer is fetched, GST details will be available.
+
 #### Request:
 ```json
 {
   "customerId": 15,
-  "customerGstin": "27AABCU9603R1ZM",
-  "customerCompanyName": "XYZ Enterprises",
-  "customerGstState": "Maharashtra",
-  "customerGstStateCode": "27"
+  "gstin": "27AABCU9603R1ZM",
+  "companyName": "XYZ Enterprises",
+  "gstState": "Maharashtra",
+  "gstStateCode": "27",
+  "companyPhone": "022-12345678"
 }
 ```
 

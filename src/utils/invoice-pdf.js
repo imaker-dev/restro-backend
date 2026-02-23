@@ -93,40 +93,40 @@ function generateInvoicePDF(invoice, outlet = {}) {
     y += 12;
   }
 
-  // Customer info
-  if (invoice.customerName || invoice.customerPhone || invoice.customerGstin) {
-    y += 4;
-    doc.font('Helvetica-Bold').fontSize(9).fillColor('#333333').text('Bill To', leftMargin, y);
-    y += 14;
-    doc.font('Helvetica').fontSize(8).fillColor('#555555');
-    
-    // Company name for B2B customers
-    if (invoice.customerCompanyName) {
-      doc.font('Helvetica-Bold').text(invoice.customerCompanyName, leftMargin, y);
-      y += 12;
-      doc.font('Helvetica');
-    }
-    if (invoice.customerName) { doc.text(invoice.customerName, leftMargin, y); y += 12; }
-    if (invoice.customerPhone) { doc.text(`Phone: ${invoice.customerPhone}`, leftMargin, y); y += 12; }
-    if (invoice.customerEmail) { doc.text(`Email: ${invoice.customerEmail}`, leftMargin, y); y += 12; }
-    
-    // GST details
-    if (invoice.customerGstin) {
-      doc.font('Helvetica-Bold').text(`GSTIN: ${invoice.customerGstin}`, leftMargin, y);
-      y += 12;
-      doc.font('Helvetica');
-    }
-    if (invoice.customerGstState) {
-      doc.text(`State: ${invoice.customerGstState}${invoice.customerGstStateCode ? ` (${invoice.customerGstStateCode})` : ''}`, leftMargin, y);
-      y += 12;
-    }
-    if (invoice.isInterstate) {
-      doc.font('Helvetica-Bold').fillColor('#e74c3c').text('** INTERSTATE SUPPLY **', leftMargin, y);
-      y += 12;
-      doc.font('Helvetica').fillColor('#555555');
-    }
-    if (invoice.customerAddress) { doc.text(invoice.customerAddress, leftMargin, y, { width: 250 }); y += 12; }
+  // Customer info - always show (Walk-in Customer if no name)
+  y += 4;
+  doc.font('Helvetica-Bold').fontSize(9).fillColor('#333333').text('Bill To', leftMargin, y);
+  y += 14;
+  doc.font('Helvetica').fontSize(8).fillColor('#555555');
+  
+  // Company name for B2B customers
+  if (invoice.customerCompanyName) {
+    doc.font('Helvetica-Bold').text(invoice.customerCompanyName, leftMargin, y);
+    y += 12;
+    doc.font('Helvetica');
   }
+  // Customer name with Walk-in fallback
+  const displayName = invoice.customerName || 'Walk-in Customer';
+  doc.text(displayName, leftMargin, y); y += 12;
+  if (invoice.customerPhone) { doc.text(`Phone: ${invoice.customerPhone}`, leftMargin, y); y += 12; }
+  if (invoice.customerEmail) { doc.text(`Email: ${invoice.customerEmail}`, leftMargin, y); y += 12; }
+  
+  // GST details
+  if (invoice.customerGstin) {
+    doc.font('Helvetica-Bold').text(`GSTIN: ${invoice.customerGstin}`, leftMargin, y);
+    y += 12;
+    doc.font('Helvetica');
+  }
+  if (invoice.customerGstState) {
+    doc.text(`State: ${invoice.customerGstState}${invoice.customerGstStateCode ? ` (${invoice.customerGstStateCode})` : ''}`, leftMargin, y);
+    y += 12;
+  }
+  if (invoice.isInterstate) {
+    doc.font('Helvetica-Bold').fillColor('#e74c3c').text('** INTERSTATE SUPPLY **', leftMargin, y);
+    y += 12;
+    doc.font('Helvetica').fillColor('#555555');
+  }
+  if (invoice.customerAddress) { doc.text(invoice.customerAddress, leftMargin, y, { width: 250 }); y += 12; }
 
   y += 5;
   drawThickLine(y);

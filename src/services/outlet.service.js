@@ -38,8 +38,35 @@ const outletService = {
       ]
     );
 
+    const outletId = result.insertId;
+
+    // Auto-assign outlet to the creator if they're an admin without outlets
+    if (userId) {
+      try {
+        // Check if user has admin role without any outlet assignments
+        const [adminRoles] = await pool.query(
+          `SELECT ur.id FROM user_roles ur
+           JOIN roles r ON ur.role_id = r.id
+           WHERE ur.user_id = ? AND ur.is_active = 1 
+             AND r.slug = 'admin' AND ur.outlet_id IS NULL`,
+          [userId]
+        );
+        
+        // Update admin role to include this outlet
+        if (adminRoles.length > 0) {
+          await pool.query(
+            `UPDATE user_roles SET outlet_id = ? WHERE id = ?`,
+            [outletId, adminRoles[0].id]
+          );
+          logger.info(`Auto-assigned outlet ${outletId} to admin user ${userId}`);
+        }
+      } catch (err) {
+        logger.warn(`Failed to auto-assign outlet to creator: ${err.message}`);
+      }
+    }
+
     await cache.del('outlets:all');
-    return this.getById(result.insertId);
+    return this.getById(outletId);
   },
 
   /**

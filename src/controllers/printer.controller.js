@@ -68,7 +68,8 @@ const printerController = {
   async updatePrinter(req, res) {
     try {
       await printerService.updatePrinter(req.params.id, req.body);
-      res.json({ success: true, message: 'Printer updated' });
+      const printer = await printerService.getPrinterById(req.params.id);
+      res.json({ success: true, message: 'Printer updated', data: printer });
     } catch (error) {
       logger.error('Update printer error:', error);
       res.status(500).json({ success: false, message: error.message });
@@ -282,6 +283,125 @@ const printerController = {
       res.json({ success: true });
     } catch (error) {
       logger.error('Bridge ack error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  // ========================
+  // PRINTER STATUS CHECK API
+  // ========================
+
+  /**
+   * Check live status of all printers for an outlet
+   * GET /api/v1/printers/:outletId/status
+   */
+  async checkPrinterStatus(req, res) {
+    try {
+      const { outletId } = req.params;
+      const { station } = req.query;
+      
+      const printers = await printerService.checkPrinterStatus(outletId, station || null);
+      
+      const onlineCount = printers.filter(p => p.isOnline).length;
+      
+      res.json({
+        success: true,
+        data: {
+          checkedAt: new Date().toISOString(),
+          summary: {
+            total: printers.length,
+            online: onlineCount,
+            offline: printers.length - onlineCount,
+            allOnline: onlineCount === printers.length && printers.length > 0
+          },
+          printers
+        }
+      });
+    } catch (error) {
+      logger.error('Check printer status error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
+   * Check live status for a specific station type (captain, cashier, kitchen, bar)
+   * GET /api/v1/printers/:outletId/status/:stationType
+   */
+  async checkStationPrinterStatus(req, res) {
+    try {
+      const { outletId, stationType } = req.params;
+      
+      const validStations = ['captain', 'cashier', 'kitchen', 'bar', 'bill', 'all'];
+      if (!validStations.includes(stationType)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid station type. Valid options: ${validStations.join(', ')}`
+        });
+      }
+      
+      const status = await printerService.checkStationPrinterStatus(outletId, stationType);
+      
+      res.json({
+        success: true,
+        data: {
+          checkedAt: new Date().toISOString(),
+          ...status
+        }
+      });
+    } catch (error) {
+      logger.error('Check station printer status error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
+   * Quick ping check for a specific printer
+   * GET /api/v1/printers/:printerId/ping
+   */
+  async pingPrinter(req, res) {
+    try {
+      const { printerId } = req.params;
+      
+      const printer = await printerService.getPrinterById(printerId);
+      if (!printer) {
+        return res.status(404).json({ success: false, message: 'Printer not found' });
+      }
+      
+      if (!printer.ip_address) {
+        return res.json({
+          success: true,
+          data: {
+            printerId: printer.id,
+            name: printer.name,
+            isOnline: false,
+            error: 'No IP address configured'
+          }
+        });
+      }
+      
+      const startTime = Date.now();
+      const result = await printerService.testPrinterConnection(printer.ip_address, printer.port || 9100);
+      const latency = Date.now() - startTime;
+      
+      // Update printer status in DB
+      await printerService.updatePrinterStatus(printer.id, result.success);
+      
+      res.json({
+        success: true,
+        data: {
+          printerId: printer.id,
+          name: printer.name,
+          station: printer.station,
+          ipAddress: printer.ip_address,
+          port: printer.port || 9100,
+          isOnline: result.success,
+          latency: `${latency}ms`,
+          message: result.message,
+          checkedAt: new Date().toISOString()
+        }
+      });
+    } catch (error) {
+      logger.error('Ping printer error:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   }

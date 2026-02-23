@@ -207,21 +207,55 @@ const taxService = {
   },
 
   async getTaxGroups(outletId = null) {
-    const cacheKey = outletId ? `tax:groups:${outletId}` : 'tax:groups:all';
-    const cached = await cache.get(cacheKey);
-    if (cached) return cached;
-
+    // Skip cache for now to ensure fresh data
     const pool = getPool();
-    let query = `SELECT * FROM tax_groups WHERE is_active = 1`;
-    const params = [];
+    let groups = [];
 
     if (outletId) {
-      query += ' AND (outlet_id = ? OR outlet_id IS NULL)';
-      params.push(outletId);
+      // Get outlet-specific tax groups first
+      const [outletGroups] = await pool.query(
+        `SELECT * FROM tax_groups WHERE is_active = 1 AND outlet_id = ? ORDER BY is_default DESC, name`,
+        [outletId]
+      );
+      
+      // Get outlet-specific codes to exclude from global
+      const outletCodes = outletGroups.map(g => g.code);
+      
+      // Get global tax groups, deduplicated by code (MIN id)
+      const [globalGroups] = await pool.query(
+        `SELECT tg.* FROM tax_groups tg
+         WHERE tg.is_active = 1 AND tg.outlet_id IS NULL
+           AND tg.id = (
+             SELECT MIN(id) FROM tax_groups 
+             WHERE code = tg.code AND outlet_id IS NULL AND is_active = 1
+           )
+         ORDER BY is_default DESC, name`
+      );
+      
+      // Filter out global groups that have outlet-specific versions
+      const filteredGlobal = globalGroups.filter(g => !outletCodes.includes(g.code));
+      
+      // Combine: outlet-specific first, then global
+      groups = [...outletGroups, ...filteredGlobal];
+    } else {
+      // No outlet filter - return unique global tax groups (deduplicated by code)
+      const [globalGroups] = await pool.query(
+        `SELECT tg.* FROM tax_groups tg
+         WHERE tg.is_active = 1 AND tg.outlet_id IS NULL
+           AND tg.id = (
+             SELECT MIN(id) FROM tax_groups 
+             WHERE code = tg.code AND outlet_id IS NULL AND is_active = 1
+           )
+         ORDER BY is_default DESC, name`
+      );
+      groups = globalGroups;
     }
-    query += ' ORDER BY is_default DESC, name';
 
-    const [groups] = await pool.query(query, params);
+    // Sort final result
+    groups.sort((a, b) => {
+      if (b.is_default !== a.is_default) return b.is_default - a.is_default;
+      return a.name.localeCompare(b.name);
+    });
     
     // Get components for each group
     for (const group of groups) {
@@ -235,7 +269,6 @@ const taxService = {
       group.components = components;
     }
 
-    await cache.set(cacheKey, groups, CACHE_TTL);
     return groups;
   },
 
@@ -521,10 +554,16 @@ const taxService = {
   // CACHE MANAGEMENT
   // ========================
 
-  async invalidateTaxCache() {
+  async invalidateTaxCache(outletId = null) {
     await cache.del('tax:types');
     await cache.del('tax:components:all');
     await cache.del('tax:groups:all');
+    // Clear outlet-specific caches
+    if (outletId) {
+      await cache.del(`tax:groups:${outletId}`);
+    }
+    // Clear all outlet-specific tax group caches
+    await cache.delPattern('tax:groups:*');
   }
 };
 

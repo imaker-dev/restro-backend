@@ -102,7 +102,26 @@ const taxController = {
   async getTaxGroups(req, res) {
     try {
       const { outletId } = req.query;
-      const groups = await taxService.getTaxGroups(outletId ? parseInt(outletId) : null);
+      
+      // Outlet-wise filtering based on user context
+      let effectiveOutletId = outletId ? parseInt(outletId) : null;
+      
+      if (req.user) {
+        const isSuperAdmin = req.user.roles?.includes('super_admin');
+        
+        if (!isSuperAdmin) {
+          // Non-super_admin users can only see their outlet's tax groups
+          if (req.user.outletId) {
+            effectiveOutletId = req.user.outletId;
+          } else {
+            // Admin without outlet sees nothing
+            return res.json({ success: true, data: [] });
+          }
+        }
+        // super_admin can use query param or see all
+      }
+      
+      const groups = await taxService.getTaxGroups(effectiveOutletId);
       res.json({ success: true, data: groups });
     } catch (error) {
       logger.error('Get tax groups error:', error);

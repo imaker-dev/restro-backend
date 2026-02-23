@@ -4,10 +4,18 @@ const logger = require('../utils/logger');
 /**
  * GET /api/v1/users
  * Get all users with pagination and filters
+ * Outlet-wise: super_admin sees all, others see only their outlet's users
  */
 const getUsers = async (req, res, next) => {
   try {
-    const result = await userService.getUsers(req.query);
+    // Pass user context for outlet-wise filtering
+    const userContext = {
+      userId: req.user.userId,
+      roles: req.user.roles || [],
+      outletId: req.user.outletId,
+    };
+
+    const result = await userService.getUsers(req.query, userContext);
 
     res.status(200).json({
       success: true,
@@ -200,11 +208,16 @@ const removeRole = async (req, res, next) => {
 
 /**
  * GET /api/v1/users/roles
- * Get all available roles
+ * Get all available roles (filtered by requester's role)
+ * Role hierarchy: super_admin > admin > manager > staff
+ * Users can only see roles BELOW their level
  */
 const getRoles = async (req, res, next) => {
   try {
-    const roles = await userService.getRoles();
+    // req.user.roles is array of role slugs like ['admin', 'manager']
+    // Use the highest priority role (first in array)
+    const requesterRole = req.user.roles?.[0] || 'staff';
+    const roles = await userService.getRoles(requesterRole);
 
     res.status(200).json({
       success: true,
@@ -258,6 +271,116 @@ const getPermissions = async (req, res, next) => {
   }
 };
 
+/**
+ * GET /api/v1/users/:id/stations
+ * Get user's assigned stations with printer info
+ */
+const getUserStations = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    const outletId = req.query.outletId ? parseInt(req.query.outletId, 10) : null;
+    const stations = await userService.getUserStations(userId, outletId);
+
+    res.status(200).json({
+      success: true,
+      data: stations,
+    });
+  } catch (error) {
+    logger.error('Get user stations failed:', error);
+    next(error);
+  }
+};
+
+/**
+ * POST /api/v1/users/:id/stations
+ * Assign station to user
+ */
+const assignStation = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    const { stationId, outletId, isPrimary } = req.body;
+    
+    if (!stationId || !outletId) {
+      return res.status(400).json({
+        success: false,
+        message: 'stationId and outletId are required',
+      });
+    }
+
+    const stations = await userService.assignStation(
+      userId,
+      stationId,
+      outletId,
+      req.user.userId,
+      isPrimary || false
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'Station assigned successfully',
+      data: stations,
+    });
+  } catch (error) {
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        success: false,
+        message: error.message,
+      });
+    }
+    logger.error('Assign station failed:', error);
+    next(error);
+  }
+};
+
+/**
+ * DELETE /api/v1/users/:id/stations/:stationId
+ * Remove station from user
+ */
+const removeStation = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    const stationId = parseInt(req.params.stationId, 10);
+    
+    await userService.removeStation(userId, stationId);
+
+    res.status(200).json({
+      success: true,
+      message: 'Station removed successfully',
+    });
+  } catch (error) {
+    logger.error('Remove station failed:', error);
+    next(error);
+  }
+};
+
+/**
+ * GET /api/v1/users/:id/station-printer
+ * Get user's station printer for KOT printing
+ */
+const getStationPrinter = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    const outletId = req.query.outletId ? parseInt(req.query.outletId, 10) : null;
+    
+    if (!outletId) {
+      return res.status(400).json({
+        success: false,
+        message: 'outletId query parameter is required',
+      });
+    }
+
+    const printer = await userService.getStationPrinterForUser(userId, outletId);
+
+    res.status(200).json({
+      success: true,
+      data: printer,
+    });
+  } catch (error) {
+    logger.error('Get station printer failed:', error);
+    next(error);
+  }
+};
+
 module.exports = {
   getUsers,
   getUserById,
@@ -269,4 +392,8 @@ module.exports = {
   getRoles,
   getRoleById,
   getPermissions,
+  getUserStations,
+  assignStation,
+  removeStation,
+  getStationPrinter,
 };

@@ -75,6 +75,44 @@ function formatPaymentEntry(payment) {
 
 function formatInvoice(invoice) {
   if (!invoice) return null;
+  
+  const isInterstate = !!invoice.is_interstate;
+  let taxBreakup = invoice.tax_breakup
+    ? (typeof invoice.tax_breakup === 'string' ? JSON.parse(invoice.tax_breakup) : invoice.tax_breakup)
+    : null;
+  
+  // Transform taxBreakup for interstate: convert CGST+SGST to IGST
+  if (isInterstate && taxBreakup) {
+    const transformedBreakup = {};
+    let totalGstRate = 0;
+    let totalGstTaxable = 0;
+    let totalGstAmount = 0;
+    
+    for (const [code, data] of Object.entries(taxBreakup)) {
+      const codeUpper = code.toUpperCase();
+      if (codeUpper.includes('CGST') || codeUpper.includes('SGST')) {
+        totalGstRate += parseFloat(data.rate) || 0;
+        totalGstTaxable = Math.max(totalGstTaxable, parseFloat(data.taxableAmount) || 0);
+        totalGstAmount += parseFloat(data.taxAmount) || 0;
+      } else {
+        // Keep non-GST taxes (VAT, CESS, etc.)
+        transformedBreakup[code] = data;
+      }
+    }
+    
+    // Add combined IGST if there was any GST
+    if (totalGstAmount > 0) {
+      transformedBreakup['IGST'] = {
+        name: `IGST ${totalGstRate}%`,
+        rate: totalGstRate,
+        taxableAmount: totalGstTaxable,
+        taxAmount: totalGstAmount
+      };
+    }
+    
+    taxBreakup = transformedBreakup;
+  }
+  
   return {
     id: invoice.id,
     uuid: invoice.uuid,
@@ -98,15 +136,15 @@ function formatInvoice(invoice) {
     customerCompanyName: invoice.customer_company_name || null,
     customerGstState: invoice.customer_gst_state || null,
     customerGstStateCode: invoice.customer_gst_state_code || null,
-    isInterstate: !!invoice.is_interstate,
+    isInterstate,
     customerAddress: invoice.customer_address || null,
     billingAddress: invoice.billing_address || null,
     subtotal: parseFloat(invoice.subtotal) || 0,
     discountAmount: parseFloat(invoice.discount_amount) || 0,
     taxableAmount: parseFloat(invoice.taxable_amount) || 0,
-    cgstAmount: parseFloat(invoice.cgst_amount) || 0,
-    sgstAmount: parseFloat(invoice.sgst_amount) || 0,
-    igstAmount: parseFloat(invoice.igst_amount) || 0,
+    cgstAmount: isInterstate ? 0 : parseFloat(invoice.cgst_amount) || 0,
+    sgstAmount: isInterstate ? 0 : parseFloat(invoice.sgst_amount) || 0,
+    igstAmount: isInterstate ? (parseFloat(invoice.cgst_amount) || 0) + (parseFloat(invoice.sgst_amount) || 0) + (parseFloat(invoice.igst_amount) || 0) : parseFloat(invoice.igst_amount) || 0,
     vatAmount: parseFloat(invoice.vat_amount) || 0,
     cessAmount: parseFloat(invoice.cess_amount) || 0,
     totalTax: parseFloat(invoice.total_tax) || 0,
@@ -117,9 +155,7 @@ function formatInvoice(invoice) {
     grandTotal: parseFloat(invoice.grand_total) || 0,
     amountInWords: invoice.amount_in_words || null,
     paymentStatus: invoice.payment_status,
-    taxBreakup: invoice.tax_breakup
-      ? (typeof invoice.tax_breakup === 'string' ? JSON.parse(invoice.tax_breakup) : invoice.tax_breakup)
-      : null,
+    taxBreakup,
     hsnSummary: invoice.hsn_summary
       ? (typeof invoice.hsn_summary === 'string' ? JSON.parse(invoice.hsn_summary) : invoice.hsn_summary)
       : null,
@@ -206,6 +242,14 @@ const billingService = {
       cashierName: invoice.generatedByName || order.created_by_name || null,
       date: `${dd}/${mm}/${yy}`,
       time: now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+      // Customer details with Walk-in fallback
+      customerName: invoice.customerName || order.customer_name || 'Walk-in Customer',
+      customerPhone: invoice.customerPhone || order.customer_phone || null,
+      customerGstin: invoice.customerGstin || order.customer_gstin || null,
+      customerCompanyName: invoice.customerCompanyName || order.customer_company_name || null,
+      customerGstState: invoice.customerGstState || order.customer_gst_state || null,
+      customerGstStateCode: invoice.customerGstStateCode || order.customer_gst_state_code || null,
+      isInterstate: invoice.isInterstate || order.is_interstate || false,
       items: (invoice.items || []).filter(i => i.status !== 'cancelled').map(item => ({
         itemName: item.name || item.item_name || item.itemName,
         quantity: item.quantity,
@@ -328,18 +372,48 @@ const billingService = {
         // Rollback the transaction — we don't need it for existing invoice
         await connection.rollback();
 
-        // Recalculate & update if service charge state needs to change
+        // Check if customer details or isInterstate changed from order
+        const isInterstate = order.is_interstate || false;
+        const currentIsInterstate = !!ei.is_interstate;
         const currentSC = parseFloat(ei.service_charge) || 0;
-        const needsUpdate = (currentSC > 0 && !applyServiceCharge) || (currentSC === 0 && applyServiceCharge);
+        
+        // Sync customer details from order if they've been updated
+        const customerChanged = (
+          (order.customer_id && order.customer_id !== ei.customer_id) ||
+          (order.customer_name && order.customer_name !== ei.customer_name) ||
+          (order.customer_phone && order.customer_phone !== ei.customer_phone) ||
+          (order.customer_gstin && order.customer_gstin !== ei.customer_gstin) ||
+          (order.customer_company_name && order.customer_company_name !== ei.customer_company_name)
+        );
+        
+        // Recalculate if service charge, interstate, or customer changed
+        const needsUpdate = (currentSC > 0 && !applyServiceCharge) || 
+                           (currentSC === 0 && applyServiceCharge) ||
+                           (isInterstate !== currentIsInterstate) ||
+                           customerChanged;
 
         if (needsUpdate) {
-          const billDetails = await this.calculateBillDetails(order, { applyServiceCharge });
+          const billDetails = await this.calculateBillDetails(order, { applyServiceCharge, isInterstate });
           await pool.query(
             `UPDATE invoices SET
+              customer_id = ?, customer_name = ?, customer_phone = ?,
+              customer_gstin = ?, customer_company_name = ?,
+              customer_gst_state = ?, customer_gst_state_code = ?,
+              is_interstate = ?,
+              cgst_amount = ?, sgst_amount = ?, igst_amount = ?, total_tax = ?,
               service_charge = ?, grand_total = ?, round_off = ?,
               amount_in_words = ?, tax_breakup = ?, hsn_summary = ?
              WHERE id = ?`,
             [
+              order.customer_id || ei.customer_id,
+              order.customer_name || ei.customer_name,
+              order.customer_phone || ei.customer_phone,
+              order.customer_gstin || ei.customer_gstin,
+              order.customer_company_name || ei.customer_company_name,
+              order.customer_gst_state || ei.customer_gst_state,
+              order.customer_gst_state_code || ei.customer_gst_state_code,
+              isInterstate ? 1 : 0,
+              billDetails.cgstAmount, billDetails.sgstAmount, billDetails.igstAmount, billDetails.totalTax,
               billDetails.serviceCharge, billDetails.grandTotal, billDetails.roundOff,
               this.numberToWords(billDetails.grandTotal),
               JSON.stringify(billDetails.taxBreakup), JSON.stringify(billDetails.hsnSummary),
