@@ -330,7 +330,7 @@ const printerService = {
     const [bridges] = await pool.query(
       `SELECT * FROM printer_bridges 
        WHERE outlet_id = ? AND bridge_code = ? AND api_key = ? AND is_active = 1`,
-      [outletId, bridgeCode, hashedKey]
+      [outletId, bridgeCode, apiKey]
     );
 
     if (bridges[0]) {
