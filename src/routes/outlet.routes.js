@@ -147,6 +147,13 @@ router.delete('/floors/:id/sections/:sectionId', authorize('super_admin', 'admin
  */
 router.get('/floors/:floorId/sections', authorize('super_admin', 'admin', 'manager'), outletController.getSectionsByFloor);
 
+/**
+ * @route   GET /api/v1/outlets/floors/:floorId/sections-with-tables
+ * @desc    Get floor sections with tables and real-time order info
+ * @access  Private
+ */
+router.get('/floors/:floorId/sections-with-tables', outletController.getFloorSectionsWithTables);
+
 // ========================
 // Section Routes
 // ========================

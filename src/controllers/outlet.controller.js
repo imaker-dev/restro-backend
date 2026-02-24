@@ -252,6 +252,18 @@ const outletController = {
     } catch (error) {
       next(error);
     }
+  },
+
+  async getFloorSectionsWithTables(req, res, next) {
+    try {
+      const data = await floorService.getFloorSectionsWithTables(req.params.floorId);
+      if (!data) {
+        return res.status(404).json({ success: false, message: 'Floor not found' });
+      }
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
   }
 };
 

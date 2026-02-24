@@ -237,6 +237,87 @@ const floorService = {
       [floorId, sectionId]
     );
     return true;
+  },
+
+  /**
+   * Get floor sections with tables and real-time order info
+   * Returns structured data with sections containing their tables
+   */
+  async getFloorSectionsWithTables(floorId) {
+    const pool = getPool();
+
+    // Get floor info
+    const floor = await this.getById(floorId);
+    if (!floor) return null;
+
+    // Get sections linked to this floor
+    const [sections] = await pool.query(
+      `SELECT s.id, s.name, s.description, s.section_type, s.color_code, s.display_order, s.is_active
+       FROM sections s
+       JOIN floor_sections fs ON s.id = fs.section_id
+       WHERE fs.floor_id = ? AND fs.is_active = 1 AND s.is_active = 1
+       ORDER BY s.display_order, s.name`,
+      [floorId]
+    );
+
+    // Get all tables for this floor with current order info
+    const [tables] = await pool.query(
+      `SELECT 
+        t.id, t.table_number, t.name, t.capacity, t.min_capacity, t.shape,
+        t.status, t.is_mergeable, t.is_splittable, t.is_active, t.section_id,
+        ts.guest_name, ts.guest_count,
+        o.order_number, o.total_amount
+       FROM tables t
+       LEFT JOIN table_sessions ts ON t.id = ts.table_id AND ts.status IN ('active', 'billing')
+       LEFT JOIN orders o ON ts.order_id = o.id AND o.status NOT IN ('cancelled', 'completed', 'paid')
+       WHERE t.floor_id = ? AND t.is_active = 1
+       ORDER BY t.display_order, t.table_number`,
+      [floorId]
+    );
+
+    // Group tables by section
+    const sectionMap = new Map();
+    for (const section of sections) {
+      sectionMap.set(section.id, {
+        id: section.id,
+        name: section.name,
+        description: section.description,
+        section_type: section.section_type,
+        color_code: section.color_code,
+        display_order: section.display_order,
+        is_active: section.is_active,
+        tables: []
+      });
+    }
+
+    // Add tables to their sections
+    for (const table of tables) {
+      const sectionData = sectionMap.get(table.section_id);
+      if (sectionData) {
+        sectionData.tables.push({
+          id: table.id,
+          table_number: table.table_number,
+          name: table.name,
+          capacity: table.capacity,
+          min_capacity: table.min_capacity,
+          shape: table.shape,
+          status: table.status,
+          is_mergeable: table.is_mergeable,
+          is_splittable: table.is_splittable,
+          is_active: table.is_active,
+          guest_name: table.guest_name || null,
+          guest_count: table.guest_count || null,
+          order_number: table.order_number || null,
+          total_amount: table.total_amount ? parseFloat(table.total_amount) : null
+        });
+      }
+    }
+
+    return {
+      floor_id: floor.id,
+      floor_name: floor.name,
+      sections: Array.from(sectionMap.values())
+    };
   }
 };
 
