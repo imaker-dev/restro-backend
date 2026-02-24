@@ -135,6 +135,11 @@ const kotService = {
       );
       if (!orders[0]) throw new Error('Order not found');
       const order = orders[0];
+      const [outletRows] = await connection.query(
+        'SELECT logo_url FROM outlets WHERE id = ? LIMIT 1',
+        [order.outlet_id]
+      );
+      const outletLogoUrl = outletRows[0]?.logo_url || null;
 
       // Get pending items with station info and item_type
       const [pendingItems] = await connection.query(
@@ -274,7 +279,8 @@ const kotService = {
             addonsText: i.addonsText,
             instructions: i.specialInstructions
           })),
-          captainName: order.created_by_name || 'Staff'
+          captainName: order.created_by_name || 'Staff',
+          outletLogoUrl
         };
 
         // Try direct printing first (to configured printer)

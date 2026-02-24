@@ -10,10 +10,23 @@ const { pubsub, publishMessage } = require('../config/redis');
 const logger = require('../utils/logger');
 const crypto = require('crypto');
 const net = require('net');
+const fs = require('fs');
+const path = require('path');
 const { loadOutletLogo } = require('../utils/escpos-image');
 
 const BRIDGE_STATUS_STALE_SECONDS = parseInt(process.env.BRIDGE_STATUS_STALE_SECONDS, 10) || 90;
 const BRIDGE_ONLINE_WINDOW_SECONDS = parseInt(process.env.BRIDGE_ONLINE_WINDOW_SECONDS, 10) || 90;
+const DEFAULT_PRINT_LOGO_PATH = path.resolve(__dirname, '../../public/Whatsapp.png');
+
+function resolveLogoSource(preferredLogoUrl) {
+  if (typeof preferredLogoUrl === 'string' && preferredLogoUrl.trim()) {
+    return preferredLogoUrl.trim();
+  }
+  if (fs.existsSync(DEFAULT_PRINT_LOGO_PATH)) {
+    return DEFAULT_PRINT_LOGO_PATH;
+  }
+  return null;
+}
 
 function parseDbDateToUtcMs(value) {
   if (!value) return null;
@@ -924,6 +937,15 @@ const printerService = {
   async printKot(kotData, userId) {
     const content = this.formatKotContent(kotData);
     const station = kotData.station || 'kitchen';
+    let logo = null;
+    const logoSource = resolveLogoSource(kotData.outletLogoUrl);
+    if (logoSource) {
+      try {
+        logo = await loadOutletLogo(logoSource, { maxWidth: 300, maxHeight: 120 });
+      } catch (err) {
+        logger.warn('Failed to load logo for KOT print:', err.message);
+      }
+    }
 
     return this.createPrintJob({
       outletId: kotData.outletId,
@@ -931,7 +953,7 @@ const printerService = {
       station,
       kotId: kotData.kotId,
       orderId: kotData.orderId,
-      content: this.wrapWithEscPos(content, { beep: true }),
+      content: this.wrapWithEscPos(content, { beep: true, logo }),
       contentType: 'escpos',
       referenceNumber: kotData.kotNumber,
       tableNumber: kotData.tableNumber,
@@ -945,9 +967,10 @@ const printerService = {
     
     // Load logo if outlet has logo_url
     let logo = null;
-    if (billData.outletLogoUrl) {
+    const logoSource = resolveLogoSource(billData.outletLogoUrl);
+    if (logoSource) {
       try {
-        logo = await loadOutletLogo(billData.outletLogoUrl, { maxWidth: 300, maxHeight: 120 });
+        logo = await loadOutletLogo(logoSource, { maxWidth: 300, maxHeight: 120 });
       } catch (err) {
         logger.warn('Failed to load logo for bill print:', err.message);
       }
@@ -1072,7 +1095,16 @@ const printerService = {
    */
   async printKotDirect(kotData, printerIp, printerPort = 9100) {
     const content = this.formatKotContent(kotData);
-    const escposData = this.wrapWithEscPos(content, { beep: true });
+    let logo = null;
+    const logoSource = resolveLogoSource(kotData.outletLogoUrl);
+    if (logoSource) {
+      try {
+        logo = await loadOutletLogo(logoSource, { maxWidth: 300, maxHeight: 120 });
+      } catch (err) {
+        logger.warn('Failed to load logo for direct KOT print:', err.message);
+      }
+    }
+    const escposData = this.wrapWithEscPos(content, { beep: true, logo });
     
     try {
       const result = await this.printDirect(printerIp, printerPort, escposData);
@@ -1092,9 +1124,10 @@ const printerService = {
     
     // Load logo if outlet has logo_url
     let logo = null;
-    if (billData.outletLogoUrl) {
+    const logoSource = resolveLogoSource(billData.outletLogoUrl);
+    if (logoSource) {
       try {
-        logo = await loadOutletLogo(billData.outletLogoUrl, { maxWidth: 300, maxHeight: 120 });
+        logo = await loadOutletLogo(logoSource, { maxWidth: 300, maxHeight: 120 });
       } catch (err) {
         logger.warn('Failed to load logo for direct bill print:', err.message);
       }

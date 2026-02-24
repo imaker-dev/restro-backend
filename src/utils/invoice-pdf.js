@@ -6,6 +6,7 @@
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
+const DEFAULT_LOGO_PATH = path.resolve(__dirname, '../../public/Whatsapp.png');
 
 /**
  * Fetch image from URL and return as buffer (uses built-in fetch)
@@ -16,6 +17,30 @@ async function fetchImageBuffer(url) {
     throw new Error(`Failed to fetch image: ${response.status}`);
   }
   return Buffer.from(await response.arrayBuffer());
+}
+
+function resolveLogoCandidates(outlet = {}) {
+  const sources = [outlet.logoUrl, outlet.logo].filter((s) => typeof s === 'string' && s.trim());
+  const cleaned = sources.map((s) => s.trim());
+  if (fs.existsSync(DEFAULT_LOGO_PATH)) {
+    cleaned.push(DEFAULT_LOGO_PATH);
+  }
+  return Array.from(new Set(cleaned));
+}
+
+function resolveLocalLogoPath(source) {
+  if (!source || typeof source !== 'string') return null;
+  if (fs.existsSync(source)) return source;
+
+  const relativeToCwd = path.resolve(process.cwd(), source.replace(/^\/+/, ''));
+  if (fs.existsSync(relativeToCwd)) return relativeToCwd;
+
+  if (source.startsWith('/')) {
+    const relativeToPublic = path.resolve(process.cwd(), 'public', source.replace(/^\/+/, ''));
+    if (fs.existsSync(relativeToPublic)) return relativeToPublic;
+  }
+
+  return null;
 }
 
 /**
@@ -60,29 +85,32 @@ async function generateInvoicePDF(invoice, outlet = {}) {
   const logoMaxWidth = 60;
   const logoMaxHeight = 60;
 
-  // Try to add logo if available
-  if (outlet.logoUrl || outlet.logo) {
+  // Try to add logo from outlet config, fallback to default public logo
+  for (const logoSource of resolveLogoCandidates(outlet)) {
     try {
       let logoBuffer = null;
-      const logoSource = outlet.logoUrl || outlet.logo;
-      
       if (logoSource.startsWith('http://') || logoSource.startsWith('https://')) {
         logoBuffer = await fetchImageBuffer(logoSource);
-      } else if (fs.existsSync(logoSource)) {
-        logoBuffer = fs.readFileSync(logoSource);
+      } else {
+        const resolvedPath = resolveLocalLogoPath(logoSource);
+        if (resolvedPath) {
+          logoBuffer = fs.readFileSync(resolvedPath);
+        }
       }
-      
-      if (logoBuffer) {
-        doc.image(logoBuffer, leftMargin, y, { 
-          fit: [logoMaxWidth, logoMaxHeight],
-          align: 'left',
-          valign: 'top'
-        });
-        logoWidth = logoMaxWidth + 10; // Add spacing after logo
+
+      if (!logoBuffer) {
+        continue;
       }
+
+      doc.image(logoBuffer, leftMargin, y, {
+        fit: [logoMaxWidth, logoMaxHeight],
+        align: 'left',
+        valign: 'top'
+      });
+      logoWidth = logoMaxWidth + 10; // Add spacing after logo
+      break;
     } catch (err) {
-      // Logo loading failed, continue without logo
-      console.warn('Failed to load logo for PDF:', err.message);
+      // Continue trying next candidate
     }
   }
 
