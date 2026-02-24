@@ -1263,27 +1263,55 @@ const tableService = {
    * Unmerge tables
    * - Secondary tables restored to "available"
    * - Primary table capacity reduced by the sum of merged table capacities
+   * - Handles both primary and secondary table IDs
    */
-  async unmergeTables(primaryTableId, userId) {
+  async unmergeTables(tableId, userId) {
     const pool = getPool();
     const connection = await pool.getConnection();
 
     try {
       await connection.beginTransaction();
 
-      const primaryTable = await this.getById(primaryTableId);
-      if (!primaryTable) throw new Error('Primary table not found');
+      const table = await this.getById(tableId);
+      if (!table) throw new Error('Table not found');
 
-      // Get merged tables with their capacities
-      const [merges] = await connection.query(
-        `SELECT tm.merged_table_id, t.capacity
+      // First check if this table is a primary with merges
+      let [merges] = await connection.query(
+        `SELECT tm.merged_table_id, tm.primary_table_id, t.capacity
          FROM table_merges tm
          JOIN tables t ON tm.merged_table_id = t.id
          WHERE tm.primary_table_id = ? AND tm.unmerged_at IS NULL`,
-        [primaryTableId]
+        [tableId]
       );
 
-      if (merges.length === 0) throw new Error('No merged tables found');
+      let primaryTableId = tableId;
+      let primaryTable = table;
+
+      // If no merges found as primary, check if this table is a secondary (merged) table
+      if (merges.length === 0) {
+        const [secondaryCheck] = await connection.query(
+          `SELECT tm.primary_table_id
+           FROM table_merges tm
+           WHERE tm.merged_table_id = ? AND tm.unmerged_at IS NULL`,
+          [tableId]
+        );
+
+        if (secondaryCheck.length > 0) {
+          // This table is a secondary, get the primary and all its merges
+          primaryTableId = secondaryCheck[0].primary_table_id;
+          primaryTable = await this.getById(primaryTableId);
+          
+          [merges] = await connection.query(
+            `SELECT tm.merged_table_id, t.capacity
+             FROM table_merges tm
+             JOIN tables t ON tm.merged_table_id = t.id
+             WHERE tm.primary_table_id = ? AND tm.unmerged_at IS NULL`,
+            [primaryTableId]
+          );
+        }
+      }
+
+      if (merges.length === 0) throw new Error('No merged tables found for this table');
 
       // Calculate capacity to subtract
       const capacityToRemove = merges.reduce((sum, m) => sum + (m.capacity || 0), 0);
