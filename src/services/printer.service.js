@@ -55,6 +55,17 @@ const printerService = {
     const uuid = uuidv4();
     const code = data.code || `PRN${Date.now().toString(36).toUpperCase()}`;
 
+    // Support both camelCase and snake_case field names
+    const printerType = data.printerType || data.printer_type || 'thermal';
+    const stationId = data.stationId || data.station_id || null;
+    const ipAddress = data.ipAddress || data.ip_address || null;
+    const connectionType = data.connectionType || data.connection_type || 'network';
+    const paperWidth = data.paperWidth || data.paper_width || '80mm';
+    const charactersPerLine = data.charactersPerLine || data.characters_per_line || 48;
+    const supportsCashDrawer = data.supportsCashDrawer || data.supports_cash_drawer || false;
+    const supportsCutter = data.supportsCutter !== undefined ? data.supportsCutter : (data.supports_cutter !== undefined ? data.supports_cutter : true);
+    const supportsLogo = data.supportsLogo || data.supports_logo || false;
+
     const [result] = await pool.query(
       `INSERT INTO printers (
         uuid, outlet_id, name, code, printer_type, station,
@@ -63,12 +74,12 @@ const printerService = {
         supports_cash_drawer, supports_cutter, supports_logo
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        uuid, data.outletId, data.name, code, data.printerType || 'thermal',
-        data.station || null, data.stationId || null,
-        data.ipAddress, data.port || 9100, data.connectionType || 'network',
-        data.paperWidth || '80mm', data.charactersPerLine || 48,
-        data.supportsCashDrawer || false, data.supportsCutter !== false,
-        data.supportsLogo || false
+        uuid, data.outletId, data.name, code, printerType,
+        data.station || null, stationId,
+        ipAddress, data.port || 9100, connectionType,
+        paperWidth, charactersPerLine,
+        supportsCashDrawer, supportsCutter,
+        supportsLogo
       ]
     );
 
@@ -125,9 +136,11 @@ const printerService = {
     
     for (const field of fields) {
       const camelField = field.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
-      if (data[camelField] !== undefined) {
+      // Support both camelCase and snake_case field names
+      const value = data[camelField] !== undefined ? data[camelField] : data[field];
+      if (value !== undefined) {
         updates.push(`${field} = ?`);
-        params.push(data[camelField]);
+        params.push(value);
       }
     }
 
@@ -735,7 +748,8 @@ const printerService = {
     }
 
     // Grand total (bold + double height, centered)
-    lines.push(cmd.ALIGN_CENTER + cmd.BOLD_ON + cmd.DOUBLE_HEIGHT + 'Grand Total \u20B9 ' + billData.grandTotal);
+    // Use "Rs." instead of Unicode ₹ (\u20B9) for thermal printer compatibility
+    lines.push(cmd.ALIGN_CENTER + cmd.BOLD_ON + cmd.DOUBLE_HEIGHT + 'Grand Total Rs.' + billData.grandTotal);
     lines.push(cmd.NORMAL + cmd.BOLD_OFF + cmd.ALIGN_LEFT + dash);
 
     // Payment mode

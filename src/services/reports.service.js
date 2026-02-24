@@ -4320,34 +4320,65 @@ const reportsService = {
       params
     );
 
-    // Group by floor
-    const byFloor = {};
+    // Group by floor with enhanced structure
+    const floors = [];
+    const floorMap = {};
+    
     for (const t of tables) {
       const floorKey = t.floor_name || 'Unassigned';
-      if (!byFloor[floorKey]) {
-        byFloor[floorKey] = { floorId: t.floor_id, tables: [] };
+      if (!floorMap[floorKey]) {
+        floorMap[floorKey] = {
+          floorId: t.floor_id,
+          floorName: floorKey,
+          tableCount: 0,
+          totalAmount: 0,
+          totalGuests: 0,
+          tables: []
+        };
+        floors.push(floorMap[floorKey]);
       }
-      byFloor[floorKey].tables.push({
+      
+      const duration = t.order_started ? Math.round((Date.now() - new Date(t.order_started).getTime()) / 60000) : 0;
+      const tableAmount = parseFloat(t.total_amount) || 0;
+      const guestCount = t.guest_count || 0;
+      
+      floorMap[floorKey].tableCount++;
+      floorMap[floorKey].totalAmount += tableAmount;
+      floorMap[floorKey].totalGuests += guestCount;
+      
+      floorMap[floorKey].tables.push({
         tableId: t.id,
         tableNumber: t.table_number,
         tableName: t.table_name,
         capacity: t.capacity,
-        guestCount: t.guest_count || 0,
-        orderId: t.order_id,
-        orderNumber: t.order_number,
-        orderStatus: t.order_status,
-        totalAmount: parseFloat(t.total_amount) || 0,
-        captainName: t.captain_name,
-        orderStarted: t.order_started,
-        duration: t.order_started ? Math.round((Date.now() - new Date(t.order_started).getTime()) / 60000) : 0
+        guestCount: guestCount,
+        order: t.order_id ? {
+          id: t.order_id,
+          orderNumber: t.order_number,
+          status: t.order_status,
+          totalAmount: tableAmount,
+          startedAt: t.order_started,
+          durationMinutes: duration,
+          durationFormatted: duration >= 60 ? `${Math.floor(duration / 60)}h ${duration % 60}m` : `${duration}m`
+        } : null,
+        captain: t.captain_name ? {
+          name: t.captain_name
+        } : null
       });
     }
 
+    const totalAmount = tables.reduce((s, t) => s + (parseFloat(t.total_amount) || 0), 0);
+    const totalGuests = tables.reduce((s, t) => s + (t.guest_count || 0), 0);
+
     return {
-      totalOccupied: tables.length,
-      totalAmount: tables.reduce((s, t) => s + (parseFloat(t.total_amount) || 0), 0),
-      totalGuests: tables.reduce((s, t) => s + (t.guest_count || 0), 0),
-      byFloor
+      summary: {
+        totalOccupiedTables: tables.length,
+        totalFloors: floors.length,
+        totalGuests: totalGuests,
+        totalAmount: totalAmount,
+        formattedAmount: `₹${totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+      },
+      floors: floors
     };
   },
 

@@ -4,7 +4,7 @@ const Redis = require('ioredis');
 const corsConfig = require('./cors.config');
 const redisConfig = require('./redis.config');
 const logger = require('../utils/logger');
-const { pubsub, isRedisAvailable, publishMessage } = require('./redis');
+const { pubsub, isRedisAvailable, publishMessage, registerLocalEmitter } = require('./redis');
 
 let io = null;
 
@@ -122,10 +122,25 @@ const initializeSocket = (server) => {
       logger.debug(`Socket ${socket.id} joined bar:${outletId}`);
     });
 
-    // Join station room (kitchen, bar, mocktail, dessert)
-    socket.on('join:station', ({ outletId, station }) => {
-      socket.join(`station:${outletId}:${station}`);
-      logger.debug(`Socket ${socket.id} joined station:${outletId}:${station}`);
+    // Join station room by station_type (main_kitchen, tandoor, wok, dessert, bar, mocktail, etc.)
+    // Also supports joining by station_id for precise routing
+    socket.on('join:station', ({ outletId, station, stationId }) => {
+      // If station is numeric, treat it as station_id
+      if (station && !isNaN(station) && Number.isInteger(Number(station))) {
+        const numericStationId = parseInt(station);
+        socket.join(`station_id:${outletId}:${numericStationId}`);
+        logger.info(`Socket ${socket.id} joined station_id:${outletId}:${numericStationId} (auto-detected from station param)`);
+      } else if (station) {
+        // Join by station_type (e.g., main_kitchen, dessert, bar)
+        socket.join(`station:${outletId}:${station}`);
+        logger.info(`Socket ${socket.id} joined station:${outletId}:${station}`);
+      }
+      
+      // Also join by explicit stationId param for precise routing
+      if (stationId) {
+        socket.join(`station_id:${outletId}:${stationId}`);
+        logger.info(`Socket ${socket.id} joined station_id:${outletId}:${stationId}`);
+      }
     });
 
     // Join cashier room
@@ -171,6 +186,10 @@ const initializeSocket = (server) => {
     logger.warn('Socket.IO running without Redis pub/sub - multi-instance sync disabled');
   }
 
+  // Register local emitter as fallback when Redis is unavailable
+  registerLocalEmitter(emitLocal);
+  logger.info('Local socket emitter registered as fallback');
+
   return io;
 };
 
@@ -189,19 +208,27 @@ const setupRedisPubSub = () => {
     io.to(`cashier:${data.outletId}`).emit('order:updated', data);
   });
 
-  // KOT updates - route to kitchen, captain, and cashier
+  // KOT updates - route to specific station, kitchen, captain, and cashier
   pubsub.subscribe('kot:update', (data) => {
-    // Send to general kitchen room
+    logger.info(`[RedisPubSub] kot:update for outlet ${data.outletId}, station: ${data.station}, stationId: ${data.stationId}, type: ${data.type}`);
+    
+    // Send to general kitchen room (backward compatibility)
     io.to(`kitchen:${data.outletId}`).emit('kot:updated', data);
     
-    // Send to specific station room
+    // Send to specific station room by station_type (main_kitchen, dessert, bar, etc.)
     if (data.station) {
       io.to(`station:${data.outletId}:${data.station}`).emit('kot:updated', data);
       
-      // Also send to bar room if bar station
-      if (data.station === 'bar') {
+      // Also send to bar room if bar station type (backward compatibility)
+      if (data.station === 'bar' || data.station.includes('bar')) {
         io.to(`bar:${data.outletId}`).emit('kot:updated', data);
       }
+    }
+    
+    // Send to specific station by station_id for precise routing
+    if (data.stationId) {
+      io.to(`station_id:${data.outletId}:${data.stationId}`).emit('kot:updated', data);
+      logger.info(`[RedisPubSub] Emitted to station_id:${data.outletId}:${data.stationId}`);
     }
     
     // Send ALL KOT status updates to captain and cashier for real-time tracking
@@ -262,12 +289,17 @@ const emitLocal = (channel, data) => {
         break;
 
       case 'kot:update':
+        logger.info(`[emitLocal] kot:update for outlet ${data.outletId}, station: ${data.station}, stationId: ${data.stationId}, type: ${data.type}`);
         io.to(`kitchen:${data.outletId}`).emit('kot:updated', data);
         if (data.station) {
           io.to(`station:${data.outletId}:${data.station}`).emit('kot:updated', data);
-          if (data.station === 'bar') {
+          if (data.station === 'bar' || data.station.includes('bar')) {
             io.to(`bar:${data.outletId}`).emit('kot:updated', data);
           }
+        }
+        if (data.stationId) {
+          io.to(`station_id:${data.outletId}:${data.stationId}`).emit('kot:updated', data);
+          logger.info(`[emitLocal] Emitted to station_id:${data.outletId}:${data.stationId}`);
         }
         io.to(`captain:${data.outletId}`).emit('kot:updated', data);
         io.to(`cashier:${data.outletId}`).emit('kot:updated', data);

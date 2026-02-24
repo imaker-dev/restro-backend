@@ -30,9 +30,16 @@ const printerController = {
 
   async createPrinter(req, res) {
     try {
+      // Get outletId from body, query, or user context
+      const outletId = req.body.outletId || req.query.outletId || req.user?.outletId;
+      
+      if (!outletId) {
+        return res.status(400).json({ success: false, message: 'outletId is required' });
+      }
+
       const printer = await printerService.createPrinter({
-        outletId: req.body.outletId,
-        ...req.body
+        ...req.body,
+        outletId: parseInt(outletId)
       });
       res.status(201).json({ success: true, message: 'Printer created', data: printer });
     } catch (error) {

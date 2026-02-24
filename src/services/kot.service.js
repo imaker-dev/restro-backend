@@ -64,6 +64,7 @@ function formatKot(kot) {
     tableNumber: kot.table_number || null,
     tableName: kot.table_name || null,
     station: kot.station,
+    stationId: kot.station_id || null,
     status: kot.status,
     priority: kot.priority || 0,
     notes: kot.notes || null,
@@ -160,16 +161,19 @@ const kotService = {
       // Create KOT for each station
       for (const [station, items] of Object.entries(groupedItems)) {
         const kotNumber = await this.generateKotNumber(order.outlet_id, station);
+        
+        // Get station_id from first item (all items in group have same station)
+        const stationId = items[0]?._stationId || null;
 
-        // Create KOT ticket
+        // Create KOT ticket with station_type and station_id
         const [kotResult] = await connection.query(
           `INSERT INTO kot_tickets (
             outlet_id, order_id, kot_number, table_number,
-            station, status, priority, notes, created_by
-          ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+            station, station_id, status, priority, notes, created_by
+          ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
           [
             order.outlet_id, orderId, kotNumber, order.table_number,
-            station, order.is_priority ? 1 : 0, order.special_instructions, createdBy
+            station, stationId, order.is_priority ? 1 : 0, order.special_instructions, createdBy
           ]
         );
 
@@ -207,6 +211,8 @@ const kotService = {
           id: kotId,
           kotNumber,
           station,
+          stationId,
+          stationName: items[0]?._stationName || station,
           tableNumber: order.table_number,
           orderNumber: order.order_number,
           itemCount: items.length,
@@ -329,32 +335,31 @@ const kotService = {
 
   /**
    * Group items by their target station
+   * Uses actual station_type from kitchen_stations table
+   * Returns: { 'station_type': [items], ... } with station_id attached to each item
    */
   groupItemsByStation(items) {
     const grouped = {};
 
     for (const item of items) {
-      let station = 'kitchen'; // default
+      let station = 'main_kitchen'; // default station_type
+      let stationId = null;
 
       // Determine station based on item configuration
       if (item.counter_id) {
         // Has counter (bar items)
         station = item.counter_type || 'bar';
+        stationId = null; // counters don't have station_id
       } else if (item.kitchen_station_id) {
-        // Has kitchen station
-        station = item.station_type || 'kitchen';
+        // Has kitchen station - use actual station_type
+        station = item.station_type || 'main_kitchen';
+        stationId = item.kitchen_station_id;
       }
 
-      // Normalize station names
-      if (station.includes('bar') || station.includes('liquor')) {
-        station = 'bar';
-      } else if (station.includes('mocktail') || station.includes('beverage')) {
-        station = 'mocktail';
-      } else if (station.includes('dessert')) {
-        station = 'kitchen'; // dessert items go to kitchen
-      } else {
-        station = 'kitchen';
-      }
+      // Attach station info to item for later use
+      item._station = station;
+      item._stationId = stationId;
+      item._stationName = item.station_name || item.counter_name || station;
 
       if (!grouped[station]) {
         grouped[station] = [];
@@ -781,9 +786,21 @@ const kotService = {
       query += " AND kt.status NOT IN ('served', 'cancelled')";
     }
 
+    // Station filter - supports station_type or station_id
     if (station) {
-      query += ' AND kt.station = ?';
-      params.push(station);
+      // Check if it's a numeric station_id
+      if (!isNaN(station) && Number.isInteger(Number(station))) {
+        query += ' AND kt.station_id = ?';
+        params.push(parseInt(station));
+      } else {
+        // Handle backward compatibility: 'kitchen' → 'main_kitchen'
+        let stationFilter = station;
+        if (station === 'kitchen') {
+          stationFilter = 'main_kitchen';
+        }
+        query += ' AND kt.station = ?';
+        params.push(stationFilter);
+      }
     }
 
     query += ' ORDER BY kt.priority DESC, kt.created_at DESC';
@@ -873,21 +890,39 @@ const kotService = {
   async getStationDashboard(outletId, station, floorIds = []) {
     const pool = getPool();
 
-    // Get active KOTs (pass floor restriction)
-    const activeKots = await this.getActiveKots(outletId, station, null, floorIds);
+    // Handle backward compatibility: 'kitchen' → 'main_kitchen'
+    let stationFilter = station;
+    if (station === 'kitchen') {
+      stationFilter = 'main_kitchen';
+    }
 
-    // Get stats
-    const [stats] = await pool.query(
-      `SELECT 
+    // Get active KOTs (pass floor restriction)
+    const activeKots = await this.getActiveKots(outletId, stationFilter, null, floorIds);
+
+    // Get stats - check if station is numeric (station_id) or string (station_type)
+    let statsQuery, statsParams;
+    if (!isNaN(station) && Number.isInteger(Number(station))) {
+      statsQuery = `SELECT 
         COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_count,
         COUNT(CASE WHEN status = 'preparing' THEN 1 END) as preparing_count,
         COUNT(CASE WHEN status = 'ready' THEN 1 END) as ready_count,
         COUNT(*) as total_count,
         AVG(TIMESTAMPDIFF(MINUTE, created_at, COALESCE(ready_at, NOW()))) as avg_prep_time
        FROM kot_tickets
-       WHERE outlet_id = ? AND station = ? AND DATE(created_at) = CURDATE()`,
-      [outletId, station]
-    );
+       WHERE outlet_id = ? AND station_id = ? AND DATE(created_at) = CURDATE()`;
+      statsParams = [outletId, parseInt(station)];
+    } else {
+      statsQuery = `SELECT 
+        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_count,
+        COUNT(CASE WHEN status = 'preparing' THEN 1 END) as preparing_count,
+        COUNT(CASE WHEN status = 'ready' THEN 1 END) as ready_count,
+        COUNT(*) as total_count,
+        AVG(TIMESTAMPDIFF(MINUTE, created_at, COALESCE(ready_at, NOW()))) as avg_prep_time
+       FROM kot_tickets
+       WHERE outlet_id = ? AND station = ? AND DATE(created_at) = CURDATE()`;
+      statsParams = [outletId, stationFilter];
+    }
+    const [stats] = await pool.query(statsQuery, statsParams);
 
     return {
       station,
@@ -918,8 +953,19 @@ const kotService = {
     const params = [outletId];
     
     if (station) {
-      query += ' AND station = ?';
-      params.push(station);
+      // Check if it's a numeric station_id
+      if (!isNaN(station) && Number.isInteger(Number(station))) {
+        query += ' AND station_id = ?';
+        params.push(parseInt(station));
+      } else {
+        // Handle backward compatibility: 'kitchen' → 'main_kitchen'
+        let stationFilter = station;
+        if (station === 'kitchen') {
+          stationFilter = 'main_kitchen';
+        }
+        query += ' AND station = ?';
+        params.push(stationFilter);
+      }
     }
     
     const [stats] = await pool.query(query, params);
@@ -936,10 +982,11 @@ const kotService = {
         type: eventType,
         outletId,
         station: kot.station,
+        stationId: kot.stationId || null,
         kot,
         timestamp: new Date().toISOString()
       });
-      logger.info(`KOT socket event emitted: ${eventType} for outlet ${outletId}, station ${kot.station}, KOT ${kot.kotNumber || kot.id}`);
+      logger.info(`KOT socket event emitted: ${eventType} for outlet ${outletId}, station ${kot.station} (id: ${kot.stationId}), KOT ${kot.kotNumber || kot.id}`);
     } catch (error) {
       logger.error(`Failed to emit KOT update (${eventType}):`, error.message);
     }
