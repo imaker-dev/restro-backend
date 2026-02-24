@@ -32,8 +32,7 @@ async function imageToEscPos(imageSource, options = {}) {
       imageBuffer = imageSource;
     } else if (typeof imageSource === 'string') {
       if (imageSource.startsWith('http://') || imageSource.startsWith('https://')) {
-        // Download from URL
-        const fetch = (await import('node-fetch')).default;
+        // Download from URL using built-in fetch (Node.js 18+)
         const response = await fetch(imageSource);
         if (!response.ok) {
           throw new Error(`Failed to fetch image: ${response.status}`);

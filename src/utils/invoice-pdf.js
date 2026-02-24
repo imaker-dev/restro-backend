@@ -4,33 +4,18 @@
  */
 
 const PDFDocument = require('pdfkit');
-const https = require('https');
-const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
 /**
- * Fetch image from URL and return as buffer
+ * Fetch image from URL and return as buffer (uses built-in fetch)
  */
 async function fetchImageBuffer(url) {
-  return new Promise((resolve, reject) => {
-    const protocol = url.startsWith('https') ? https : http;
-    protocol.get(url, (response) => {
-      if (response.statusCode === 301 || response.statusCode === 302) {
-        // Handle redirect
-        fetchImageBuffer(response.headers.location).then(resolve).catch(reject);
-        return;
-      }
-      if (response.statusCode !== 200) {
-        reject(new Error(`Failed to fetch image: ${response.statusCode}`));
-        return;
-      }
-      const chunks = [];
-      response.on('data', chunk => chunks.push(chunk));
-      response.on('end', () => resolve(Buffer.concat(chunks)));
-      response.on('error', reject);
-    }).on('error', reject);
-  });
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch image: ${response.status}`);
+  }
+  return Buffer.from(await response.arrayBuffer());
 }
 
 /**

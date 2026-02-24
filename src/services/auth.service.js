@@ -155,11 +155,29 @@ class AuthService {
     // Get user's outlets (PIN login passes a specific outletId)
     const userOutlets = await this._getUserOutlets(user.id);
 
-    // For PIN login the outletId passed by caller is the active one
-    let activeOutletId = outletId || userOutlets.outletId;
+    // Check if user has any outlets assigned
+    if (userOutlets.outlets.length === 0) {
+      throw new Error('No outlet assigned to this user. Contact administrator');
+    }
+
+    // Validate outletId if provided
+    let activeOutletId = null;
     let activeOutletName = null;
-    const match = userOutlets.outlets.find(o => o.id === activeOutletId);
-    activeOutletName = match ? match.name : userOutlets.outletName;
+
+    if (outletId) {
+      // Ensure outletId is a number for comparison
+      const requestedOutletId = parseInt(outletId, 10);
+      const match = userOutlets.outlets.find(o => o.id === requestedOutletId);
+      if (!match) {
+        throw new Error('You do not have access to the selected outlet');
+      }
+      activeOutletId = match.id;
+      activeOutletName = match.name;
+    } else {
+      // No outletId provided - use default outlet
+      activeOutletId = userOutlets.outletId;
+      activeOutletName = userOutlets.outletName;
+    }
 
     // Get assigned floors for the active outlet
     const assignedFloors = await this._getUserFloors(user.id, activeOutletId);
