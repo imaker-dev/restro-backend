@@ -38,7 +38,7 @@ router.post('/bridge/:outletId/:bridgeCode/status', printerController.bridgeStat
 // AUTHENTICATED ROUTES
 // ========================
 
-// router.use(authenticate);
+router.use(authenticate);
 
 // ========================
 // PRINTER MANAGEMENT

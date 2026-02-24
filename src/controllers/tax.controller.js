@@ -389,7 +389,12 @@ const taxController = {
 
   async createKitchenStation(req, res) {
     try {
-      const station = await kitchenStationService.createStation(req.body);
+      // Get outletId from body, query, or user context
+      const outletId = req.body.outletId || req.body.outlet_id || req.query.outletId || req.user?.outletId;
+      if (!outletId) {
+        return res.status(400).json({ success: false, message: 'outletId is required' });
+      }
+      const station = await kitchenStationService.createStation({ ...req.body, outletId });
       res.status(201).json({ success: true, message: 'Kitchen station created', data: station });
     } catch (error) {
       logger.error('Create kitchen station error:', error);
