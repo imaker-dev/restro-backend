@@ -10,6 +10,7 @@ const { pubsub, publishMessage } = require('../config/redis');
 const logger = require('../utils/logger');
 const crypto = require('crypto');
 const net = require('net');
+const { loadOutletLogo } = require('../utils/escpos-image');
 
 const BRIDGE_STATUS_STALE_SECONDS = parseInt(process.env.BRIDGE_STATUS_STALE_SECONDS, 10) || 90;
 const BRIDGE_ONLINE_WINDOW_SECONDS = parseInt(process.env.BRIDGE_ONLINE_WINDOW_SECONDS, 10) || 90;
@@ -821,24 +822,32 @@ const printerService = {
 
   wrapWithEscPos(content, options = {}) {
     const cmd = this.getEscPosCommands();
-    let output = cmd.INIT;
+    const parts = [];
+    
+    parts.push(Buffer.from(cmd.INIT, 'binary'));
 
     if (options.beep) {
-      output += cmd.BEEP;
+      parts.push(Buffer.from(cmd.BEEP, 'binary'));
     }
 
-    output += content;
-    output += cmd.FEED_LINES;
+    // Add logo if provided (must be ESC/POS bitmap Buffer)
+    if (options.logo && Buffer.isBuffer(options.logo)) {
+      parts.push(options.logo);
+    }
+
+    // Add text content
+    parts.push(Buffer.from(content, 'binary'));
+    parts.push(Buffer.from(cmd.FEED_LINES, 'binary'));
 
     if (options.cut !== false) {
-      output += options.partialCut ? cmd.PARTIAL_CUT : cmd.CUT;
+      parts.push(Buffer.from(options.partialCut ? cmd.PARTIAL_CUT : cmd.CUT, 'binary'));
     }
 
     if (options.openDrawer) {
-      output += cmd.OPEN_DRAWER;
+      parts.push(Buffer.from(cmd.OPEN_DRAWER, 'binary'));
     }
 
-    return output;
+    return Buffer.concat(parts);
   },
 
   // ========================
@@ -866,6 +875,16 @@ const printerService = {
 
   async printBill(billData, userId) {
     const content = this.formatBillContent(billData);
+    
+    // Load logo if outlet has logo_url
+    let logo = null;
+    if (billData.outletLogoUrl) {
+      try {
+        logo = await loadOutletLogo(billData.outletLogoUrl, { maxWidth: 300, maxHeight: 120 });
+      } catch (err) {
+        logger.warn('Failed to load logo for bill print:', err.message);
+      }
+    }
 
     return this.createPrintJob({
       outletId: billData.outletId,
@@ -873,7 +892,7 @@ const printerService = {
       station: 'bill',
       orderId: billData.orderId,
       invoiceId: billData.invoiceId,
-      content: this.wrapWithEscPos(content, { openDrawer: billData.openDrawer }),
+      content: this.wrapWithEscPos(content, { openDrawer: billData.openDrawer, logo }),
       contentType: 'escpos',
       referenceNumber: billData.invoiceNumber,
       tableNumber: billData.tableNumber,
@@ -1003,7 +1022,18 @@ const printerService = {
    */
   async printBillDirect(billData, printerIp, printerPort = 9100) {
     const content = this.formatBillContent(billData);
-    const escposData = this.wrapWithEscPos(content, { openDrawer: billData.openDrawer });
+    
+    // Load logo if outlet has logo_url
+    let logo = null;
+    if (billData.outletLogoUrl) {
+      try {
+        logo = await loadOutletLogo(billData.outletLogoUrl, { maxWidth: 300, maxHeight: 120 });
+      } catch (err) {
+        logger.warn('Failed to load logo for direct bill print:', err.message);
+      }
+    }
+    
+    const escposData = this.wrapWithEscPos(content, { openDrawer: billData.openDrawer, logo });
     
     try {
       const result = await this.printDirect(printerIp, printerPort, escposData);

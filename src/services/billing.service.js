@@ -214,9 +214,9 @@ const billingService = {
   async printBillToThermal(invoice, order, userId) {
     const pool = getPool();
 
-    // Get outlet info for bill header
+    // Get outlet info for bill header (including logo_url)
     const [outletInfo] = await pool.query(
-      `SELECT name, CONCAT_WS(', ', NULLIF(address_line1,''), NULLIF(city,''), NULLIF(state,'')) as address, gstin, phone
+      `SELECT name, CONCAT_WS(', ', NULLIF(address_line1,''), NULLIF(city,''), NULLIF(state,'')) as address, gstin, phone, logo_url
        FROM outlets WHERE id = ?`,
       [invoice.outletId || order.outlet_id]
     );
@@ -238,6 +238,7 @@ const billingService = {
       outletAddress: outletData.address || null,
       outletPhone: outletData.phone || null,
       outletGstin: outletData.gstin || null,
+      outletLogoUrl: outletData.logo_url || null,
       tableNumber: invoice.tableNumber || order.table_number,
       cashierName: invoice.generatedByName || order.created_by_name || null,
       date: `${dd}/${mm}/${yy}`,
@@ -826,10 +827,15 @@ const billingService = {
   async generateInvoicePDF(id) {
     const invoice = await this.resolveInvoice(id);
 
-    const outlet = await this.getOutletInfo(invoice.outletId);
+    const outletData = await this.getOutletInfo(invoice.outletId);
+    // Map logo_url to logoUrl for invoice-pdf.js
+    const outlet = {
+      ...outletData,
+      logoUrl: outletData.logo_url
+    };
     const { generateInvoicePDF } = require('../utils/invoice-pdf');
 
-    const pdfStream = generateInvoicePDF(invoice, outlet);
+    const pdfStream = await generateInvoicePDF(invoice, outlet);
     const filename = `${invoice.invoiceNumber.replace(/\//g, '-')}.pdf`;
 
     return { pdfStream, invoice, filename };

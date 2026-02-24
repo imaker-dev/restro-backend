@@ -4,14 +4,42 @@
  */
 
 const PDFDocument = require('pdfkit');
+const https = require('https');
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+
+/**
+ * Fetch image from URL and return as buffer
+ */
+async function fetchImageBuffer(url) {
+  return new Promise((resolve, reject) => {
+    const protocol = url.startsWith('https') ? https : http;
+    protocol.get(url, (response) => {
+      if (response.statusCode === 301 || response.statusCode === 302) {
+        // Handle redirect
+        fetchImageBuffer(response.headers.location).then(resolve).catch(reject);
+        return;
+      }
+      if (response.statusCode !== 200) {
+        reject(new Error(`Failed to fetch image: ${response.statusCode}`));
+        return;
+      }
+      const chunks = [];
+      response.on('data', chunk => chunks.push(chunk));
+      response.on('end', () => resolve(Buffer.concat(chunks)));
+      response.on('error', reject);
+    }).on('error', reject);
+  });
+}
 
 /**
  * Generate invoice PDF and return as a readable stream
  * @param {object} invoice - Formatted invoice object from billingService.getInvoiceById
- * @param {object} outlet - Outlet info { name, address, phone, email, gstin, logo }
+ * @param {object} outlet - Outlet info { name, address, phone, email, gstin, logo, logoUrl }
  * @returns {PDFDocument} - PDF stream (pipe to res or file)
  */
-function generateInvoicePDF(invoice, outlet = {}) {
+async function generateInvoicePDF(invoice, outlet = {}) {
   const doc = new PDFDocument({ size: 'A4', margin: 40 });
 
   const leftMargin = 40;
@@ -43,27 +71,60 @@ function generateInvoicePDF(invoice, outlet = {}) {
 
   // ─── HEADER ───────────────────────────────────
   let y = 40;
+  let logoWidth = 0;
+  const logoMaxWidth = 60;
+  const logoMaxHeight = 60;
 
-  // Outlet name
-  doc.font('Helvetica-Bold').fontSize(16).text(outlet.name || 'Restaurant', leftMargin, y);
+  // Try to add logo if available
+  if (outlet.logoUrl || outlet.logo) {
+    try {
+      let logoBuffer = null;
+      const logoSource = outlet.logoUrl || outlet.logo;
+      
+      if (logoSource.startsWith('http://') || logoSource.startsWith('https://')) {
+        logoBuffer = await fetchImageBuffer(logoSource);
+      } else if (fs.existsSync(logoSource)) {
+        logoBuffer = fs.readFileSync(logoSource);
+      }
+      
+      if (logoBuffer) {
+        doc.image(logoBuffer, leftMargin, y, { 
+          fit: [logoMaxWidth, logoMaxHeight],
+          align: 'left',
+          valign: 'top'
+        });
+        logoWidth = logoMaxWidth + 10; // Add spacing after logo
+      }
+    } catch (err) {
+      // Logo loading failed, continue without logo
+      console.warn('Failed to load logo for PDF:', err.message);
+    }
+  }
+
+  // Outlet name (positioned after logo if present)
+  const textStartX = leftMargin + logoWidth;
+  doc.font('Helvetica-Bold').fontSize(16).fillColor('#333333').text(outlet.name || 'Restaurant', textStartX, y);
   y += 22;
 
   if (outlet.address) {
-    doc.font('Helvetica').fontSize(8).fillColor('#555555').text(outlet.address, leftMargin, y, { width: 300 });
-    y += doc.heightOfString(outlet.address, { width: 300 }) + 2;
+    doc.font('Helvetica').fontSize(8).fillColor('#555555').text(outlet.address, textStartX, y, { width: 300 - logoWidth });
+    y += doc.heightOfString(outlet.address, { width: 300 - logoWidth }) + 2;
   }
   if (outlet.phone) {
-    doc.text(`Phone: ${outlet.phone}`, leftMargin, y);
+    doc.text(`Phone: ${outlet.phone}`, textStartX, y);
     y += 12;
   }
   if (outlet.email) {
-    doc.text(`Email: ${outlet.email}`, leftMargin, y);
+    doc.text(`Email: ${outlet.email}`, textStartX, y);
     y += 12;
   }
   if (outlet.gstin) {
-    doc.font('Helvetica-Bold').fontSize(8).text(`GSTIN: ${outlet.gstin}`, leftMargin, y);
+    doc.font('Helvetica-Bold').fontSize(8).text(`GSTIN: ${outlet.gstin}`, textStartX, y);
     y += 12;
   }
+  
+  // Ensure y is at least below the logo
+  y = Math.max(y, 40 + logoMaxHeight + 5);
 
   // Invoice title — right side
   doc.font('Helvetica-Bold').fontSize(20).fillColor('#333333');

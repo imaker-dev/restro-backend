@@ -182,7 +182,9 @@ const uploadMedia = async (pdfBuffer, filename = 'invoice.pdf') => {
  * @returns {Promise<object>} API response
  */
 const sendBillingPDF = async (to, invoice, outlet = {}, caption = '') => {
-  const pdfDoc = generateInvoicePDF(invoice, outlet);
+  // Map logo_url to logoUrl for invoice-pdf.js
+  const outletWithLogo = { ...outlet, logoUrl: outlet.logo_url || outlet.logoUrl };
+  const pdfDoc = await generateInvoicePDF(invoice, outletWithLogo);
 
   const pdfBuffer = await new Promise((resolve, reject) => {
     const chunks = [];
@@ -220,7 +222,9 @@ const sendBillingPDF = async (to, invoice, outlet = {}, caption = '') => {
  * @param {string} languageCode
  */
 const sendBillingPDFTemplate = async (to, invoice, outlet = {}, templateName = 'send_invoice', languageCode = 'en') => {
-  const pdfDoc = generateInvoicePDF(invoice, outlet);
+  // Map logo_url to logoUrl for invoice-pdf.js
+  const outletWithLogo = { ...outlet, logoUrl: outlet.logo_url || outlet.logoUrl };
+  const pdfDoc = await generateInvoicePDF(invoice, outletWithLogo);
 
   const pdfBuffer = await new Promise((resolve, reject) => {
     const chunks = [];
