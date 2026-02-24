@@ -1,6 +1,7 @@
 /**
  * ESC/POS Image Utility
- * Converts images to ESC/POS raster bitmap format for thermal printers
+ * Converts images to ESC/POS bit image format for thermal printers
+ * Uses ESC * command for maximum compatibility
  */
 
 const sharp = require('sharp');
@@ -9,18 +10,19 @@ const fs = require('fs').promises;
 const logger = require('./logger');
 
 /**
- * Convert image to ESC/POS raster bitmap format
+ * Convert image to ESC/POS bit image format using ESC * command
+ * This command has broader compatibility than GS v 0 raster command
  * @param {string|Buffer} imageSource - Image path, URL, or buffer
  * @param {object} options - Conversion options
  * @param {number} options.maxWidth - Maximum width in pixels (default 384 for 80mm paper)
- * @param {number} options.maxHeight - Maximum height in pixels (default 200)
+ * @param {number} options.maxHeight - Maximum height in pixels (default 120)
  * @param {number} options.threshold - Black/white threshold 0-255 (default 128)
  * @returns {Promise<Buffer>} - ESC/POS bitmap data
  */
 async function imageToEscPos(imageSource, options = {}) {
   const {
     maxWidth = 384,  // 80mm paper = ~384 pixels at 203 DPI
-    maxHeight = 200,
+    maxHeight = 120,
     threshold = 128
   } = options;
 
@@ -46,13 +48,17 @@ async function imageToEscPos(imageSource, options = {}) {
       throw new Error('Invalid image source type');
     }
 
-    // Process image with sharp
-    const image = sharp(imageBuffer);
-    const metadata = await image.metadata();
+    // Process image with sharp - flatten to white background, enhance contrast
+    let image = sharp(imageBuffer)
+      .flatten({ background: { r: 255, g: 255, b: 255 } }) // Remove transparency, white bg
+      .normalize() // Enhance contrast
+      .grayscale();
+
+    const metadata = await sharp(imageBuffer).metadata();
 
     // Calculate resize dimensions maintaining aspect ratio
-    let width = metadata.width;
-    let height = metadata.height;
+    let width = metadata.width || maxWidth;
+    let height = metadata.height || maxHeight;
 
     if (width > maxWidth) {
       height = Math.round(height * (maxWidth / width));
@@ -65,50 +71,69 @@ async function imageToEscPos(imageSource, options = {}) {
 
     // Width must be multiple of 8 for ESC/POS
     width = Math.floor(width / 8) * 8;
+    if (width < 8) width = 8;
 
-    // Convert to grayscale, resize, and get raw pixel data
+    // Resize and get raw pixel data
     const { data, info } = await image
-      .resize(width, height, { fit: 'inside' })
-      .grayscale()
+      .resize(width, height, { fit: 'fill' })
       .raw()
       .toBuffer({ resolveWithObject: true });
 
-    // Convert to 1-bit bitmap (black & white)
+    // Use ESC * (bit image) command - print line by line for compatibility
+    // ESC * m nL nH d1...dk where m=0 (8-dot single density), m=1 (8-dot double), m=32 (24-dot single), m=33 (24-dot double)
+    // We use m=33 (24-dot double density) for better quality, processing 24 rows at a time
+    
     const bytesPerRow = Math.ceil(info.width / 8);
-    const bitmapData = [];
-
-    for (let y = 0; y < info.height; y++) {
-      for (let byteIdx = 0; byteIdx < bytesPerRow; byteIdx++) {
-        let byte = 0;
-        for (let bit = 0; bit < 8; bit++) {
-          const x = byteIdx * 8 + bit;
-          if (x < info.width) {
-            const pixelIdx = y * info.width + x;
-            const pixelValue = data[pixelIdx];
-            // Invert: dark pixels become 1 (black prints)
-            if (pixelValue < threshold) {
-              byte |= (0x80 >> bit);
+    const sliceHeight = 24; // 24-dot mode
+    const slices = Math.ceil(info.height / sliceHeight);
+    
+    const buffers = [];
+    
+    // Set line spacing to 24 dots (match our slice height)
+    buffers.push(Buffer.from([0x1B, 0x33, 24])); // ESC 3 n - set line spacing to n/180 inch
+    
+    for (let slice = 0; slice < slices; slice++) {
+      const yStart = slice * sliceHeight;
+      const yEnd = Math.min(yStart + sliceHeight, info.height);
+      const actualSliceHeight = yEnd - yStart;
+      
+      // ESC * m nL nH - select bit image mode
+      // m = 33 (24-dot double density = 180 DPI horizontal)
+      const nL = info.width & 0xFF;
+      const nH = (info.width >> 8) & 0xFF;
+      
+      buffers.push(Buffer.from([0x1B, 0x2A, 33, nL, nH]));
+      
+      // For 24-dot mode, we need 3 bytes per column (24 bits = 3 bytes)
+      const columnData = [];
+      
+      for (let x = 0; x < info.width; x++) {
+        // Process 24 vertical pixels for this column
+        for (let byteNum = 0; byteNum < 3; byteNum++) {
+          let byte = 0;
+          for (let bit = 0; bit < 8; bit++) {
+            const y = yStart + byteNum * 8 + bit;
+            if (y < info.height) {
+              const pixelIdx = y * info.width + x;
+              const pixelValue = data[pixelIdx];
+              // Dark pixels become 1 (print black)
+              if (pixelValue < threshold) {
+                byte |= (0x80 >> bit);
+              }
             }
           }
+          columnData.push(byte);
         }
-        bitmapData.push(byte);
       }
+      
+      buffers.push(Buffer.from(columnData));
+      buffers.push(Buffer.from([0x0A])); // Line feed after each slice
     }
-
-    // Build ESC/POS raster bit image command
-    // GS v 0 m xL xH yL yH d1...dk
-    const xL = bytesPerRow & 0xFF;
-    const xH = (bytesPerRow >> 8) & 0xFF;
-    const yL = info.height & 0xFF;
-    const yH = (info.height >> 8) & 0xFF;
-
-    const escposCommand = Buffer.concat([
-      Buffer.from([0x1D, 0x76, 0x30, 0x00]), // GS v 0 (normal mode)
-      Buffer.from([xL, xH, yL, yH]),
-      Buffer.from(bitmapData)
-    ]);
-
-    return escposCommand;
+    
+    // Reset line spacing to default
+    buffers.push(Buffer.from([0x1B, 0x32])); // ESC 2 - reset line spacing
+    
+    return Buffer.concat(buffers);
   } catch (error) {
     logger.error('Image to ESC/POS conversion failed:', error);
     throw error;
