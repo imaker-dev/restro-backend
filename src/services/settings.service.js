@@ -92,7 +92,13 @@ class SettingsService {
     { key: 'menu_layout', value: 'grid', type: 'string', category: 'display', description: 'Menu layout (grid/list)' },
     { key: 'items_per_page', value: '20', type: 'number', category: 'display', description: 'Items per page in lists' },
     { key: 'theme_mode', value: 'light', type: 'string', category: 'display', description: 'Theme mode (light/dark)' },
-    { key: 'primary_color', value: '#1976d2', type: 'string', category: 'display', description: 'Primary theme color' }
+    { key: 'primary_color', value: '#1976d2', type: 'string', category: 'display', description: 'Primary theme color' },
+    
+    // Display Options (Configurable toggles)
+    { key: 'display_option_1', value: 'false', type: 'boolean', category: 'display', description: 'Display option 1' },
+    { key: 'display_option_2', value: 'false', type: 'boolean', category: 'display', description: 'Display option 2' },
+    { key: 'display_option_3', value: 'false', type: 'boolean', category: 'display', description: 'Display option 3' },
+    { key: 'display_option_4', value: 'false', type: 'boolean', category: 'display', description: 'Display option 4' }
   ];
 
   /**
@@ -348,7 +354,7 @@ class SettingsService {
   }
 
   /**
-   * Get all categories with setting counts
+   * Get all categories with setting counts and settings
    */
   async getCategories() {
     const categories = {};
@@ -358,10 +364,17 @@ class SettingsService {
         categories[setting.category] = {
           name: setting.category,
           displayName: this.formatCategoryName(setting.category),
-          count: 0
+          count: 0,
+          settings: []
         };
       }
       categories[setting.category].count++;
+      categories[setting.category].settings.push({
+        key: setting.key,
+        value: setting.value,
+        type: setting.type,
+        description: setting.description
+      });
     }
     
     return Object.values(categories);

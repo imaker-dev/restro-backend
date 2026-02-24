@@ -75,6 +75,12 @@ class AuthService {
     // Get assigned floors for the active outlet
     const assignedFloors = await this._getUserFloors(user.id, outletId);
 
+    // Get assigned stations for the user
+    const assignedStations = await this._getUserStations(user.id, outletId);
+
+    // Return primary station or first station as single object
+    const assignedStation = assignedStations.find(s => s.isPrimary) || assignedStations[0] || null;
+
     // Generate tokens with outletId
     const tokens = await this.generateTokens(user, { ...deviceInfo, outletId });
 
@@ -88,6 +94,7 @@ class AuthService {
         outletName,
         outlets,
         assignedFloors,
+        assignedStations: assignedStation,
       },
       ...tokens,
     };
@@ -99,16 +106,16 @@ class AuthService {
   async loginWithPin(employeeCode, pin, outletId, deviceInfo = {}) {
     const pool = getPool();
     
-    // Get user by employee code
+    // Get user by employee code - fetch ALL roles (not filtered by outlet)
+    // so user can access endpoints with any valid role they have
     const [users] = await pool.query(
       `SELECT u.*, GROUP_CONCAT(DISTINCT r.slug) as role_slugs
        FROM users u
-       LEFT JOIN user_roles ur ON u.id = ur.user_id AND ur.is_active = 1 
-         AND (ur.outlet_id IS NULL OR ur.outlet_id = ?)
+       LEFT JOIN user_roles ur ON u.id = ur.user_id AND ur.is_active = 1
        LEFT JOIN roles r ON ur.role_id = r.id AND r.is_active = 1
        WHERE u.employee_code = ? AND u.deleted_at IS NULL
        GROUP BY u.id`,
-      [outletId, employeeCode]
+      [employeeCode]
     );
 
     if (users.length === 0) {
@@ -157,6 +164,12 @@ class AuthService {
     // Get assigned floors for the active outlet
     const assignedFloors = await this._getUserFloors(user.id, activeOutletId);
 
+    // Get assigned stations for the user
+    const assignedStations = await this._getUserStations(user.id, activeOutletId);
+
+    // Return primary station or first station as single object
+    const assignedStation = assignedStations.find(s => s.isPrimary) || assignedStations[0] || null;
+
     // Generate tokens (shorter expiry for PIN login)
     const tokens = await this.generateTokens(user, { ...deviceInfo, outletId: activeOutletId }, true);
 
@@ -170,6 +183,7 @@ class AuthService {
         outletName: activeOutletName,
         outlets: userOutlets.outlets,
         assignedFloors,
+        assignedStations: assignedStation,
       },
       ...tokens,
     };
@@ -338,12 +352,19 @@ class AuthService {
     // Get assigned floors for the active outlet
     const assignedFloors = await this._getUserFloors(userId, outletId);
 
+    // Get assigned stations for the user
+    const assignedStations = await this._getUserStations(userId, outletId);
+
+    // Return primary station or first station as single object
+    const assignedStation = assignedStations.find(s => s.isPrimary) || assignedStations[0] || null;
+
     const result = {
       ...this.sanitizeUser(user),
       outletId,
       outletName,
       outlets,
       assignedFloors,
+      assignedStations: assignedStation,
       roles: roles.map(r => ({
         id: r.id,
         name: r.name,
@@ -713,6 +734,38 @@ class AuthService {
       floorCode: r.floor_code,
       outletId: r.outlet_id,
       isPrimary: !!r.is_primary,
+    }));
+  }
+
+  /**
+   * Get assigned stations for a user (for login / me responses)
+   */
+  async _getUserStations(userId, outletId = null) {
+    const pool = getPool();
+    let query = `SELECT us.id, us.station_id, us.outlet_id, us.is_primary,
+                        ks.name as station_name, ks.code as station_code, ks.station_type,
+                        ks.printer_id, o.name as outlet_name
+                 FROM user_stations us
+                 JOIN kitchen_stations ks ON us.station_id = ks.id AND ks.is_active = 1
+                 LEFT JOIN outlets o ON us.outlet_id = o.id
+                 WHERE us.user_id = ? AND us.is_active = 1`;
+    const params = [userId];
+    if (outletId) {
+      query += ' AND us.outlet_id = ?';
+      params.push(outletId);
+    }
+    query += ' ORDER BY us.is_primary DESC, ks.name';
+    const [rows] = await pool.query(query, params);
+    return rows.map(r => ({
+      id: r.id,
+      stationId: r.station_id,
+      stationName: r.station_name,
+      stationCode: r.station_code,
+      stationType: r.station_type,
+      outletId: r.outlet_id,
+      outletName: r.outlet_name,
+      isPrimary: !!r.is_primary,
+      printerId: r.printer_id,
     }));
   }
 

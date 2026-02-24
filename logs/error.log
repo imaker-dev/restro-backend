@@ -8881,3 +8881,19 @@ Error: Order not found
 2026-02-22 23:44:43 [ERROR]: Failed to print KOT KOT0222004:
 2026-02-22 23:44:47 [ERROR]: Direct Bill print failed for INV/2526/000339:
 2026-02-22 23:44:47 [ERROR]: Direct bill print failed for INV/2526/000339:
+2026-02-23 19:44:19 [ERROR]: Direct KOT print failed for KOT0223001:
+2026-02-23 19:44:19 [ERROR]: Failed to print KOT KOT0223001:
+2026-02-23 20:28:13 [ERROR]: Create printer error: Column 'outlet_id' cannot be null {"code":"ER_BAD_NULL_ERROR","errno":1048,"sql":"INSERT INTO printers (\n        uuid, outlet_id, name, code, printer_type, station,\n        station_id, ip_address, port,\n        connection_type, paper_width, characters_per_line,\n        supports_cash_drawer, supports_cutter, supports_logo\n      ) VALUES ('7e3a3d56-0634-423b-9b12-c5ee4e20202a', NULL, 'Kitchen Printer', 'PRNMLZAX26B', 'thermal', NULL, NULL, NULL, 9001, 'network', '80mm', 48, false, true, false)","sqlState":"23000","sqlMessage":"Column 'outlet_id' cannot be null"}
+Error: Column 'outlet_id' cannot be null
+    at PromisePool.query (E:\restro-backend\node_modules\mysql2\lib\promise\pool.js:36:22)
+    at Object.createPrinter (E:\restro-backend\src\services\printer.service.js:24:33)
+    at createPrinter (E:\restro-backend\src\controllers\printer.controller.js:16:44)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (E:\restro-backend\node_modules\express\lib\router\route.js:149:13)
+    at E:\restro-backend\src\middlewares\auth.middleware.js:119:14
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (E:\restro-backend\node_modules\express\lib\router\route.js:149:13)
+    at Route.dispatch (E:\restro-backend\node_modules\express\lib\router\route.js:119:3)
+    at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
+2026-02-24 12:26:23 [ERROR]: Direct Bill print failed for INV/2526/000006:
+2026-02-24 12:26:23 [ERROR]: Direct bill print failed for INV/2526/000006:
