@@ -25,8 +25,8 @@ const net = require('net');
 
 const CONFIG = {
   // Cloud server URL (your backend API)
-  CLOUD_URL: process.env.CLOUD_URL || 'http://localhost:3005',
-  // CLOUD_URL: process.env.CLOUD_URL || 'https://restro-backend.imaker.in',
+  // CLOUD_URL: process.env.CLOUD_URL || 'http://localhost:3005',
+  CLOUD_URL: process.env.CLOUD_URL || 'https://restro-backend.imaker.in',
   
   // Outlet ID from your system
   OUTLET_ID: process.env.OUTLET_ID || '4',
@@ -47,11 +47,11 @@ const CONFIG = {
   // Update these IPs to match your local network printers
   PRINTERS: {
     kot_kitchen: { ip: '192.168.1.13', port: 9100 },
-    // kot_bar: { ip: '192.168.1.13', port: 9100 },
-    // kot_dessert: { ip: '192.168.1.13', port: 9100 },
+    kot_bar: { ip: '192.168.1.13', port: 9100 },
+    bill: { ip: '192.168.1.13', port: 9100 },
     kitchen: { ip: '192.168.1.13', port: 9100 },
+    test: { ip: '192.168.1.1', port: 3001 },
     // bar: { ip: '192.168.1.13', port: 9100 },
-    // bill: { ip: '192.168.1.13', port: 9100 },
     // cashier: { ip: '192.168.1.13', port: 9100 }
   },
   

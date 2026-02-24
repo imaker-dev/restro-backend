@@ -14,6 +14,37 @@ const net = require('net');
 const BRIDGE_STATUS_STALE_SECONDS = parseInt(process.env.BRIDGE_STATUS_STALE_SECONDS, 10) || 90;
 const BRIDGE_ONLINE_WINDOW_SECONDS = parseInt(process.env.BRIDGE_ONLINE_WINDOW_SECONDS, 10) || 90;
 
+function parseDbDateToUtcMs(value) {
+  if (!value) return null;
+
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isNaN(ms) ? null : ms;
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === 'string') {
+    const raw = value.trim();
+    if (!raw) return null;
+
+    // mysql DATETIME often comes as "YYYY-MM-DD HH:mm:ss" without timezone.
+    // Treat it as UTC to avoid local-time offset drift in stale checks.
+    const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw);
+    const isoLike = raw.includes('T') ? raw : raw.replace(' ', 'T');
+    const normalized = hasTimezone ? isoLike : `${isoLike}Z`;
+    const ms = Date.parse(normalized);
+    if (!Number.isNaN(ms)) return ms;
+
+    const fallback = Date.parse(raw);
+    return Number.isNaN(fallback) ? null : fallback;
+  }
+
+  return null;
+}
+
 const printerService = {
   // ========================
   // PRINTER MANAGEMENT
@@ -1081,7 +1112,7 @@ const printerService = {
     const nowMs = Date.now();
 
     return printers.map((printer) => {
-      const lastSeenMs = printer.last_seen_at ? new Date(printer.last_seen_at).getTime() : null;
+      const lastSeenMs = parseDbDateToUtcMs(printer.last_seen_at);
       const statusAgeSeconds = lastSeenMs ? Math.max(0, Math.floor((nowMs - lastSeenMs) / 1000)) : null;
       const stale = !lastSeenMs || statusAgeSeconds > BRIDGE_STATUS_STALE_SECONDS;
       const isOnline = !stale && Boolean(printer.is_online);
@@ -1104,7 +1135,7 @@ const printerService = {
         source: 'bridge',
         isOnline,
         latency: null,
-        lastSeenAt: printer.last_seen_at ? new Date(printer.last_seen_at).toISOString() : null,
+        lastSeenAt: lastSeenMs ? new Date(lastSeenMs).toISOString() : null,
         statusAgeSeconds,
         error: stale
           ? (statusAgeSeconds === null
