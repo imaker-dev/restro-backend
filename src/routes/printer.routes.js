@@ -34,6 +34,13 @@ router.post('/bridge/:outletId/:bridgeCode/jobs/:jobId/ack', printerController.b
  */
 router.post('/bridge/:outletId/:bridgeCode/status', printerController.bridgeStatus);
 
+/**
+ * @route   GET /api/v1/printers/bridge/:outletId/:bridgeCode/config
+ * @desc    Fetch bridge printer mapping from DB (station -> ip/port)
+ * @access  Bridge API Key
+ */
+router.get('/bridge/:outletId/:bridgeCode/config', printerController.bridgeConfig);
+
 // ========================
 // AUTHENTICATED ROUTES
 // ========================

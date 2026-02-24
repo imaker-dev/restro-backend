@@ -42,6 +42,9 @@ const CONFIG = {
 
   // How often to report local printer status to cloud
   STATUS_REPORT_INTERVAL: parseInt(process.env.STATUS_REPORT_INTERVAL) || 15000,
+
+  // How often to refresh printer mapping from DB
+  PRINTER_CONFIG_REFRESH_INTERVAL: parseInt(process.env.PRINTER_CONFIG_REFRESH_INTERVAL) || 30000,
   
   // Printers configuration - map stations to printer IP/port
   // Update these IPs to match your local network printers
@@ -213,6 +216,43 @@ async function reportPrinterStatuses() {
   }
 }
 
+async function refreshPrinterConfigFromCloud() {
+  try {
+    const response = await api.get(
+      `/api/v1/printers/bridge/${CONFIG.OUTLET_ID}/${CONFIG.BRIDGE_CODE}/config`
+    );
+
+    const configData = response?.data?.data;
+    const printersFromDb = configData?.printers;
+    if (!printersFromDb || typeof printersFromDb !== 'object') {
+      return;
+    }
+
+    const normalizedPrinters = {};
+    for (const [station, printer] of Object.entries(printersFromDb)) {
+      if (!station || !printer || !printer.ip) continue;
+      const port = Number.isInteger(printer.port) ? printer.port : parseInt(printer.port, 10);
+      normalizedPrinters[station] = {
+        ip: String(printer.ip).trim(),
+        port: Number.isInteger(port) ? port : 9100
+      };
+    }
+
+    const stations = Object.keys(normalizedPrinters);
+    if (stations.length === 0) {
+      console.log('⚠️  No active printer mappings returned from DB. Keeping existing local configuration.');
+      return;
+    }
+
+    CONFIG.PRINTERS = normalizedPrinters;
+    CONFIG.DEFAULT_PRINTER = normalizedPrinters[stations[0]];
+    console.log(`🔄 Printer config refreshed from DB (${stations.length} station mappings).`);
+  } catch (error) {
+    const message = error.response?.data?.message || error.message;
+    console.error(`Printer config refresh failed: ${message}`);
+  }
+}
+
 // ========================
 // MAIN LOOP
 // ========================
@@ -332,11 +372,15 @@ if (process.argv.includes('--test')) {
   testPrinterConnections();
   setTimeout(() => {
     console.log('\nStarting polling...\n');
+    refreshPrinterConfigFromCloud();
+    setInterval(refreshPrinterConfigFromCloud, CONFIG.PRINTER_CONFIG_REFRESH_INTERVAL);
     setInterval(processNextJob, CONFIG.POLL_INTERVAL);
     setInterval(reportPrinterStatuses, CONFIG.STATUS_REPORT_INTERVAL);
     reportPrinterStatuses();
   }, 5000);
 } else {
+  refreshPrinterConfigFromCloud();
+  setInterval(refreshPrinterConfigFromCloud, CONFIG.PRINTER_CONFIG_REFRESH_INTERVAL);
   setInterval(processNextJob, CONFIG.POLL_INTERVAL);
   setInterval(reportPrinterStatuses, CONFIG.STATUS_REPORT_INTERVAL);
   reportPrinterStatuses();
