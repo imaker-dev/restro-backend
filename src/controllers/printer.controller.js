@@ -330,6 +330,30 @@ const printerController = {
     }
   },
 
+  async bridgeConfig(req, res) {
+    try {
+      const { outletId, bridgeCode } = req.params;
+      const apiKey = extractBridgeApiKey(req.headers);
+
+      if (!apiKey) {
+        return res.status(401).json({ success: false, message: 'API key required' });
+      }
+
+      const config = await printerService.getBridgePrinterConfig(outletId, bridgeCode, apiKey);
+      if (!config) {
+        return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      }
+
+      res.json({
+        success: true,
+        data: config
+      });
+    } catch (error) {
+      logger.error('Bridge config fetch error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
   // ========================
   // PRINTER STATUS CHECK API
   // ========================

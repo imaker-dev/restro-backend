@@ -521,6 +521,73 @@ const printerService = {
     };
   },
 
+  async getBridgePrinterConfig(outletId, bridgeCode, apiKey) {
+    const pool = getPool();
+    const bridge = await this.validateBridgeApiKey(outletId, bridgeCode, apiKey);
+    if (!bridge) {
+      return null;
+    }
+
+    let assignedStations = [];
+    try {
+      assignedStations = bridge.assigned_stations ? JSON.parse(bridge.assigned_stations) : [];
+      if (!Array.isArray(assignedStations)) {
+        assignedStations = [];
+      }
+    } catch (err) {
+      assignedStations = [];
+    }
+
+    const uniqueStations = Array.from(
+      new Set(
+        assignedStations
+          .map((station) => (typeof station === 'string' ? station.trim() : ''))
+          .filter(Boolean)
+      )
+    );
+
+    if (uniqueStations.length === 0) {
+      return {
+        bridgeId: bridge.id,
+        bridgeCode: bridge.bridge_code,
+        assignedStations: [],
+        printers: {},
+        fetchedAt: new Date().toISOString()
+      };
+    }
+
+    const placeholders = uniqueStations.map(() => '?').join(',');
+    const [rows] = await pool.query(
+      `SELECT station, ip_address, port
+       FROM printers
+       WHERE outlet_id = ?
+         AND is_active = 1
+         AND station IN (${placeholders})
+       ORDER BY station ASC, id ASC`,
+      [outletId, ...uniqueStations]
+    );
+
+    const printers = {};
+    for (const row of rows) {
+      const station = typeof row.station === 'string' ? row.station.trim() : '';
+      if (!station || printers[station]) {
+        continue;
+      }
+      printers[station] = {
+        ip: row.ip_address,
+        port: row.port || 9100
+      };
+    }
+
+    return {
+      bridgeId: bridge.id,
+      bridgeCode: bridge.bridge_code,
+      assignedStations: uniqueStations,
+      printers,
+      fetchedAt: new Date().toISOString()
+    };
+  },
+
   // ========================
   // CONTENT FORMATTING
   // ========================
