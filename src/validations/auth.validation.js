@@ -23,9 +23,7 @@ const loginPin = Joi.object({
     'string.pattern.base': 'PIN must contain only numbers',
     'any.required': 'PIN is required',
   }),
-  outletId: Joi.number().integer().positive().required().messages({
-    'any.required': 'Outlet ID is required for PIN login',
-  }),
+  outletId: Joi.number().integer().positive().optional(),
   deviceId: Joi.string().max(255).optional(),
   deviceName: Joi.string().max(100).optional(),
   deviceType: Joi.string().valid('captain_app', 'manager_app', 'admin_panel', 'other').optional(),
