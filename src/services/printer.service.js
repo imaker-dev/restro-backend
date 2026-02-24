@@ -937,15 +937,6 @@ const printerService = {
   async printKot(kotData, userId) {
     const content = this.formatKotContent(kotData);
     const station = kotData.station || 'kitchen';
-    let logo = null;
-    const logoSource = resolveLogoSource(kotData.outletLogoUrl);
-    if (logoSource) {
-      try {
-        logo = await loadOutletLogo(logoSource, { maxWidth: 300, maxHeight: 120 });
-      } catch (err) {
-        logger.warn('Failed to load logo for KOT print:', err.message);
-      }
-    }
 
     return this.createPrintJob({
       outletId: kotData.outletId,
@@ -953,7 +944,7 @@ const printerService = {
       station,
       kotId: kotData.kotId,
       orderId: kotData.orderId,
-      content: this.wrapWithEscPos(content, { beep: true, logo }),
+      content: this.wrapWithEscPos(content, { beep: true }),
       contentType: 'escpos',
       referenceNumber: kotData.kotNumber,
       tableNumber: kotData.tableNumber,
@@ -1095,16 +1086,7 @@ const printerService = {
    */
   async printKotDirect(kotData, printerIp, printerPort = 9100) {
     const content = this.formatKotContent(kotData);
-    let logo = null;
-    const logoSource = resolveLogoSource(kotData.outletLogoUrl);
-    if (logoSource) {
-      try {
-        logo = await loadOutletLogo(logoSource, { maxWidth: 300, maxHeight: 120 });
-      } catch (err) {
-        logger.warn('Failed to load logo for direct KOT print:', err.message);
-      }
-    }
-    const escposData = this.wrapWithEscPos(content, { beep: true, logo });
+    const escposData = this.wrapWithEscPos(content, { beep: true });
     
     try {
       const result = await this.printDirect(printerIp, printerPort, escposData);
