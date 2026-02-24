@@ -25,7 +25,8 @@ const net = require('net');
 
 const CONFIG = {
   // Cloud server URL (your backend API)
-  CLOUD_URL: process.env.CLOUD_URL || 'https://restro-backend.imaker.in',
+  CLOUD_URL: process.env.CLOUD_URL || 'http://localhost:3005',
+  // CLOUD_URL: process.env.CLOUD_URL || 'https://restro-backend.imaker.in',
   
   // Outlet ID from your system
   OUTLET_ID: process.env.OUTLET_ID || '4',
@@ -38,6 +39,9 @@ const CONFIG = {
   
   // Polling interval in milliseconds
   POLL_INTERVAL: parseInt(process.env.POLL_INTERVAL) || 2000,
+
+  // How often to report local printer status to cloud
+  STATUS_REPORT_INTERVAL: parseInt(process.env.STATUS_REPORT_INTERVAL) || 15000,
   
   // Printers configuration - map stations to printer IP/port
   // Update these IPs to match your local network printers
@@ -153,6 +157,59 @@ async function acknowledgeJob(jobId, status, error = null) {
     );
   } catch (err) {
     console.error(`  Failed to acknowledge job ${jobId}:`, err.message);
+  }
+}
+
+function testPrinterConnection(printerIp, printerPort) {
+  return new Promise((resolve) => {
+    const client = new net.Socket();
+    const start = Date.now();
+
+    client.setTimeout(3000);
+
+    client.connect(printerPort, printerIp, () => {
+      const latency = Date.now() - start;
+      client.destroy();
+      resolve({ isOnline: true, latency, error: null });
+    });
+
+    client.on('error', (err) => {
+      resolve({ isOnline: false, latency: null, error: err.message });
+    });
+
+    client.on('timeout', () => {
+      client.destroy();
+      resolve({ isOnline: false, latency: null, error: 'Connection timeout' });
+    });
+  });
+}
+
+async function reportPrinterStatuses() {
+  const printerEntries = Object.entries(CONFIG.PRINTERS || {});
+  if (printerEntries.length === 0) return;
+
+  const statuses = await Promise.all(
+    printerEntries.map(async ([station, printer]) => {
+      const result = await testPrinterConnection(printer.ip, printer.port);
+      return {
+        station,
+        ipAddress: printer.ip,
+        port: printer.port,
+        isOnline: result.isOnline,
+        latency: result.latency,
+        error: result.error,
+        checkedAt: new Date().toISOString()
+      };
+    })
+  );
+
+  try {
+    await api.post(
+      `/api/v1/printers/bridge/${CONFIG.OUTLET_ID}/${CONFIG.BRIDGE_CODE}/status`,
+      { statuses }
+    );
+  } catch (err) {
+    console.error('Status report error:', err.response?.data?.message || err.message);
   }
 }
 
@@ -274,11 +331,15 @@ printBanner();
 if (process.argv.includes('--test')) {
   testPrinterConnections();
   setTimeout(() => {
-    console.log('\n🔄 Starting polling...\n');
+    console.log('\nStarting polling...\n');
     setInterval(processNextJob, CONFIG.POLL_INTERVAL);
+    setInterval(reportPrinterStatuses, CONFIG.STATUS_REPORT_INTERVAL);
+    reportPrinterStatuses();
   }, 5000);
 } else {
   setInterval(processNextJob, CONFIG.POLL_INTERVAL);
+  setInterval(reportPrinterStatuses, CONFIG.STATUS_REPORT_INTERVAL);
+  reportPrinterStatuses();
 }
 
 // Handle graceful shutdown
@@ -292,4 +353,5 @@ process.on('SIGINT', () => {
 process.on('uncaughtException', (err) => {
   console.error('Uncaught exception:', err);
 });
+
 

@@ -27,11 +27,18 @@ router.get('/bridge/:outletId/:bridgeCode/poll', printerController.bridgePoll);
  */
 router.post('/bridge/:outletId/:bridgeCode/jobs/:jobId/ack', printerController.bridgeAck);
 
+/**
+ * @route   POST /api/v1/printers/bridge/:outletId/:bridgeCode/status
+ * @desc    Report live printer connectivity from local bridge agent
+ * @access  Bridge API Key
+ */
+router.post('/bridge/:outletId/:bridgeCode/status', printerController.bridgeStatus);
+
 // ========================
 // AUTHENTICATED ROUTES
 // ========================
 
-router.use(authenticate);
+// router.use(authenticate);
 
 // ========================
 // PRINTER MANAGEMENT
@@ -144,6 +151,7 @@ router.get('/stats/:outletId', authorize('super_admin', 'admin', 'manager'), pri
  * @route   GET /api/v1/printers/status/:outletId
  * @desc    Check live status of all printers for an outlet
  * @query   station - Optional filter by station (kot_kitchen, kot_bar, bill, etc.)
+ * @query   source - Optional: auto | bridge | direct
  * @access  Private
  */
 router.get('/status/:outletId', printerController.checkPrinterStatus);
@@ -151,6 +159,7 @@ router.get('/status/:outletId', printerController.checkPrinterStatus);
 /**
  * @route   GET /api/v1/printers/status/:outletId/:stationType
  * @desc    Check live status for a specific station type (captain, cashier, kitchen, bar, bill, all)
+ * @query   source - Optional: auto | bridge | direct
  * @access  Private
  */
 router.get('/status/:outletId/:stationType', printerController.checkStationPrinterStatus);

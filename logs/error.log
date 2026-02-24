@@ -8943,3 +8943,19 @@ Error: Order not found
 2026-02-22 23:44:43 [ERROR]: Failed to print KOT KOT0222004:
 2026-02-22 23:44:47 [ERROR]: Direct Bill print failed for INV/2526/000339:
 2026-02-22 23:44:47 [ERROR]: Direct bill print failed for INV/2526/000339:
+2026-02-23 18:47:34 [ERROR]: Failed to start server: Access denied for user 'restro'@'localhost' (using password: YES) {"code":"ER_ACCESS_DENIED_ERROR","errno":1045,"sqlState":"28000","sqlMessage":"Access denied for user 'restro'@'localhost' (using password: YES)"}
+Error: Access denied for user 'restro'@'localhost' (using password: YES)
+    at Packet.asError (D:\Projects\restro-backend\node_modules\mysql2\lib\packets\packet.js:739:17)
+    at ClientHandshake.execute (D:\Projects\restro-backend\node_modules\mysql2\lib\commands\command.js:29:26)
+    at PoolConnection.handlePacket (D:\Projects\restro-backend\node_modules\mysql2\lib\base\connection.js:508:34)
+    at PacketParser.onPacket (D:\Projects\restro-backend\node_modules\mysql2\lib\base\connection.js:93:12)
+    at PacketParser.executeStart (D:\Projects\restro-backend\node_modules\mysql2\lib\packet_parser.js:75:16)
+    at Socket.<anonymous> (D:\Projects\restro-backend\node_modules\mysql2\lib\base\connection.js:100:25)
+    at Socket.emit (node:events:518:28)
+    at addChunk (node:internal/streams/readable:561:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+    at Readable.push (node:internal/streams/readable:392:5)
+2026-02-24 10:06:50 [ERROR]: Failed to start server: {"code":"ECONNREFUSED","fatal":true}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)

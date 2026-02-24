@@ -287,6 +287,42 @@ const printerController = {
     }
   },
 
+  async bridgeStatus(req, res) {
+    try {
+      const { outletId, bridgeCode } = req.params;
+      const apiKey = extractBridgeApiKey(req.headers);
+      const statuses = Array.isArray(req.body?.statuses) ? req.body.statuses : [];
+
+      if (!apiKey) {
+        return res.status(401).json({ success: false, message: 'API key required' });
+      }
+
+      const bridge = await printerService.validateBridgeApiKey(outletId, bridgeCode, apiKey);
+      if (!bridge) {
+        return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      }
+
+      const result = await printerService.reportBridgePrinterStatus({
+        outletId,
+        bridgeId: bridge.id,
+        statuses
+      });
+
+      await printerService.updateBridgeStatus(bridge.id, true, req.ip);
+
+      res.json({
+        success: true,
+        data: {
+          ...result,
+          reportedAt: new Date().toISOString()
+        }
+      });
+    } catch (error) {
+      logger.error('Bridge status report error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
   // ========================
   // PRINTER STATUS CHECK API
   // ========================
@@ -298,9 +334,9 @@ const printerController = {
   async checkPrinterStatus(req, res) {
     try {
       const { outletId } = req.params;
-      const { station } = req.query;
+      const { station, source } = req.query;
       
-      const printers = await printerService.checkPrinterStatus(outletId, station || null);
+      const printers = await printerService.checkPrinterStatus(outletId, station || null, source || 'auto');
       
       const onlineCount = printers.filter(p => p.isOnline).length;
       
@@ -308,6 +344,7 @@ const printerController = {
         success: true,
         data: {
           checkedAt: new Date().toISOString(),
+          source: source || 'auto',
           summary: {
             total: printers.length,
             online: onlineCount,
@@ -330,6 +367,7 @@ const printerController = {
   async checkStationPrinterStatus(req, res) {
     try {
       const { outletId, stationType } = req.params;
+      const { source } = req.query;
       
       const validStations = ['captain', 'cashier', 'kitchen', 'bar', 'bill', 'all'];
       if (!validStations.includes(stationType)) {
@@ -339,7 +377,7 @@ const printerController = {
         });
       }
       
-      const status = await printerService.checkStationPrinterStatus(outletId, stationType);
+      const status = await printerService.checkStationPrinterStatus(outletId, stationType, source || 'auto');
       
       res.json({
         success: true,

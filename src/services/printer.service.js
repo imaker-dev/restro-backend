@@ -11,6 +11,9 @@ const logger = require('../utils/logger');
 const crypto = require('crypto');
 const net = require('net');
 
+const BRIDGE_STATUS_STALE_SECONDS = parseInt(process.env.BRIDGE_STATUS_STALE_SECONDS, 10) || 90;
+const BRIDGE_ONLINE_WINDOW_SECONDS = parseInt(process.env.BRIDGE_ONLINE_WINDOW_SECONDS, 10) || 90;
+
 const printerService = {
   // ========================
   // PRINTER MANAGEMENT
@@ -329,8 +332,10 @@ const printerService = {
 
     const [bridges] = await pool.query(
       `SELECT * FROM printer_bridges 
-       WHERE outlet_id = ? AND bridge_code = ? AND api_key = ? AND is_active = 1`,
-      [outletId, bridgeCode, apiKey]
+       WHERE outlet_id = ? AND bridge_code = ? AND is_active = 1
+         AND api_key IN (?, ?)
+       LIMIT 1`,
+      [outletId, bridgeCode, hashedKey, normalizedApiKey]
     );
 
     if (bridges[0]) {
@@ -362,6 +367,114 @@ const printerService = {
       `UPDATE printer_bridges SET is_online = ?, last_poll_at = NOW(), last_ip = ? WHERE id = ?`,
       [isOnline, lastIp, bridgeId]
     );
+  },
+
+  async hasRecentlyOnlineBridge(outletId) {
+    const pool = getPool();
+    const [bridges] = await pool.query(
+      `SELECT id
+       FROM printer_bridges
+       WHERE outlet_id = ?
+         AND is_active = 1
+         AND is_online = 1
+         AND last_poll_at IS NOT NULL
+         AND TIMESTAMPDIFF(SECOND, last_poll_at, NOW()) <= ?
+       LIMIT 1`,
+      [outletId, BRIDGE_ONLINE_WINDOW_SECONDS]
+    );
+    return bridges.length > 0;
+  },
+
+  async reportBridgePrinterStatus({ outletId, bridgeId, statuses = [] }) {
+    const pool = getPool();
+    const normalizedStatuses = Array.isArray(statuses) ? statuses.filter((s) => s && typeof s === 'object') : [];
+
+    if (normalizedStatuses.length === 0) {
+      return {
+        bridgeId,
+        received: 0,
+        updated: 0,
+        unmatched: 0
+      };
+    }
+
+    const [printers] = await pool.query(
+      `SELECT id, station, ip_address, port
+       FROM printers
+       WHERE outlet_id = ? AND is_active = 1`,
+      [outletId]
+    );
+
+    const printerById = new Map(printers.map((printer) => [String(printer.id), printer]));
+    const updatesByPrinterId = new Map();
+    const unmatched = [];
+
+    for (const item of normalizedStatuses) {
+      const station = typeof item.station === 'string' ? item.station.trim() : null;
+      const ipAddress = typeof item.ipAddress === 'string' ? item.ipAddress.trim() : null;
+      const port = Number.isInteger(item.port) ? item.port : parseInt(item.port, 10);
+      const printerId = item.printerId !== undefined && item.printerId !== null ? String(item.printerId) : null;
+
+      let matchedPrinter = null;
+
+      if (printerId && printerById.has(printerId)) {
+        matchedPrinter = printerById.get(printerId);
+      }
+
+      if (!matchedPrinter && ipAddress) {
+        const ipMatches = printers.filter((printer) => {
+          if (!printer.ip_address || printer.ip_address !== ipAddress) return false;
+          if (!Number.isInteger(port)) return true;
+          return (printer.port || 9100) === port;
+        });
+        if (ipMatches.length === 1) {
+          matchedPrinter = ipMatches[0];
+        }
+      }
+
+      if (!matchedPrinter && station) {
+        const stationMatches = printers.filter((printer) => printer.station === station);
+        if (stationMatches.length === 1) {
+          matchedPrinter = stationMatches[0];
+        }
+      }
+
+      if (!matchedPrinter) {
+        unmatched.push({
+          printerId: item.printerId || null,
+          station: station || null,
+          ipAddress: ipAddress || null
+        });
+        continue;
+      }
+
+      const parsedCheckedAt = item.checkedAt ? new Date(item.checkedAt) : new Date();
+      const checkedAt = Number.isNaN(parsedCheckedAt.getTime()) ? new Date() : parsedCheckedAt;
+
+      updatesByPrinterId.set(matchedPrinter.id, {
+        isOnline: Boolean(item.isOnline),
+        checkedAt
+      });
+    }
+
+    await Promise.all(
+      Array.from(updatesByPrinterId.entries()).map(([printerId, payload]) =>
+        pool.query(
+          `UPDATE printers
+           SET is_online = ?, last_seen_at = ?
+           WHERE id = ? AND outlet_id = ?`,
+          [payload.isOnline, payload.checkedAt, printerId, outletId]
+        )
+      )
+    );
+
+    return {
+      bridgeId,
+      received: normalizedStatuses.length,
+      updated: updatesByPrinterId.size,
+      unmatched: unmatched.length,
+      unmatchedItems: unmatched.slice(0, 10)
+    };
   },
 
   // ========================
@@ -884,28 +997,36 @@ const printerService = {
   /**
    * Check live status of all printers for an outlet
    * @param {number} outletId - Outlet ID
-   * @param {string} station - Optional specific station to check
+   * @param {string|string[]|null} stationFilter - Optional station filter
    * @returns {Array} - Printer status array with connectivity info
    */
-  async checkPrinterStatus(outletId, station = null) {
+  async getPrintersForStatus(outletId, stationFilter = null) {
     const pool = getPool();
-    
+
     let query = `SELECT p.id, p.name, p.station, p.printer_type, p.station_id, 
-                        p.ip_address, p.port, p.is_active,
+                        p.ip_address, p.port, p.is_active, p.is_online, p.last_seen_at,
                         ks.name as station_name, ks.code as station_code, ks.station_type
                  FROM printers p
                  LEFT JOIN kitchen_stations ks ON p.station_id = ks.id
                  WHERE p.outlet_id = ? AND p.is_active = 1`;
     const params = [outletId];
-    
-    if (station) {
+
+    if (Array.isArray(stationFilter) && stationFilter.length > 0) {
+      query += ` AND p.station IN (${stationFilter.map(() => '?').join(',')})`;
+      params.push(...stationFilter);
+    } else if (typeof stationFilter === 'string' && stationFilter.trim()) {
       query += ` AND p.station = ?`;
-      params.push(station);
+      params.push(stationFilter.trim());
     }
-    
+
     query += ` ORDER BY p.station, p.name`;
     const [printers] = await pool.query(query, params);
-    
+    return printers;
+  },
+
+  async checkPrinterStatusDirect(outletId, stationFilter = null) {
+    const printers = await this.getPrintersForStatus(outletId, stationFilter);
+
     // Check connectivity for each printer in parallel
     const statusChecks = printers.map(async (printer) => {
       let isOnline = false;
@@ -927,7 +1048,9 @@ const printerService = {
       } else {
         error = 'No IP address configured';
       }
-      
+
+      await this.updatePrinterStatus(printer.id, isOnline);
+
       return {
         id: printer.id,
         name: printer.name,
@@ -943,22 +1066,86 @@ const printerService = {
         ipAddress: printer.ip_address,
         port: printer.port || 9100,
         isActive: printer.is_active === 1,
+        source: 'direct',
         isOnline,
         latency: latency ? `${latency}ms` : null,
         error
       };
     });
-    
+
     return Promise.all(statusChecks);
+  },
+
+  async checkPrinterStatusFromBridge(outletId, stationFilter = null) {
+    const printers = await this.getPrintersForStatus(outletId, stationFilter);
+    const nowMs = Date.now();
+
+    return printers.map((printer) => {
+      const lastSeenMs = printer.last_seen_at ? new Date(printer.last_seen_at).getTime() : null;
+      const statusAgeSeconds = lastSeenMs ? Math.max(0, Math.floor((nowMs - lastSeenMs) / 1000)) : null;
+      const stale = !lastSeenMs || statusAgeSeconds > BRIDGE_STATUS_STALE_SECONDS;
+      const isOnline = !stale && Boolean(printer.is_online);
+
+      return {
+        id: printer.id,
+        name: printer.name,
+        station: printer.station,
+        printerType: printer.printer_type,
+        stationId: printer.station_id,
+        assignedStation: printer.station_id ? {
+          id: printer.station_id,
+          name: printer.station_name,
+          code: printer.station_code,
+          type: printer.station_type
+        } : null,
+        ipAddress: printer.ip_address,
+        port: printer.port || 9100,
+        isActive: printer.is_active === 1,
+        source: 'bridge',
+        isOnline,
+        latency: null,
+        lastSeenAt: printer.last_seen_at ? new Date(printer.last_seen_at).toISOString() : null,
+        statusAgeSeconds,
+        error: stale
+          ? (statusAgeSeconds === null
+              ? 'No bridge status reported yet'
+              : `Stale bridge status (${statusAgeSeconds}s old)`)
+          : null
+      };
+    });
+  },
+
+  /**
+   * Check printer status by source:
+   * - direct: backend does TCP checks
+   * - bridge: uses status reported by bridge agent
+   * - auto: bridge when active, else direct
+   */
+  async checkPrinterStatus(outletId, stationFilter = null, source = 'auto') {
+    const normalizedSource = typeof source === 'string' ? source.toLowerCase().trim() : 'auto';
+
+    if (normalizedSource === 'direct') {
+      return this.checkPrinterStatusDirect(outletId, stationFilter);
+    }
+
+    if (normalizedSource === 'bridge') {
+      return this.checkPrinterStatusFromBridge(outletId, stationFilter);
+    }
+
+    const shouldUseBridge = await this.hasRecentlyOnlineBridge(outletId);
+    return shouldUseBridge
+      ? this.checkPrinterStatusFromBridge(outletId, stationFilter)
+      : this.checkPrinterStatusDirect(outletId, stationFilter);
   },
 
   /**
    * Check live status for a specific station type
    * @param {number} outletId - Outlet ID
    * @param {string} stationType - captain | cashier | kitchen | bar | bill
+   * @param {string} source - auto | bridge | direct
    * @returns {Object} - Station printer status
    */
-  async checkStationPrinterStatus(outletId, stationType) {
+  async checkStationPrinterStatus(outletId, stationType, source = 'auto') {
     // Map station type to actual station values
     const stationMap = {
       'captain': ['kot_kitchen', 'kot_bar'],
@@ -968,69 +1155,25 @@ const printerService = {
       'bill': ['bill'],
       'all': null
     };
-    
+
     const stations = stationMap[stationType] || [stationType];
-    const pool = getPool();
-    
-    let query = `SELECT id, name, station, ip_address, port, is_active
-                 FROM printers WHERE outlet_id = ? AND is_active = 1`;
-    const params = [outletId];
-    
-    if (stations) {
-      query += ` AND station IN (${stations.map(() => '?').join(',')})`;
-      params.push(...stations);
-    }
-    
-    const [printers] = await pool.query(query, params);
-    
-    if (printers.length === 0) {
+    const results = await this.checkPrinterStatus(outletId, stations, source);
+
+    if (results.length === 0) {
       return {
         stationType,
+        source,
         hasConfiguredPrinter: false,
         printers: [],
         summary: { total: 0, online: 0, offline: 0 }
       };
     }
-    
-    // Check connectivity for each printer
-    const statusChecks = printers.map(async (printer) => {
-      let isOnline = false;
-      let latency = null;
-      let error = null;
-      
-      if (printer.ip_address) {
-        const startTime = Date.now();
-        try {
-          const result = await this.testPrinterConnection(printer.ip_address, printer.port || 9100);
-          isOnline = result.success;
-          latency = Date.now() - startTime;
-          if (!result.success) {
-            error = result.message;
-          }
-        } catch (err) {
-          error = err.message;
-        }
-      } else {
-        error = 'No IP address configured';
-      }
-      
-      return {
-        id: printer.id,
-        name: printer.name,
-        station: printer.station,
-        ipAddress: printer.ip_address,
-        port: printer.port || 9100,
-        isOnline,
-        latency: latency ? `${latency}ms` : null,
-        error
-      };
-    });
-    
-    const results = await Promise.all(statusChecks);
+
     const onlineCount = results.filter(p => p.isOnline).length;
-    
+
     return {
       stationType,
+      source: results[0]?.source || source,
       hasConfiguredPrinter: true,
       allOnline: onlineCount === results.length,
       anyOnline: onlineCount > 0,
