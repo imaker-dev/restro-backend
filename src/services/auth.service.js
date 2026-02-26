@@ -72,6 +72,13 @@ class AuthService {
     // Get user's outlets
     const { outlets, outletId, outletName } = await this._getUserOutlets(user.id);
 
+    // Check if user has any outlets assigned (unless super_admin)
+    const isSuperAdmin = user.role_slugs && user.role_slugs.includes('super_admin');
+    if (outlets.length === 0 && !isSuperAdmin) {
+      await this.logAuthActivity(user.id, 'login_failed', deviceInfo, { reason: 'no_outlet_assigned' });
+      throw new Error('No outlet assigned to this user. Contact administrator');
+    }
+
     // Get assigned floors for the active outlet
     const assignedFloors = await this._getUserFloors(user.id, outletId);
 
