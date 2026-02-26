@@ -75,12 +75,19 @@ const categoryService = {
     }
   },
 
-  async getByOutlet(outletId, includeInactive = false) {
-    const cacheKey = `categories:${outletId}:${includeInactive}`;
-    const cached = await cache.get(cacheKey);
-    if (cached) return cached;
-
+  async getByOutlet(outletId, filters = {}) {
+    const includeInactive = filters.includeInactive || false;
     const pool = getPool();
+    
+    // Base count query
+    let countQuery = `
+      SELECT COUNT(*) as total
+      FROM categories c
+      WHERE c.outlet_id = ? AND c.deleted_at IS NULL
+    `;
+    const countParams = [outletId];
+    
+    // Base data query
     let query = `
       SELECT c.*,
         pc.name as parent_name,
@@ -91,14 +98,64 @@ const categoryService = {
     `;
     const params = [outletId];
 
+    // Build WHERE conditions
+    let whereConditions = '';
+    
     if (!includeInactive) {
-      query += ' AND c.is_active = 1';
+      whereConditions += ' AND c.is_active = 1';
     }
+    if (filters.search) {
+      whereConditions += ' AND (c.name LIKE ? OR c.description LIKE ?)';
+      const searchTerm = `%${filters.search}%`;
+      params.push(searchTerm, searchTerm);
+      countParams.push(searchTerm, searchTerm);
+    }
+    if (filters.serviceType && ['restaurant', 'bar', 'both'].includes(filters.serviceType)) {
+      whereConditions += ' AND (c.service_type = ? OR c.service_type = ?)';
+      params.push(filters.serviceType, 'both');
+      countParams.push(filters.serviceType, 'both');
+    }
+    if (filters.parentId !== undefined) {
+      if (filters.parentId === null || filters.parentId === 'null') {
+        whereConditions += ' AND c.parent_id IS NULL';
+      } else {
+        whereConditions += ' AND c.parent_id = ?';
+        params.push(parseInt(filters.parentId));
+        countParams.push(parseInt(filters.parentId));
+      }
+    }
+
+    query += whereConditions;
+    countQuery += whereConditions;
+    
     query += ' ORDER BY c.display_order, c.name';
 
+    // Pagination
+    const page = parseInt(filters.page) || 1;
+    const limit = parseInt(filters.limit) || 50;
+    const offset = (page - 1) * limit;
+    
+    // Get total count
+    const [countResult] = await pool.query(countQuery, countParams);
+    const total = countResult[0].total;
+    
+    query += ' LIMIT ? OFFSET ?';
+    params.push(limit, offset);
+
     const [categories] = await pool.query(query, params);
-    await cache.set(cacheKey, categories, CACHE_TTL);
-    return categories;
+    
+    // Return with pagination metadata
+    return {
+      categories,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page * limit < total,
+        hasPrev: page > 1
+      }
+    };
   },
 
   async getById(id) {

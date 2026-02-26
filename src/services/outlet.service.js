@@ -434,7 +434,7 @@ const outletService = {
       await connection.commit();
 
       // Invalidate all caches for this outlet
-      await this.invalidateCache(outletId);
+      await cache.del(`outlet:${outletId}`);
       await cache.del(`categories:${outletId}:false`);
       await cache.del(`categories:${outletId}:true`);
       await cache.del(`items:${outletId}`);

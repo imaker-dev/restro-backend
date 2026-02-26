@@ -160,6 +160,17 @@ const itemService = {
 
   async getByOutlet(outletId, filters = {}) {
     const pool = getPool();
+    
+    // Base query for counting
+    let countQuery = `
+      SELECT COUNT(*) as total
+      FROM items i
+      JOIN categories c ON i.category_id = c.id
+      WHERE i.outlet_id = ? AND i.deleted_at IS NULL
+    `;
+    const countParams = [outletId];
+    
+    // Base query for data
     let query = `
       SELECT i.*, c.name as category_name, tg.name as tax_group_name, tg.total_rate as tax_rate,
              ks.name as kitchen_station_name, ks.code as kitchen_station_code
@@ -171,37 +182,71 @@ const itemService = {
     `;
     const params = [outletId];
 
+    // Build WHERE conditions
+    let whereConditions = '';
+    
     if (!filters.includeInactive) {
-      query += ' AND i.is_active = 1';
+      whereConditions += ' AND i.is_active = 1';
     }
     if (filters.categoryId) {
-      query += ' AND i.category_id = ?';
-      params.push(filters.categoryId);
+      whereConditions += ' AND i.category_id = ?';
+      params.push(parseInt(filters.categoryId));
+      countParams.push(parseInt(filters.categoryId));
     }
     if (filters.itemType) {
-      query += ' AND i.item_type = ?';
+      whereConditions += ' AND i.item_type = ?';
       params.push(filters.itemType);
+      countParams.push(filters.itemType);
     }
     if (filters.search) {
-      query += ' AND (i.name LIKE ? OR i.sku LIKE ?)';
-      params.push(`%${filters.search}%`, `%${filters.search}%`);
+      whereConditions += ' AND (i.name LIKE ? OR i.sku LIKE ? OR i.short_name LIKE ?)';
+      const searchTerm = `%${filters.search}%`;
+      params.push(searchTerm, searchTerm, searchTerm);
+      countParams.push(searchTerm, searchTerm, searchTerm);
     }
     if (filters.isBestseller) {
-      query += ' AND i.is_bestseller = 1';
+      whereConditions += ' AND i.is_bestseller = 1';
     }
     if (filters.isRecommended) {
-      query += ' AND i.is_recommended = 1';
+      whereConditions += ' AND i.is_recommended = 1';
+    }
+    if (filters.serviceType && ['restaurant', 'bar', 'both'].includes(filters.serviceType)) {
+      whereConditions += ' AND (i.service_type = ? OR i.service_type = ?)';
+      params.push(filters.serviceType, 'both');
+      countParams.push(filters.serviceType, 'both');
     }
 
+    query += whereConditions;
+    countQuery += whereConditions;
+    
     query += ' ORDER BY c.display_order, i.display_order, i.name';
 
-    if (filters.limit) {
-      query += ' LIMIT ?';
-      params.push(parseInt(filters.limit));
-    }
+    // Pagination
+    const page = parseInt(filters.page) || 1;
+    const limit = parseInt(filters.limit) || 50;
+    const offset = (page - 1) * limit;
+    
+    // Get total count for pagination
+    const [countResult] = await pool.query(countQuery, countParams);
+    const total = countResult[0].total;
+    
+    query += ' LIMIT ? OFFSET ?';
+    params.push(limit, offset);
 
     const [items] = await pool.query(query, params);
-    return items;
+    
+    // Return with pagination metadata
+    return {
+      items,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page * limit < total,
+        hasPrev: page > 1
+      }
+    };
   },
 
   async getById(id) {

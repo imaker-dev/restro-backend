@@ -210,35 +210,45 @@ const setupRedisPubSub = () => {
 
   // KOT updates - route to specific station, kitchen, captain, and cashier
   pubsub.subscribe('kot:update', (data) => {
-    logger.info(`[RedisPubSub] kot:update for outlet ${data.outletId}, station: ${data.station}, stationId: ${data.stationId}, type: ${data.type}`);
+    const kotNum = data.kot?.kotNumber || data.kot?.id || 'unknown';
+    logger.info(`[RedisPubSub] kot:update received - outlet: ${data.outletId}, station: ${data.station}, stationId: ${data.stationId}, type: ${data.type}, kotNumber: ${kotNum}`);
+    
+    // Track rooms we're emitting to
+    const emittedRooms = [];
     
     // Send to general kitchen room (backward compatibility)
     io.to(`kitchen:${data.outletId}`).emit('kot:updated', data);
+    emittedRooms.push(`kitchen:${data.outletId}`);
     
     // Send to specific station room by station_type (main_kitchen, dessert, bar, etc.)
     if (data.station) {
       io.to(`station:${data.outletId}:${data.station}`).emit('kot:updated', data);
+      emittedRooms.push(`station:${data.outletId}:${data.station}`);
       
       // Also send to bar room if bar station type (backward compatibility)
       if (data.station === 'bar' || data.station.includes('bar')) {
         io.to(`bar:${data.outletId}`).emit('kot:updated', data);
+        emittedRooms.push(`bar:${data.outletId}`);
       }
     }
     
     // Send to specific station by station_id for precise routing
     if (data.stationId) {
       io.to(`station_id:${data.outletId}:${data.stationId}`).emit('kot:updated', data);
-      logger.info(`[RedisPubSub] Emitted to station_id:${data.outletId}:${data.stationId}`);
+      emittedRooms.push(`station_id:${data.outletId}:${data.stationId}`);
     }
     
     // Send ALL KOT status updates to captain and cashier for real-time tracking
     io.to(`captain:${data.outletId}`).emit('kot:updated', data);
     io.to(`cashier:${data.outletId}`).emit('kot:updated', data);
+    emittedRooms.push(`captain:${data.outletId}`, `cashier:${data.outletId}`);
 
     // Keep backward-compatible item:ready event for captain
     if (data.type === 'kot:item_ready' || data.type === 'kot:ready') {
       io.to(`captain:${data.outletId}`).emit('item:ready', data);
     }
+    
+    logger.info(`[RedisPubSub] KOT ${kotNum} emitted to rooms: ${emittedRooms.join(', ')}`);
   });
 
   // Bill status updates - send to captain and cashier
@@ -288,25 +298,38 @@ const emitLocal = (channel, data) => {
         io.to(`cashier:${data.outletId}`).emit('order:updated', data);
         break;
 
-      case 'kot:update':
-        logger.info(`[emitLocal] kot:update for outlet ${data.outletId}, station: ${data.station}, stationId: ${data.stationId}, type: ${data.type}`);
+      case 'kot:update': {
+        const kotNum = data.kot?.kotNumber || data.kot?.id || 'unknown';
+        const emittedRooms = [];
+        
+        logger.info(`[emitLocal] kot:update received - outlet: ${data.outletId}, station: ${data.station}, stationId: ${data.stationId}, type: ${data.type}, kotNumber: ${kotNum}`);
+        
         io.to(`kitchen:${data.outletId}`).emit('kot:updated', data);
+        emittedRooms.push(`kitchen:${data.outletId}`);
+        
         if (data.station) {
           io.to(`station:${data.outletId}:${data.station}`).emit('kot:updated', data);
+          emittedRooms.push(`station:${data.outletId}:${data.station}`);
           if (data.station === 'bar' || data.station.includes('bar')) {
             io.to(`bar:${data.outletId}`).emit('kot:updated', data);
+            emittedRooms.push(`bar:${data.outletId}`);
           }
         }
         if (data.stationId) {
           io.to(`station_id:${data.outletId}:${data.stationId}`).emit('kot:updated', data);
-          logger.info(`[emitLocal] Emitted to station_id:${data.outletId}:${data.stationId}`);
+          emittedRooms.push(`station_id:${data.outletId}:${data.stationId}`);
         }
         io.to(`captain:${data.outletId}`).emit('kot:updated', data);
         io.to(`cashier:${data.outletId}`).emit('kot:updated', data);
+        emittedRooms.push(`captain:${data.outletId}`, `cashier:${data.outletId}`);
+        
         if (data.type === 'kot:item_ready' || data.type === 'kot:ready') {
           io.to(`captain:${data.outletId}`).emit('item:ready', data);
         }
+        
+        logger.info(`[emitLocal] KOT ${kotNum} emitted to rooms: ${emittedRooms.join(', ')}`);
         break;
+      }
 
       case 'bill:status':
         io.to(`captain:${data.outletId}`).emit('bill:status', data);

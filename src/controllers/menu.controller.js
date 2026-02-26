@@ -35,9 +35,20 @@ const menuController = {
   async getCategories(req, res) {
     try {
       const { outletId } = req.params;
-      const { includeInactive } = req.query;
-      const categories = await categoryService.getByOutlet(outletId, includeInactive === 'true');
-      res.json({ success: true, data: withImageUrl(categories) });
+      const filters = {
+        includeInactive: req.query.includeInactive === 'true',
+        search: req.query.search,
+        serviceType: req.query.serviceType,
+        parentId: req.query.parentId,
+        page: req.query.page,
+        limit: req.query.limit
+      };
+      const result = await categoryService.getByOutlet(outletId, filters);
+      res.json({ 
+        success: true, 
+        data: withImageUrl(result.categories),
+        pagination: result.pagination
+      });
     } catch (error) {
       logger.error('Get categories error:', error);
       res.status(500).json({ success: false, message: error.message });
@@ -114,14 +125,20 @@ const menuController = {
       const filters = {
         categoryId: req.query.categoryId,
         itemType: req.query.itemType,
+        serviceType: req.query.serviceType,
         search: req.query.search,
         isBestseller: req.query.isBestseller === 'true',
         isRecommended: req.query.isRecommended === 'true',
         includeInactive: req.query.includeInactive === 'true',
+        page: req.query.page,
         limit: req.query.limit
       };
-      const items = await itemService.getByOutlet(outletId, filters);
-      res.json({ success: true, data: withImageUrl(items) });
+      const result = await itemService.getByOutlet(outletId, filters);
+      res.json({ 
+        success: true, 
+        data: withImageUrl(result.items),
+        pagination: result.pagination
+      });
     } catch (error) {
       logger.error('Get items error:', error);
       res.status(500).json({ success: false, message: error.message });

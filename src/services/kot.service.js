@@ -156,16 +156,19 @@ const kotService = {
         throw new Error('No pending items to send');
       }
 
-      // Group items by station
+      // Group items by station (groupKey = station_type:station_id)
       const groupedItems = this.groupItemsByStation(pendingItems);
       const createdTickets = [];
 
-      // Create KOT for each station
-      for (const [station, items] of Object.entries(groupedItems)) {
-        const kotNumber = await this.generateKotNumber(order.outlet_id, station);
+      // Create KOT for each station group
+      for (const [groupKey, items] of Object.entries(groupedItems)) {
+        // Extract station info from first item (all items in group have same station)
+        const firstItem = items[0];
+        const station = firstItem?._station || 'kitchen';
+        const stationId = firstItem?._stationId || null;
+        const stationName = firstItem?._stationName || station;
         
-        // Get station_id from first item (all items in group have same station)
-        const stationId = items[0]?._stationId || null;
+        const kotNumber = await this.generateKotNumber(order.outlet_id, station);
 
         // Create KOT ticket with station_type and station_id
         const [kotResult] = await connection.query(
@@ -178,6 +181,8 @@ const kotService = {
             station, stationId, order.is_priority ? 1 : 0, order.special_instructions, createdBy
           ]
         );
+        
+        logger.info(`Created KOT ${kotNumber} for station "${stationName}" (type: ${station}, id: ${stationId}), items: ${items.length}`);
 
         const kotId = kotResult.insertId;
 
@@ -251,13 +256,33 @@ const kotService = {
       await connection.commit();
 
       // Emit realtime events for each station and print KOT
+      // Use Promise.all for parallel emission to avoid timing issues with multi-station KOTs
+      const emissionPromises = [];
+      
       for (const ticket of createdTickets) {
         // Fetch properly formatted KOT with correct kot_item IDs for socket event
-        const formattedKot = await this.getKotById(ticket.id);
-        if (formattedKot) {
-          await this.emitKotUpdate(order.outlet_id, formattedKot, 'kot:created');
-        }
+        const emitPromise = (async () => {
+          try {
+            const formattedKot = await this.getKotById(ticket.id);
+            if (formattedKot) {
+              await this.emitKotUpdate(order.outlet_id, formattedKot, 'kot:created');
+              logger.info(`Multi-station KOT emit success: ${ticket.kotNumber} for station ${ticket.station} (id: ${ticket.stationId})`);
+            } else {
+              logger.warn(`Multi-station KOT: Could not fetch KOT ${ticket.id} for emission`);
+            }
+          } catch (emitErr) {
+            logger.error(`Multi-station KOT emit failed for ${ticket.kotNumber}:`, emitErr.message);
+          }
+        })();
+        emissionPromises.push(emitPromise);
+      }
+      
+      // Wait for all emissions to complete
+      await Promise.all(emissionPromises);
+      logger.info(`All ${createdTickets.length} KOT socket events emitted for order ${order.order_number}`);
 
+      // Print KOTs (can be parallel too)
+      for (const ticket of createdTickets) {
         // Prepare KOT data for printing
         const kotPrintData = {
           outletId: order.outlet_id,
@@ -338,49 +363,60 @@ const kotService = {
   /**
    * Group items by their target station
    * Priority: 1) counter_id (bar), 2) kitchen_station_id, 3) default to kitchen
-   * Returns: { 'station_type': [items], ... } with station_id attached to each item
+   * Groups by station_id (not station_type) to ensure items from different physical stations
+   * get separate KOTs even if they share the same station_type.
+   * Returns: { 'groupKey': [items], ... } where groupKey = station_type:station_id or station_type for default
    */
   groupItemsByStation(items) {
     const grouped = {};
 
     for (const item of items) {
-      let station = 'kitchen'; // default station
+      let station = 'kitchen'; // default station type for routing
       let stationId = null;
       let stationName = null;
+      let groupKey = 'kitchen'; // key for grouping - ensures separate KOTs per physical station
 
       // Priority 1: Has counter (bar items) - counter_id takes precedence
       if (item.counter_id || item.counter_db_id) {
         station = item.counter_type || 'bar';
         stationId = item.counter_id || item.counter_db_id;
         stationName = item.counter_name || 'Bar';
-        logger.info(`KOT routing: "${item.item_name}" → counter ${station} (id: ${stationId})`);
+        groupKey = `${station}:${stationId}`; // Group by counter ID
+        logger.info(`KOT routing: "${item.item_name}" → counter ${station} (id: ${stationId}), groupKey: ${groupKey}`);
       }
-      // Priority 2: Has kitchen station - use station_type from kitchen_stations
+      // Priority 2: Has kitchen station - group by station_id for precise routing
       else if (item.kitchen_station_id || item.ks_id) {
-        station = item.station_type || 'kitchen';
+        station = item.station_type || 'main_kitchen';
         stationId = item.kitchen_station_id || item.ks_id;
         stationName = item.station_name || station;
-        logger.info(`KOT routing: "${item.item_name}" → station ${station} (id: ${stationId})`);
+        groupKey = `${station}:${stationId}`; // Group by station ID - ensures separate KOTs per physical station
+        logger.info(`KOT routing: "${item.item_name}" → station ${station} (id: ${stationId}), groupKey: ${groupKey}`);
       }
       // Priority 3: Default to kitchen - LOG WARNING for debugging
       else {
-        logger.warn(`KOT routing: "${item.item_name}" has NO station config (counter_id: ${item.counter_id}, kitchen_station_id: ${item.kitchen_station_id}), defaulting to kitchen. Please configure the menu item's station.`);
+        groupKey = 'kitchen:default';
+        logger.warn(`KOT routing: "${item.item_name}" has NO station config (counter_id: ${item.counter_id}, kitchen_station_id: ${item.kitchen_station_id}), defaulting to kitchen.`);
       }
 
       // Attach station info to item for later use
       item._station = station;
       item._stationId = stationId;
       item._stationName = stationName || item.station_name || item.counter_name || station;
+      item._groupKey = groupKey;
 
-      if (!grouped[station]) {
-        grouped[station] = [];
+      // Group by groupKey (station_type:station_id) for separate KOTs per physical station
+      if (!grouped[groupKey]) {
+        grouped[groupKey] = [];
       }
-      grouped[station].push(item);
+      grouped[groupKey].push(item);
     }
 
     // Log grouping summary
-    const stationSummary = Object.entries(grouped).map(([s, items]) => `${s}(${items.length})`).join(', ');
-    logger.info(`KOT items grouped by station: ${stationSummary}`);
+    const stationSummary = Object.entries(grouped).map(([key, items]) => {
+      const firstItem = items[0];
+      return `${firstItem._stationName || key}(${items.length})`;
+    }).join(', ');
+    logger.info(`KOT items grouped by station: ${stationSummary} (${Object.keys(grouped).length} groups)`);
 
     return grouped;
   },
@@ -993,17 +1029,23 @@ const kotService = {
 
   async emitKotUpdate(outletId, kot, eventType) {
     try {
-      await publishMessage('kot:update', {
+      const payload = {
         type: eventType,
         outletId,
         station: kot.station,
         stationId: kot.stationId || null,
         kot,
         timestamp: new Date().toISOString()
-      });
-      logger.info(`KOT socket event emitted: ${eventType} for outlet ${outletId}, station ${kot.station} (id: ${kot.stationId}), KOT ${kot.kotNumber || kot.id}`);
+      };
+      
+      logger.info(`[KOT Socket] Emitting ${eventType} - outlet: ${outletId}, station: ${kot.station}, stationId: ${kot.stationId}, kotNumber: ${kot.kotNumber || kot.id}`);
+      
+      await publishMessage('kot:update', payload);
+      
+      logger.info(`[KOT Socket] Successfully emitted ${eventType} for KOT ${kot.kotNumber || kot.id}`);
     } catch (error) {
-      logger.error(`Failed to emit KOT update (${eventType}):`, error.message);
+      logger.error(`[KOT Socket] Failed to emit ${eventType} for KOT ${kot.kotNumber || kot.id}:`, error.message);
+      logger.error(`[KOT Socket] Stack:`, error.stack);
     }
   },
 
