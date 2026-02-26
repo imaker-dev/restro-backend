@@ -139,10 +139,12 @@ const itemService = {
   async getByCategory(categoryId, includeInactive = false) {
     const pool = getPool();
     let query = `
-      SELECT i.*, c.name as category_name, tg.name as tax_group_name, tg.total_rate as tax_rate
+      SELECT i.*, c.name as category_name, tg.name as tax_group_name, tg.total_rate as tax_rate,
+             ks.name as kitchen_station_name, ks.code as kitchen_station_code
       FROM items i
       JOIN categories c ON i.category_id = c.id
       LEFT JOIN tax_groups tg ON i.tax_group_id = tg.id
+      LEFT JOIN kitchen_stations ks ON i.kitchen_station_id = ks.id
       WHERE i.category_id = ? AND i.deleted_at IS NULL
     `;
     const params = [categoryId];
@@ -159,10 +161,12 @@ const itemService = {
   async getByOutlet(outletId, filters = {}) {
     const pool = getPool();
     let query = `
-      SELECT i.*, c.name as category_name, tg.name as tax_group_name, tg.total_rate as tax_rate
+      SELECT i.*, c.name as category_name, tg.name as tax_group_name, tg.total_rate as tax_rate,
+             ks.name as kitchen_station_name, ks.code as kitchen_station_code
       FROM items i
       JOIN categories c ON i.category_id = c.id
       LEFT JOIN tax_groups tg ON i.tax_group_id = tg.id
+      LEFT JOIN kitchen_stations ks ON i.kitchen_station_id = ks.id
       WHERE i.outlet_id = ? AND i.deleted_at IS NULL
     `;
     const params = [outletId];
@@ -203,10 +207,12 @@ const itemService = {
   async getById(id) {
     const pool = getPool();
     const [rows] = await pool.query(
-      `SELECT i.*, c.name as category_name, tg.name as tax_group_name, tg.total_rate as tax_rate, tg.is_inclusive as tax_inclusive
+      `SELECT i.*, c.name as category_name, tg.name as tax_group_name, tg.total_rate as tax_rate, tg.is_inclusive as tax_inclusive,
+              ks.name as kitchen_station_name, ks.code as kitchen_station_code
        FROM items i
        JOIN categories c ON i.category_id = c.id
        LEFT JOIN tax_groups tg ON i.tax_group_id = tg.id
+       LEFT JOIN kitchen_stations ks ON i.kitchen_station_id = ks.id
        WHERE i.id = ? AND i.deleted_at IS NULL`,
       [id]
     );

@@ -4294,7 +4294,8 @@ const reportsService = {
     const pool = getPool();
     const { floorIds = [] } = options;
 
-    let conditions = ['t.outlet_id = ?', "t.status = 'occupied'"];
+    // Include all non-available tables (occupied, running, reserved, billing, merged, etc.)
+    let conditions = ['t.outlet_id = ?', "t.status != 'available'", 't.is_active = 1'];
     let params = [outletId];
 
     if (floorIds.length > 0) {

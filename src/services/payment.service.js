@@ -1219,30 +1219,30 @@ const paymentService = {
       [shift.outlet_id, shift.session_date]
     );
 
-    // Get order statistics
+    // Get order statistics - exclude cancelled from value calculations
     const [orderStats] = await pool.query(
       `SELECT 
         COUNT(*) as total_orders,
-        SUM(CASE WHEN status = 'completed' OR status = 'paid' THEN 1 ELSE 0 END) as completed_orders,
+        SUM(CASE WHEN status IN ('completed', 'paid') THEN 1 ELSE 0 END) as completed_orders,
         SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_orders,
-        SUM(CASE WHEN order_type = 'dine_in' THEN 1 ELSE 0 END) as dine_in_orders,
-        SUM(CASE WHEN order_type = 'takeaway' THEN 1 ELSE 0 END) as takeaway_orders,
-        SUM(CASE WHEN order_type = 'delivery' THEN 1 ELSE 0 END) as delivery_orders,
-        AVG(total_amount) as avg_order_value,
-        MAX(total_amount) as max_order_value,
-        MIN(CASE WHEN total_amount > 0 THEN total_amount ELSE NULL END) as min_order_value
+        SUM(CASE WHEN order_type = 'dine_in' AND status != 'cancelled' THEN 1 ELSE 0 END) as dine_in_orders,
+        SUM(CASE WHEN order_type = 'takeaway' AND status != 'cancelled' THEN 1 ELSE 0 END) as takeaway_orders,
+        SUM(CASE WHEN order_type = 'delivery' AND status != 'cancelled' THEN 1 ELSE 0 END) as delivery_orders,
+        AVG(CASE WHEN status != 'cancelled' THEN total_amount ELSE NULL END) as avg_order_value,
+        MAX(CASE WHEN status != 'cancelled' THEN total_amount ELSE NULL END) as max_order_value,
+        MIN(CASE WHEN status != 'cancelled' AND total_amount > 0 THEN total_amount ELSE NULL END) as min_order_value
        FROM orders
        WHERE outlet_id = ? AND DATE(created_at) = ?`,
       [shift.outlet_id, shift.session_date]
     );
 
-    // Get staff who worked during this shift
+    // Get staff who worked during this shift - exclude cancelled orders from sales
     const [staffActivity] = await pool.query(
       `SELECT 
         u.id as user_id,
         u.name as user_name,
-        COUNT(DISTINCT o.id) as orders_handled,
-        SUM(o.total_amount) as total_sales
+        COUNT(DISTINCT CASE WHEN o.status != 'cancelled' THEN o.id ELSE NULL END) as orders_handled,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.total_amount ELSE 0 END) as total_sales
        FROM orders o
        JOIN users u ON o.created_by = u.id
        WHERE o.outlet_id = ? AND DATE(o.created_at) = ?

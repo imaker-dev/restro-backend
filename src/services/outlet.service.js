@@ -258,6 +258,254 @@ const outletService = {
       sections,
       tableStats: tableStats[0]
     };
+  },
+
+  /**
+   * HARD DELETE outlet and ALL related data
+   * WARNING: This permanently deletes all data - use with extreme caution
+   * Only super_admin should have access to this function
+   * 
+   * @param {number} outletId - Outlet ID to delete
+   * @param {string} confirmationCode - Must match outlet code for safety
+   * @returns {object} Deletion summary with counts
+   */
+  async hardDelete(outletId, confirmationCode) {
+    const pool = getPool();
+    const connection = await pool.getConnection();
+
+    try {
+      // 1. Verify outlet exists and confirmation code matches
+      const outlet = await this.getById(outletId);
+      if (!outlet) {
+        throw new Error(`Outlet ${outletId} not found`);
+      }
+
+      if (outlet.code !== confirmationCode) {
+        throw new Error(`Confirmation code mismatch. Expected: ${outlet.code}`);
+      }
+
+      logger.warn(`HARD DELETE initiated for outlet ${outletId} (${outlet.name})`);
+
+      await connection.beginTransaction();
+
+      const deletionLog = {
+        outletId,
+        outletName: outlet.name,
+        outletCode: outlet.code,
+        deletedAt: new Date().toISOString(),
+        tables: {}
+      };
+
+      // Tables to delete in order (child tables first, then parent tables)
+      // Order matters for foreign key constraints
+      const tablesToDelete = [
+        // Level 1: Transaction/Log tables
+        'activity_logs',
+        'permission_logs',
+        'error_logs',
+        'notification_logs',
+        'print_jobs',
+        'duplicate_bill_logs',
+        'bulk_upload_logs',
+        
+        // Level 2: User session/assignment tables
+        'user_sessions',
+        'user_stations',
+        'user_floors',
+        'user_sections',
+        'user_menu_access',
+        'user_permissions',
+        
+        // Level 3: KOT related
+        'kot_tickets',
+        
+        // Level 4: Payment/Billing child tables
+        'refunds',
+        'payments',
+        'invoices',
+        
+        // Level 5: Order related
+        'orders',
+        
+        // Level 6: Cash management
+        'cash_drawer',
+        'day_sessions',
+        
+        // Level 7: Item related child tables (linking tables)
+        'item_sales',
+        
+        // Level 8: Addon related
+        'addon_groups',
+        
+        // Level 9: Items (has variants as child)
+        'items',
+        
+        // Level 10: Categories
+        'categories',
+        
+        // Level 11: Layout tables
+        'tables',
+        'sections',
+        'floors',
+        
+        // Level 12: Kitchen/Printer infrastructure
+        'kitchen_stations',
+        'counters',
+        'printers',
+        'printer_bridges',
+        'print_templates',
+        
+        // Level 13: Time/Schedule tables
+        'time_slots',
+        
+        // Level 14: Inventory tables
+        'stock',
+        'stock_logs',
+        'opening_stock',
+        'closing_stock',
+        'wastage_logs',
+        'ingredients',
+        'purchase_orders',
+        'suppliers',
+        
+        // Level 15: Report/Summary tables
+        'daily_sales',
+        'hourly_sales',
+        'item_sales',
+        'category_sales',
+        'staff_sales',
+        'floor_section_sales',
+        'payment_mode_summary',
+        'tax_summary',
+        'discount_summary',
+        'cancellation_summary',
+        'cash_summary',
+        'top_selling_items',
+        'inventory_consumption_summary',
+        
+        // Level 16: Config tables
+        'tax_groups',
+        'tax_rules',
+        'price_rules',
+        'discounts',
+        'service_charges',
+        'cancel_reasons',
+        'system_settings',
+        'notifications',
+        'devices',
+        'file_uploads',
+        'table_reservations',
+        'category_outlets',
+        
+        // Level 17: Customer related
+        'customers',
+        
+        // Level 18: User roles (before users)
+        'user_roles',
+      ];
+
+      // Delete from each table
+      for (const tableName of tablesToDelete) {
+        try {
+          const [result] = await connection.query(
+            `DELETE FROM ${tableName} WHERE outlet_id = ?`,
+            [outletId]
+          );
+          deletionLog.tables[tableName] = result.affectedRows;
+          if (result.affectedRows > 0) {
+            logger.info(`Deleted ${result.affectedRows} rows from ${tableName}`);
+          }
+        } catch (err) {
+          // Table might not exist or have different structure - continue
+          if (err.code !== 'ER_NO_SUCH_TABLE' && err.code !== 'ER_BAD_FIELD_ERROR') {
+            logger.warn(`Error deleting from ${tableName}: ${err.message}`);
+          }
+          deletionLog.tables[tableName] = 0;
+        }
+      }
+
+      // Finally delete the outlet itself
+      const [outletResult] = await connection.query(
+        'DELETE FROM outlets WHERE id = ?',
+        [outletId]
+      );
+      deletionLog.tables['outlets'] = outletResult.affectedRows;
+
+      await connection.commit();
+
+      // Invalidate all caches for this outlet
+      await this.invalidateCache(outletId);
+      await cache.del(`categories:${outletId}:false`);
+      await cache.del(`categories:${outletId}:true`);
+      await cache.del(`items:${outletId}`);
+      await cache.del(`addon_groups:${outletId}`);
+      await cache.del(`kitchen_stations:${outletId}`);
+      await cache.del(`counters:${outletId}`);
+
+      logger.warn(`HARD DELETE completed for outlet ${outletId}. Summary:`, deletionLog);
+
+      return {
+        success: true,
+        message: `Outlet "${outlet.name}" (${outlet.code}) and all related data permanently deleted`,
+        summary: deletionLog
+      };
+
+    } catch (error) {
+      await connection.rollback();
+      logger.error(`HARD DELETE failed for outlet ${outletId}:`, error);
+      throw error;
+    } finally {
+      connection.release();
+    }
+  },
+
+  /**
+   * Get deletion preview - shows what would be deleted without actually deleting
+   * Use this to verify before hard delete
+   */
+  async getDeletePreview(outletId) {
+    const pool = getPool();
+
+    const outlet = await this.getById(outletId);
+    if (!outlet) {
+      throw new Error(`Outlet ${outletId} not found`);
+    }
+
+    const preview = {
+      outlet: {
+        id: outlet.id,
+        code: outlet.code,
+        name: outlet.name
+      },
+      tables: {}
+    };
+
+    // Tables to check
+    const tablesToCheck = [
+      'users', 'user_roles', 'categories', 'items', 'addon_groups',
+      'floors', 'sections', 'tables', 'orders', 'payments', 'invoices',
+      'kot_tickets', 'kitchen_stations', 'printers', 'customers',
+      'cash_drawer', 'day_sessions', 'print_jobs', 'bulk_upload_logs'
+    ];
+
+    let totalRows = 0;
+    for (const tableName of tablesToCheck) {
+      try {
+        const [result] = await pool.query(
+          `SELECT COUNT(*) as count FROM ${tableName} WHERE outlet_id = ?`,
+          [outletId]
+        );
+        preview.tables[tableName] = result[0].count;
+        totalRows += result[0].count;
+      } catch (err) {
+        preview.tables[tableName] = 0;
+      }
+    }
+
+    preview.totalRows = totalRows;
+    preview.warning = `This will PERMANENTLY DELETE ${totalRows} rows across ${Object.keys(preview.tables).length} tables. This action CANNOT be undone.`;
+
+    return preview;
   }
 };
 

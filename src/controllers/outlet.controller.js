@@ -84,6 +84,57 @@ const outletController = {
     }
   },
 
+  /**
+   * Get deletion preview for an outlet
+   * Shows what data would be deleted without actually deleting
+   * @route GET /api/v1/outlets/:id/delete-preview
+   * @access Super Admin only
+   */
+  async getDeletePreview(req, res, next) {
+    try {
+      const preview = await outletService.getDeletePreview(req.params.id);
+      res.json({ 
+        success: true, 
+        message: 'Deletion preview generated',
+        data: preview 
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * HARD DELETE outlet and ALL related data
+   * WARNING: This permanently deletes all data - cannot be undone
+   * @route DELETE /api/v1/outlets/:id/hard-delete
+   * @access Super Admin only
+   * @body { confirmationCode: string } - Must match outlet code for safety
+   */
+  async hardDeleteOutlet(req, res, next) {
+    try {
+      const { confirmationCode } = req.body;
+      
+      if (!confirmationCode) {
+        return res.status(400).json({
+          success: false,
+          message: 'Confirmation code is required. Use the outlet code to confirm deletion.'
+        });
+      }
+
+      const result = await outletService.hardDelete(req.params.id, confirmationCode);
+      
+      logger.warn(`Super Admin ${req.user.userId} performed HARD DELETE on outlet ${req.params.id}`);
+      
+      res.json({
+        success: true,
+        message: result.message,
+        data: result.summary
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
   // ========================
   // Floor Operations
   // ========================

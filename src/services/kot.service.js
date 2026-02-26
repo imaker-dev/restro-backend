@@ -136,14 +136,16 @@ const kotService = {
       if (!orders[0]) throw new Error('Order not found');
       const order = orders[0];
 
-      // Get pending items with station info and item_type
+      // Get pending items with station info and item_type for routing
       const [pendingItems] = await connection.query(
         `SELECT oi.*, 
           i.kitchen_station_id, i.counter_id, i.item_type as menu_item_type,
-          ks.station_type, ks.name as station_name,
-          c.counter_type, c.name as counter_name
+          i.category_id, cat.name as category_name,
+          ks.station_type, ks.name as station_name, ks.id as ks_id,
+          c.counter_type, c.name as counter_name, c.id as counter_db_id
          FROM order_items oi
          JOIN items i ON oi.item_id = i.id
+         LEFT JOIN categories cat ON i.category_id = cat.id
          LEFT JOIN kitchen_stations ks ON i.kitchen_station_id = ks.id
          LEFT JOIN counters c ON i.counter_id = c.id
          WHERE oi.order_id = ? AND oi.status = 'pending'`,
@@ -335,37 +337,50 @@ const kotService = {
 
   /**
    * Group items by their target station
-   * Uses actual station_type from kitchen_stations table
+   * Priority: 1) counter_id (bar), 2) kitchen_station_id, 3) default to kitchen
    * Returns: { 'station_type': [items], ... } with station_id attached to each item
    */
   groupItemsByStation(items) {
     const grouped = {};
 
     for (const item of items) {
-      let station = 'main_kitchen'; // default station_type
+      let station = 'kitchen'; // default station
       let stationId = null;
+      let stationName = null;
 
-      // Determine station based on item configuration
-      if (item.counter_id) {
-        // Has counter (bar items)
+      // Priority 1: Has counter (bar items) - counter_id takes precedence
+      if (item.counter_id || item.counter_db_id) {
         station = item.counter_type || 'bar';
-        stationId = null; // counters don't have station_id
-      } else if (item.kitchen_station_id) {
-        // Has kitchen station - use actual station_type
-        station = item.station_type || 'main_kitchen';
-        stationId = item.kitchen_station_id;
+        stationId = item.counter_id || item.counter_db_id;
+        stationName = item.counter_name || 'Bar';
+        logger.info(`KOT routing: "${item.item_name}" → counter ${station} (id: ${stationId})`);
+      }
+      // Priority 2: Has kitchen station - use station_type from kitchen_stations
+      else if (item.kitchen_station_id || item.ks_id) {
+        station = item.station_type || 'kitchen';
+        stationId = item.kitchen_station_id || item.ks_id;
+        stationName = item.station_name || station;
+        logger.info(`KOT routing: "${item.item_name}" → station ${station} (id: ${stationId})`);
+      }
+      // Priority 3: Default to kitchen - LOG WARNING for debugging
+      else {
+        logger.warn(`KOT routing: "${item.item_name}" has NO station config (counter_id: ${item.counter_id}, kitchen_station_id: ${item.kitchen_station_id}), defaulting to kitchen. Please configure the menu item's station.`);
       }
 
       // Attach station info to item for later use
       item._station = station;
       item._stationId = stationId;
-      item._stationName = item.station_name || item.counter_name || station;
+      item._stationName = stationName || item.station_name || item.counter_name || station;
 
       if (!grouped[station]) {
         grouped[station] = [];
       }
       grouped[station].push(item);
     }
+
+    // Log grouping summary
+    const stationSummary = Object.entries(grouped).map(([s, items]) => `${s}(${items.length})`).join(', ');
+    logger.info(`KOT items grouped by station: ${stationSummary}`);
 
     return grouped;
   },

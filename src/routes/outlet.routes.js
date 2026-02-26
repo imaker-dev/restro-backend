@@ -75,10 +75,26 @@ router.put('/:id', authorize('super_admin', 'admin'), validate(outletValidation.
 
 /**
  * @route   DELETE /api/v1/outlets/:id
- * @desc    Delete outlet
+ * @desc    Delete outlet (soft delete)
  * @access  Private (admin)
  */
 router.delete('/:id', authorize('super_admin', 'admin'), outletController.deleteOutlet);
+
+/**
+ * @route   GET /api/v1/outlets/:id/delete-preview
+ * @desc    Preview what would be deleted - shows data counts before hard delete
+ * @access  Private (super_admin only)
+ */
+router.get('/:id/delete-preview', authorize('super_admin'), outletController.getDeletePreview);
+
+/**
+ * @route   DELETE /api/v1/outlets/:id/hard-delete
+ * @desc    PERMANENTLY delete outlet and ALL related data (staff, menu, orders, bills, etc.)
+ *          Requires confirmationCode in body matching outlet code
+ * @access  Private (super_admin only)
+ * @body    { confirmationCode: string }
+ */
+router.delete('/:id/hard-delete', authorize('super_admin'), outletController.hardDeleteOutlet);
 
 // ========================
 // Floor Routes

@@ -1092,7 +1092,8 @@ const orderService = {
 
       const [items] = await connection.query(
         `SELECT oi.*, o.outlet_id, o.status as order_status, o.order_number, o.table_id,
-          t.table_number, kt.kot_number, kt.station as kot_station
+          t.table_number, kt.kot_number, kt.station as kot_station,
+          (SELECT COUNT(*) FROM invoices inv WHERE inv.order_id = o.id AND inv.status != 'cancelled') as has_invoice
          FROM order_items oi
          JOIN orders o ON oi.order_id = o.id
          LEFT JOIN tables t ON o.table_id = t.id
@@ -1104,6 +1105,16 @@ const orderService = {
 
       const item = items[0];
       const { reason, reasonId, quantity, approvedBy } = data;
+
+      // Block cancellation if order is billed, billing, paid, completed or cancelled
+      if (['billing', 'billed', 'paid', 'completed', 'cancelled'].includes(item.order_status)) {
+        throw new Error('Cannot cancel items after bill is generated or order is completed');
+      }
+
+      // Extra safety: Block if invoice exists for this order
+      if (item.has_invoice > 0) {
+        throw new Error('Cannot cancel items after bill has been generated');
+      }
 
       // Check if cancellation requires approval (after preparation started)
       const requiresApproval = ['preparing', 'ready'].includes(item.status);
@@ -1273,9 +1284,18 @@ const orderService = {
 
       const { reason, reasonId, approvedBy } = data;
 
-      // Check if order can be cancelled
-      if (['paid', 'completed', 'cancelled'].includes(order.status)) {
-        throw new Error('Order cannot be cancelled');
+      // Check if order can be cancelled - block after bill is generated
+      if (['billing', 'billed', 'paid', 'completed', 'cancelled'].includes(order.status)) {
+        throw new Error('Order cannot be cancelled after bill is generated or when completed/cancelled');
+      }
+
+      // Extra safety: Check if invoice exists for this order
+      const [invoiceCheck] = await connection.query(
+        `SELECT COUNT(*) as count FROM invoices WHERE order_id = ? AND status != 'cancelled'`,
+        [orderId]
+      );
+      if (invoiceCheck[0].count > 0) {
+        throw new Error('Order cannot be cancelled after bill has been generated');
       }
 
       // Requires approval if order has prepared items
@@ -1479,12 +1499,14 @@ const orderService = {
       sortOrder = 'DESC'
     } = filters;
 
+    // Optimized query with LEFT JOIN aggregations instead of subqueries for better performance
     let query = `
       SELECT 
         o.id,
         o.order_number,
         o.order_type,
         o.status,
+        o.payment_status,
         o.subtotal,
         o.tax_amount,
         o.discount_amount,
@@ -1501,14 +1523,24 @@ const orderService = {
         f.name as floor_name,
         ts.started_at as session_started_at,
         ts.ended_at as session_ended_at,
-        (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id AND oi.status != 'cancelled') as item_count,
-        (SELECT COUNT(*) FROM kot_tickets kt WHERE kt.order_id = o.id) as kot_count,
+        COALESCE(item_stats.item_count, 0) as item_count,
+        COALESCE(kot_stats.kot_count, 0) as kot_count,
         u.name as created_by_name
       FROM orders o
       LEFT JOIN tables t ON o.table_id = t.id
       LEFT JOIN floors f ON o.floor_id = f.id
       LEFT JOIN table_sessions ts ON o.table_session_id = ts.id
       LEFT JOIN users u ON o.created_by = u.id
+      LEFT JOIN (
+        SELECT order_id, COUNT(*) as item_count 
+        FROM order_items WHERE status != 'cancelled' 
+        GROUP BY order_id
+      ) item_stats ON o.id = item_stats.order_id
+      LEFT JOIN (
+        SELECT order_id, COUNT(*) as kot_count 
+        FROM kot_tickets 
+        GROUP BY order_id
+      ) kot_stats ON o.id = kot_stats.order_id
       WHERE o.outlet_id = ? AND o.created_by = ?
     `;
     const params = [outletId, captainId];
@@ -1522,9 +1554,10 @@ const orderService = {
     // Status filter
     if (status && status !== 'all') {
       if (status === 'running') {
-        query += ` AND o.status IN ('pending', 'confirmed', 'preparing', 'ready', 'served')`;
+        // Include 'billing' in running - order is still active until paid
+        query += ` AND o.status IN ('pending', 'confirmed', 'preparing', 'ready', 'served', 'billing')`;
       } else if (status === 'completed') {
-        query += ` AND o.status IN ('billed', 'paid', 'completed')`;
+        query += ` AND o.status IN ('paid', 'completed')`;
       } else if (status === 'cancelled') {
         query += ` AND o.status = 'cancelled'`;
       } else {
