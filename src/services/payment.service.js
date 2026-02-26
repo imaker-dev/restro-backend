@@ -358,18 +358,15 @@ const paymentService = {
       });
     }
 
-    // Emit KOT served events for real-time kitchen display
+    // Emit KOT served events for real-time kitchen display - remove from all stations
     if (paymentStatus === 'completed') {
       try {
         const kots = await kotService.getKotsByOrder(orderId);
+        logger.info(`[Payment] Emitting kot:served for ${kots.length} KOTs of order ${orderId}`);
         for (const kot of kots) {
-          await publishMessage('kot:update', {
-            type: 'kot:served',
-            outletId,
-            station: kot.station,
-            kot,
-            timestamp: new Date().toISOString()
-          });
+          // Use kotService.emitKotUpdate for consistent socket emission with stationId
+          await kotService.emitKotUpdate(outletId, kot, 'kot:served');
+          logger.info(`[Payment] KOT ${kot.kotNumber} marked served - station: ${kot.station}, stationId: ${kot.stationId}`);
         }
       } catch (err) {
         logger.error('Failed to emit KOT served events:', err.message);
@@ -549,17 +546,13 @@ const paymentService = {
         });
       }
 
-      // Emit KOT served events
+      // Emit KOT served events - remove from all stations
       try {
         const kots = await kotService.getKotsByOrder(orderId);
+        logger.info(`[SplitPayment] Emitting kot:served for ${kots.length} KOTs of order ${orderId}`);
         for (const kot of kots) {
-          await publishMessage('kot:update', {
-            type: 'kot:served',
-            outletId,
-            station: kot.station,
-            kot,
-            timestamp: new Date().toISOString()
-          });
+          await kotService.emitKotUpdate(outletId, kot, 'kot:served');
+          logger.info(`[SplitPayment] KOT ${kot.kotNumber} marked served - station: ${kot.station}, stationId: ${kot.stationId}`);
         }
       } catch (err) {
         logger.error('Failed to emit KOT served events:', err.message);
