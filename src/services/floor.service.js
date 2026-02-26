@@ -250,13 +250,14 @@ const floorService = {
     const floor = await this.getById(floorId);
     if (!floor) return null;
 
-    // Get ALL sections for this outlet (not just those with tables on this floor)
+    // Get sections linked to THIS floor via floor_sections table
     const [allSections] = await pool.query(
-      `SELECT id, name, code, description, section_type, color_code, display_order, is_active
-       FROM sections
-       WHERE outlet_id = ? AND is_active = 1
-       ORDER BY display_order, name`,
-      [floor.outlet_id]
+      `SELECT s.id, s.name, s.code, s.description, s.section_type, s.color_code, s.display_order, s.is_active
+       FROM sections s
+       JOIN floor_sections fs ON s.id = fs.section_id AND fs.is_active = 1
+       WHERE fs.floor_id = ? AND s.is_active = 1
+       ORDER BY s.display_order, s.name`,
+      [floorId]
     );
 
     // Get all tables for this floor with section and order info

@@ -31,14 +31,14 @@ const upload = multer({
  * @desc    Download CSV template for menu upload
  * @access  Private (admin, super_admin)
  */
-router.get('/menu/template', authenticate, authorize('super_admin', 'admin'), bulkUploadController.getTemplate);
+router.get('/menu/template', authenticate, authorize('super_admin', 'admin','manager'), bulkUploadController.getTemplate);
 
 /**
  * @route   GET /api/v1/bulk-upload/menu/template/json
  * @desc    Get template structure as JSON
  * @access  Private (admin, super_admin)
  */
-router.get('/menu/template/json', authenticate, authorize('super_admin', 'admin'), bulkUploadController.getTemplateStructure);
+router.get('/menu/template/json', authenticate, authorize('super_admin', 'admin','manager'), bulkUploadController.getTemplateStructure);
 
 /**
  * @route   POST /api/v1/bulk-upload/menu/validate
@@ -47,7 +47,7 @@ router.get('/menu/template/json', authenticate, authorize('super_admin', 'admin'
  * @body    csvContent (string) OR file upload
  * @query   outletId
  */
-router.post('/menu/validate', authenticate, authorize('super_admin', 'admin'), upload.single('file'), bulkUploadController.validateUpload);
+router.post('/menu/validate', authenticate, authorize('super_admin', 'admin','manager'), upload.single('file'), bulkUploadController.validateUpload);
 
 /**
  * @route   POST /api/v1/bulk-upload/menu/preview
@@ -56,7 +56,7 @@ router.post('/menu/validate', authenticate, authorize('super_admin', 'admin'), u
  * @body    csvContent (string) OR file upload
  * @query   outletId
  */
-router.post('/menu/preview', authenticate, authorize('super_admin', 'admin'), upload.single('file'), bulkUploadController.previewUpload);
+router.post('/menu/preview', authenticate, authorize('super_admin', 'admin','manager'), upload.single('file'), bulkUploadController.previewUpload);
 
 /**
  * @route   POST /api/v1/bulk-upload/menu
@@ -64,7 +64,7 @@ router.post('/menu/preview', authenticate, authorize('super_admin', 'admin'), up
  * @access  Private (admin, super_admin)
  * @body    csvContent (string) OR file upload, outletId, skipValidation (optional)
  */
-router.post('/menu', authenticate, authorize('super_admin', 'admin'), upload.single('file'), bulkUploadController.uploadMenu);
+router.post('/menu', authenticate, authorize('super_admin', 'admin','manager'), upload.single('file'), bulkUploadController.uploadMenu);
 
 /**
  * @route   GET /api/v1/bulk-upload/history
@@ -72,6 +72,6 @@ router.post('/menu', authenticate, authorize('super_admin', 'admin'), upload.sin
  * @access  Private (admin, super_admin)
  * @query   outletId, limit
  */
-router.get('/history', authenticate, authorize('super_admin', 'admin'), bulkUploadController.getHistory);
+router.get('/history', authenticate, authorize('super_admin', 'admin','manager'), bulkUploadController.getHistory);
 
 module.exports = router;

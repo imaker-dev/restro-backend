@@ -32,7 +32,8 @@ const outletController = {
         outletType: req.query.outletType,
         search: req.query.search
       };
-      const outlets = await outletService.getAll(filters);
+      // Pass user info to filter outlets based on user's access
+      const outlets = await outletService.getAll(filters, req.user.userId, req.user.roles);
       res.json({ success: true, data: outlets });
     } catch (error) {
       next(error);
