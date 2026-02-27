@@ -17,15 +17,73 @@ const { loadOutletLogo } = require('../utils/escpos-image');
 const BRIDGE_STATUS_STALE_SECONDS = parseInt(process.env.BRIDGE_STATUS_STALE_SECONDS, 10) || 90;
 const BRIDGE_ONLINE_WINDOW_SECONDS = parseInt(process.env.BRIDGE_ONLINE_WINDOW_SECONDS, 10) || 90;
 const DEFAULT_PRINT_LOGO_PATH = path.resolve(__dirname, '../../public/Whatsapp.bmp');
+const BINARY_CONTENT_PREFIX = 'b64:';
+
+function resolveExistingLocalPath(source) {
+  if (typeof source !== 'string') return null;
+  const value = source.trim();
+  if (!value) return null;
+
+  const normalized = value.replace(/\\/g, '/');
+  const candidates = [];
+
+  // Absolute filesystem path
+  if (path.isAbsolute(value)) {
+    candidates.push(value);
+  }
+
+  // Relative to project root
+  candidates.push(path.resolve(process.cwd(), value.replace(/^\/+/, '')));
+
+  // Friendly fallback for values like "/logo.bmp" or "logo.bmp"
+  const stripped = value.replace(/^\/+/, '');
+  candidates.push(path.resolve(process.cwd(), 'public', stripped));
+  candidates.push(path.resolve(process.cwd(), 'uploads', stripped));
+
+  // Additional explicit cases for paths that already contain folder segments
+  if (normalized.startsWith('/public/')) {
+    candidates.push(path.resolve(process.cwd(), normalized.replace(/^\/+/, '')));
+  }
+  if (normalized.startsWith('/uploads/')) {
+    candidates.push(path.resolve(process.cwd(), normalized.replace(/^\/+/, '')));
+  }
+
+  const uniqueCandidates = Array.from(new Set(candidates));
+  for (const candidate of uniqueCandidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
 
 function resolveLogoSource(preferredLogoUrl) {
+  const candidates = [];
   if (typeof preferredLogoUrl === 'string' && preferredLogoUrl.trim()) {
-    return preferredLogoUrl.trim();
+    candidates.push(preferredLogoUrl.trim());
   }
-  if (fs.existsSync(DEFAULT_PRINT_LOGO_PATH)) {
-    return DEFAULT_PRINT_LOGO_PATH;
+  candidates.push(DEFAULT_PRINT_LOGO_PATH);
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    if (candidate.startsWith('http://') || candidate.startsWith('https://')) {
+      return candidate;
+    }
+    const localPath = resolveExistingLocalPath(candidate);
+    if (localPath) {
+      return localPath;
+    }
   }
+
   return null;
+}
+
+function encodePrintContentForStorage(content) {
+  if (Buffer.isBuffer(content)) {
+    return `${BINARY_CONTENT_PREFIX}${content.toString('base64')}`;
+  }
+  return content;
 }
 
 function parseDbDateToUtcMs(value) {
@@ -183,6 +241,7 @@ const printerService = {
   async createPrintJob(data) {
     const pool = getPool();
     const uuid = uuidv4();
+    const contentForStorage = encodePrintContentForStorage(data.content);
 
     // Find appropriate printer for this station
     let printerId = data.printerId;
@@ -199,7 +258,7 @@ const printerService = {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         uuid, data.outletId, printerId, data.jobType, data.station,
-        data.kotId, data.orderId, data.invoiceId, data.content,
+        data.kotId, data.orderId, data.invoiceId, contentForStorage,
         data.contentType || 'text', data.referenceNumber,
         data.tableNumber, data.priority || 0, data.createdBy
       ]
