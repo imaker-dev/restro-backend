@@ -8959,3 +8959,7 @@ Error: Column 'outlet_id' cannot be null
     at Layer.handle [as handle_request] (E:\restro-backend\node_modules\express\lib\router\layer.js:95:5)
 2026-02-24 12:26:23 [ERROR]: Direct Bill print failed for INV/2526/000006:
 2026-02-24 12:26:23 [ERROR]: Direct bill print failed for INV/2526/000006:
+2026-02-27 15:39:42 [ERROR]: Failed to start server: {"code":"ECONNREFUSED","fatal":true}
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)

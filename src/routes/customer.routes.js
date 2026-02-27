@@ -44,6 +44,15 @@ router.get('/:outletId/by-phone', authorize('super_admin', 'admin', 'manager', '
 router.get('/:outletId/list', authorize('super_admin', 'admin', 'manager', 'cashier'), customerController.list);
 
 /**
+ * @route   GET /api/v1/customers/:outletId/details/:customerId
+ * @desc    Get complete customer details with full order history
+ * @access  Private (admin, manager, cashier)
+ * @query   includeOrders, includeItems, includePayments, includeCancelledOrders, paginate, page, limit
+ * @query   search, status, paymentStatus, orderType, fromDate, toDate, minAmount, maxAmount, sortBy, sortOrder
+ */
+router.get('/:outletId/details/:customerId', authorize('super_admin', 'admin', 'manager', 'cashier'), customerController.getDetails);
+
+/**
  * @route   GET /api/v1/customers/:id
  * @desc    Get customer by ID
  * @access  Private (admin, manager, cashier)

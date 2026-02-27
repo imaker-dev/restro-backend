@@ -30,6 +30,28 @@ function deriveGstState(gstin) {
   return { gstState: GST_STATE_MAP[gstStateCode] || null, gstStateCode };
 }
 
+const VALID_ORDER_TYPES = new Set(['dine_in', 'takeaway', 'delivery', 'online']);
+const VALID_ORDER_STATUSES = new Set([
+  'pending', 'confirmed', 'preparing', 'ready', 'served', 'billed', 'paid', 'cancelled'
+]);
+const VALID_PAYMENT_STATUSES = new Set(['pending', 'partial', 'completed', 'refunded']);
+
+function toSafeInteger(value, fallback, min = 1, max = 200) {
+  const parsed = parseInt(value, 10);
+  if (!Number.isInteger(parsed)) return fallback;
+  return Math.min(Math.max(parsed, min), max);
+}
+
+function toSafeNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function hasText(value) {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
 const customerService = {
   // ========================
   // CUSTOMER CRUD
@@ -164,33 +186,212 @@ const customerService = {
 
   async list(outletId, options = {}) {
     const pool = getPool();
-    const { page = 1, limit = 50, gstOnly = false, sortBy = 'name', sortOrder = 'ASC' } = options;
-    const offset = (page - 1) * limit;
+    const {
+      page = 1,
+      limit = 50,
+      gstOnly = false,
+      isGstCustomer,
+      isActive = true,
+      hasPhone,
+      hasEmail,
+      isInterstate,
+      search,
+      minTotalSpent,
+      maxTotalSpent,
+      minTotalOrders,
+      maxTotalOrders,
+      createdFrom,
+      createdTo,
+      lastOrderFrom,
+      lastOrderTo,
+      orderType,
+      paymentStatus,
+      sortBy = 'lastOrderAt',
+      sortOrder = 'DESC'
+    } = options;
 
-    let whereClause = 'outlet_id = ? AND is_active = 1';
+    const safePage = toSafeInteger(page, 1, 1, 100000);
+    const safeLimit = toSafeInteger(limit, 50, 1, 200);
+    const offset = (safePage - 1) * safeLimit;
+
+    const statsJoin = `
+      LEFT JOIN (
+        SELECT
+          o.customer_id,
+          COUNT(*) AS total_orders,
+          SUM(COALESCE(o.total_amount, 0)) AS total_spent,
+          MAX(o.created_at) AS last_order_at,
+          MIN(o.created_at) AS first_order_at,
+          AVG(COALESCE(o.total_amount, 0)) AS avg_order_value
+        FROM orders o
+        WHERE o.customer_id IS NOT NULL
+          AND o.status != 'cancelled'
+        GROUP BY o.customer_id
+      ) os ON os.customer_id = c.id
+    `;
+
+    const whereParts = ['c.outlet_id = ?'];
     const params = [outletId];
 
-    if (gstOnly) {
-      whereClause += ' AND is_gst_customer = 1';
+    const gstFilter = typeof isGstCustomer === 'boolean'
+      ? isGstCustomer
+      : (gstOnly ? true : null);
+    if (gstFilter !== null) {
+      whereParts.push('c.is_gst_customer = ?');
+      params.push(gstFilter ? 1 : 0);
     }
 
-    const validSortFields = ['name', 'total_orders', 'total_spent', 'last_order_at', 'created_at'];
-    const sortField = validSortFields.includes(sortBy) ? sortBy : 'name';
-    const order = sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+    if (typeof isActive === 'boolean') {
+      whereParts.push('c.is_active = ?');
+      params.push(isActive ? 1 : 0);
+    }
+
+    if (typeof hasPhone === 'boolean') {
+      whereParts.push(hasPhone
+        ? "c.phone IS NOT NULL AND TRIM(c.phone) != ''"
+        : "(c.phone IS NULL OR TRIM(c.phone) = '')");
+    }
+
+    if (typeof hasEmail === 'boolean') {
+      whereParts.push(hasEmail
+        ? "c.email IS NOT NULL AND TRIM(c.email) != ''"
+        : "(c.email IS NULL OR TRIM(c.email) = '')");
+    }
+
+    if (typeof isInterstate === 'boolean') {
+      whereParts.push('c.is_interstate = ?');
+      params.push(isInterstate ? 1 : 0);
+    }
+
+    if (hasText(search)) {
+      const searchTerm = `%${search.trim()}%`;
+      whereParts.push('(c.name LIKE ? OR c.phone LIKE ? OR c.email LIKE ? OR c.company_name LIKE ? OR c.gstin LIKE ?)');
+      params.push(searchTerm, searchTerm, searchTerm, searchTerm, searchTerm);
+    }
+
+    const minSpent = toSafeNumber(minTotalSpent);
+    if (minSpent !== null) {
+      whereParts.push('COALESCE(os.total_spent, c.total_spent, 0) >= ?');
+      params.push(minSpent);
+    }
+
+    const maxSpent = toSafeNumber(maxTotalSpent);
+    if (maxSpent !== null) {
+      whereParts.push('COALESCE(os.total_spent, c.total_spent, 0) <= ?');
+      params.push(maxSpent);
+    }
+
+    const minOrders = toSafeNumber(minTotalOrders);
+    if (minOrders !== null) {
+      whereParts.push('COALESCE(os.total_orders, c.total_orders, 0) >= ?');
+      params.push(minOrders);
+    }
+
+    const maxOrders = toSafeNumber(maxTotalOrders);
+    if (maxOrders !== null) {
+      whereParts.push('COALESCE(os.total_orders, c.total_orders, 0) <= ?');
+      params.push(maxOrders);
+    }
+
+    if (hasText(createdFrom)) {
+      whereParts.push('c.created_at >= ?');
+      params.push(createdFrom.trim());
+    }
+    if (hasText(createdTo)) {
+      whereParts.push('c.created_at <= ?');
+      params.push(createdTo.trim());
+    }
+
+    if (hasText(lastOrderFrom)) {
+      whereParts.push('COALESCE(os.last_order_at, c.last_order_at) >= ?');
+      params.push(lastOrderFrom.trim());
+    }
+    if (hasText(lastOrderTo)) {
+      whereParts.push('COALESCE(os.last_order_at, c.last_order_at) <= ?');
+      params.push(lastOrderTo.trim());
+    }
+
+    if (hasText(orderType) && VALID_ORDER_TYPES.has(orderType.trim())) {
+      whereParts.push('EXISTS (SELECT 1 FROM orders o2 WHERE o2.customer_id = c.id AND o2.order_type = ?)');
+      params.push(orderType.trim());
+    }
+
+    if (hasText(paymentStatus) && VALID_PAYMENT_STATUSES.has(paymentStatus.trim())) {
+      whereParts.push('EXISTS (SELECT 1 FROM orders o3 WHERE o3.customer_id = c.id AND o3.payment_status = ?)');
+      params.push(paymentStatus.trim());
+    }
+
+    const whereClause = whereParts.join(' AND ');
+
+    const sortMap = {
+      name: 'c.name',
+      createdAt: 'c.created_at',
+      updatedAt: 'c.updated_at',
+      totalOrders: 'COALESCE(os.total_orders, c.total_orders, 0)',
+      totalSpent: 'COALESCE(os.total_spent, c.total_spent, 0)',
+      lastOrderAt: 'COALESCE(os.last_order_at, c.last_order_at)',
+      avgOrderValue: 'COALESCE(os.avg_order_value, 0)'
+    };
+
+    const sortExpr = sortMap[sortBy] || sortMap.lastOrderAt;
+    const order = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
     const [rows] = await pool.query(
-      `SELECT * FROM customers WHERE ${whereClause} ORDER BY ${sortField} ${order} LIMIT ? OFFSET ?`,
-      [...params, limit, offset]
+      `SELECT
+         c.*,
+         COALESCE(os.total_orders, c.total_orders, 0) AS total_orders,
+         COALESCE(os.total_spent, c.total_spent, 0) AS total_spent,
+         COALESCE(os.last_order_at, c.last_order_at) AS last_order_at,
+         os.first_order_at,
+         COALESCE(os.avg_order_value, 0) AS avg_order_value
+       FROM customers c
+       ${statsJoin}
+       WHERE ${whereClause}
+       ORDER BY ${sortExpr} ${order}, c.id DESC
+       LIMIT ? OFFSET ?`,
+      [...params, safeLimit, offset]
     );
 
     const [[{ total }]] = await pool.query(
-      `SELECT COUNT(*) as total FROM customers WHERE ${whereClause}`,
+      `SELECT COUNT(*) AS total
+       FROM customers c
+       ${statsJoin}
+       WHERE ${whereClause}`,
+      params
+    );
+
+    const [[summaryRow]] = await pool.query(
+      `SELECT
+         COUNT(*) AS total_customers,
+         SUM(CASE WHEN c.is_gst_customer = 1 THEN 1 ELSE 0 END) AS gst_customers,
+         SUM(CASE WHEN c.is_active = 1 THEN 1 ELSE 0 END) AS active_customers,
+         SUM(COALESCE(os.total_orders, c.total_orders, 0)) AS total_orders,
+         SUM(COALESCE(os.total_spent, c.total_spent, 0)) AS total_spent
+       FROM customers c
+       ${statsJoin}
+       WHERE ${whereClause}`,
       params
     );
 
     return {
-      customers: rows.map(r => this.formatCustomer(r)),
-      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+      customers: rows.map((r) => ({
+        ...this.formatCustomer(r),
+        firstOrderAt: r.first_order_at || null,
+        avgOrderValue: parseFloat(r.avg_order_value) || 0
+      })),
+      pagination: {
+        page: safePage,
+        limit: safeLimit,
+        total,
+        totalPages: Math.ceil(total / safeLimit)
+      },
+      summary: {
+        totalCustomers: Number(summaryRow.total_customers) || 0,
+        gstCustomers: Number(summaryRow.gst_customers) || 0,
+        activeCustomers: Number(summaryRow.active_customers) || 0,
+        totalOrders: Number(summaryRow.total_orders) || 0,
+        totalSpent: parseFloat(summaryRow.total_spent) || 0
+      }
     };
   },
 
@@ -253,6 +454,389 @@ const customerService = {
         };
       }),
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+    };
+  },
+
+  async getCustomerDetails(outletId, customerId, options = {}) {
+    const pool = getPool();
+    const {
+      includeOrders = true,
+      includeItems = true,
+      includePayments = true,
+      includeCancelledOrders = true,
+      paginate = false,
+      page = 1,
+      limit = 50,
+      search,
+      status,
+      paymentStatus,
+      orderType,
+      fromDate,
+      toDate,
+      minAmount,
+      maxAmount,
+      sortBy = 'createdAt',
+      sortOrder = 'DESC'
+    } = options;
+
+    const [customerRows] = await pool.query(
+      `SELECT
+         c.*,
+         COALESCE(os.total_orders, c.total_orders, 0) AS total_orders,
+         COALESCE(os.total_spent, c.total_spent, 0) AS total_spent,
+         COALESCE(os.last_order_at, c.last_order_at) AS last_order_at,
+         os.first_order_at,
+         COALESCE(os.avg_order_value, 0) AS avg_order_value
+       FROM customers c
+       LEFT JOIN (
+         SELECT
+           o.customer_id,
+           COUNT(*) AS total_orders,
+           SUM(COALESCE(o.total_amount, 0)) AS total_spent,
+           MAX(o.created_at) AS last_order_at,
+           MIN(o.created_at) AS first_order_at,
+           AVG(COALESCE(o.total_amount, 0)) AS avg_order_value
+         FROM orders o
+         WHERE o.customer_id IS NOT NULL
+           AND o.status != 'cancelled'
+         GROUP BY o.customer_id
+       ) os ON os.customer_id = c.id
+       WHERE c.outlet_id = ? AND c.id = ?
+       LIMIT 1`,
+      [outletId, customerId]
+    );
+
+    if (!customerRows[0]) {
+      return null;
+    }
+
+    const customerRow = customerRows[0];
+    const customer = {
+      ...this.formatCustomer(customerRow),
+      firstOrderAt: customerRow.first_order_at || null,
+      avgOrderValue: parseFloat(customerRow.avg_order_value) || 0
+    };
+
+    if (!includeOrders) {
+      return {
+        customer,
+        orderHistory: [],
+        pagination: null,
+        historyStats: null,
+        historyBreakdown: null
+      };
+    }
+
+    const whereParts = ['o.customer_id = ?'];
+    const params = [customerId];
+
+    if (!includeCancelledOrders) {
+      whereParts.push("o.status != 'cancelled'");
+    }
+
+    if (hasText(search)) {
+      const term = `%${search.trim()}%`;
+      whereParts.push('(o.order_number LIKE ? OR i.invoice_number LIKE ? OR t.table_number LIKE ? OR t.name LIKE ?)');
+      params.push(term, term, term, term);
+    }
+
+    if (hasText(status) && VALID_ORDER_STATUSES.has(status.trim())) {
+      whereParts.push('o.status = ?');
+      params.push(status.trim());
+    }
+
+    if (hasText(paymentStatus) && VALID_PAYMENT_STATUSES.has(paymentStatus.trim())) {
+      whereParts.push('o.payment_status = ?');
+      params.push(paymentStatus.trim());
+    }
+
+    if (hasText(orderType) && VALID_ORDER_TYPES.has(orderType.trim())) {
+      whereParts.push('o.order_type = ?');
+      params.push(orderType.trim());
+    }
+
+    if (hasText(fromDate)) {
+      whereParts.push('o.created_at >= ?');
+      params.push(fromDate.trim());
+    }
+    if (hasText(toDate)) {
+      whereParts.push('o.created_at <= ?');
+      params.push(toDate.trim());
+    }
+
+    const minTotal = toSafeNumber(minAmount);
+    if (minTotal !== null) {
+      whereParts.push('COALESCE(o.total_amount, 0) >= ?');
+      params.push(minTotal);
+    }
+    const maxTotal = toSafeNumber(maxAmount);
+    if (maxTotal !== null) {
+      whereParts.push('COALESCE(o.total_amount, 0) <= ?');
+      params.push(maxTotal);
+    }
+
+    const whereClause = whereParts.join(' AND ');
+
+    const sortMap = {
+      createdAt: 'o.created_at',
+      billedAt: 'o.billed_at',
+      totalAmount: 'o.total_amount',
+      orderNumber: 'o.order_number',
+      invoiceDate: 'i.invoice_date'
+    };
+    const sortExpr = sortMap[sortBy] || sortMap.createdAt;
+    const orderDir = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    const baseOrderSql = `
+      FROM orders o
+      LEFT JOIN tables t ON o.table_id = t.id
+      LEFT JOIN floors f ON o.floor_id = f.id
+      LEFT JOIN invoices i ON i.order_id = o.id AND i.is_cancelled = 0
+      WHERE ${whereClause}
+    `;
+
+    const [[{ total }]] = await pool.query(
+      `SELECT COUNT(*) AS total ${baseOrderSql}`,
+      params
+    );
+
+    const safePage = toSafeInteger(page, 1, 1, 100000);
+    const safeLimit = toSafeInteger(limit, 50, 1, 200);
+    const offset = (safePage - 1) * safeLimit;
+
+    const orderQuery = paginate
+      ? `SELECT
+           o.id, o.uuid, o.order_number, o.order_type, o.status, o.payment_status,
+           o.subtotal, o.discount_amount, o.tax_amount, o.total_amount,
+           o.paid_amount, o.due_amount,
+           o.service_charge, o.packaging_charge, o.delivery_charge, o.round_off,
+           o.is_interstate, o.customer_gstin, o.customer_company_name,
+           o.customer_gst_state, o.customer_gst_state_code,
+           o.created_at, o.updated_at, o.billed_at,
+           t.id AS table_id, t.table_number, t.name AS table_name,
+           f.id AS floor_id, f.name AS floor_name,
+           i.id AS invoice_id, i.invoice_number, i.invoice_date, i.invoice_time,
+           i.grand_total AS invoice_grand_total, i.payment_status AS invoice_payment_status
+         ${baseOrderSql}
+         ORDER BY ${sortExpr} ${orderDir}, o.id DESC
+         LIMIT ? OFFSET ?`
+      : `SELECT
+           o.id, o.uuid, o.order_number, o.order_type, o.status, o.payment_status,
+           o.subtotal, o.discount_amount, o.tax_amount, o.total_amount,
+           o.paid_amount, o.due_amount,
+           o.service_charge, o.packaging_charge, o.delivery_charge, o.round_off,
+           o.is_interstate, o.customer_gstin, o.customer_company_name,
+           o.customer_gst_state, o.customer_gst_state_code,
+           o.created_at, o.updated_at, o.billed_at,
+           t.id AS table_id, t.table_number, t.name AS table_name,
+           f.id AS floor_id, f.name AS floor_name,
+           i.id AS invoice_id, i.invoice_number, i.invoice_date, i.invoice_time,
+           i.grand_total AS invoice_grand_total, i.payment_status AS invoice_payment_status
+         ${baseOrderSql}
+         ORDER BY ${sortExpr} ${orderDir}, o.id DESC`;
+
+    const queryParams = paginate ? [...params, safeLimit, offset] : params;
+    const [orders] = await pool.query(orderQuery, queryParams);
+
+    const orderIds = orders.map((o) => o.id);
+    const itemsByOrder = new Map();
+    const paymentsByOrder = new Map();
+
+    if (includeItems && orderIds.length > 0) {
+      const placeholders = orderIds.map(() => '?').join(',');
+      const [items] = await pool.query(
+        `SELECT
+           oi.id, oi.order_id, oi.item_id, oi.variant_id,
+           oi.item_name, oi.variant_name, oi.item_type, oi.status,
+           oi.quantity, oi.unit_price, oi.base_price,
+           oi.discount_amount, oi.tax_amount, oi.total_price,
+           oi.special_instructions, oi.created_at
+         FROM order_items oi
+         WHERE oi.order_id IN (${placeholders})
+         ORDER BY oi.order_id ASC, oi.id ASC`,
+        orderIds
+      );
+
+      for (const item of items) {
+        if (!itemsByOrder.has(item.order_id)) {
+          itemsByOrder.set(item.order_id, []);
+        }
+        itemsByOrder.get(item.order_id).push({
+          id: item.id,
+          itemId: item.item_id,
+          variantId: item.variant_id,
+          itemName: item.item_name,
+          variantName: item.variant_name || null,
+          itemType: item.item_type || null,
+          status: item.status,
+          quantity: parseFloat(item.quantity) || 0,
+          unitPrice: parseFloat(item.unit_price) || 0,
+          basePrice: parseFloat(item.base_price) || 0,
+          discountAmount: parseFloat(item.discount_amount) || 0,
+          taxAmount: parseFloat(item.tax_amount) || 0,
+          totalPrice: parseFloat(item.total_price) || 0,
+          specialInstructions: item.special_instructions || null,
+          createdAt: item.created_at
+        });
+      }
+    }
+
+    if (includePayments && orderIds.length > 0) {
+      const placeholders = orderIds.map(() => '?').join(',');
+      const [payments] = await pool.query(
+        `SELECT
+           p.id, p.order_id, p.invoice_id,
+           p.payment_mode, p.amount, p.tip_amount, p.total_amount,
+           p.status, p.transaction_id, p.reference_number,
+           p.created_at
+         FROM payments p
+         WHERE p.order_id IN (${placeholders})
+         ORDER BY p.order_id ASC, p.created_at ASC, p.id ASC`,
+        orderIds
+      );
+
+      for (const payment of payments) {
+        if (!paymentsByOrder.has(payment.order_id)) {
+          paymentsByOrder.set(payment.order_id, []);
+        }
+        paymentsByOrder.get(payment.order_id).push({
+          id: payment.id,
+          invoiceId: payment.invoice_id || null,
+          paymentMode: payment.payment_mode,
+          amount: parseFloat(payment.amount) || 0,
+          tipAmount: parseFloat(payment.tip_amount) || 0,
+          totalAmount: parseFloat(payment.total_amount) || 0,
+          status: payment.status,
+          transactionId: payment.transaction_id || null,
+          referenceNumber: payment.reference_number || null,
+          createdAt: payment.created_at
+        });
+      }
+    }
+
+    const orderHistory = orders.map((o) => {
+      const isInterstateOrder = !!o.is_interstate;
+      return {
+        id: o.id,
+        uuid: o.uuid,
+        orderNumber: o.order_number,
+        orderType: o.order_type,
+        status: o.status,
+        paymentStatus: o.payment_status,
+        subtotal: parseFloat(o.subtotal) || 0,
+        discountAmount: parseFloat(o.discount_amount) || 0,
+        taxAmount: parseFloat(o.tax_amount) || 0,
+        totalAmount: parseFloat(o.total_amount) || 0,
+        paidAmount: parseFloat(o.paid_amount) || 0,
+        dueAmount: parseFloat(o.due_amount) || 0,
+        serviceCharge: parseFloat(o.service_charge) || 0,
+        packagingCharge: parseFloat(o.packaging_charge) || 0,
+        deliveryCharge: parseFloat(o.delivery_charge) || 0,
+        roundOff: parseFloat(o.round_off) || 0,
+        isInterstate: isInterstateOrder,
+        taxType: isInterstateOrder ? 'IGST' : 'CGST+SGST',
+        customerGstin: o.customer_gstin || null,
+        customerCompanyName: o.customer_company_name || null,
+        customerGstState: o.customer_gst_state || null,
+        customerGstStateCode: o.customer_gst_state_code || null,
+        tableId: o.table_id || null,
+        tableNumber: o.table_number || null,
+        tableName: o.table_name || null,
+        floorId: o.floor_id || null,
+        floorName: o.floor_name || null,
+        invoice: o.invoice_id ? {
+          id: o.invoice_id,
+          invoiceNumber: o.invoice_number,
+          invoiceDate: o.invoice_date || null,
+          invoiceTime: o.invoice_time || null,
+          grandTotal: parseFloat(o.invoice_grand_total) || 0,
+          paymentStatus: o.invoice_payment_status || null
+        } : null,
+        items: includeItems ? (itemsByOrder.get(o.id) || []) : undefined,
+        payments: includePayments ? (paymentsByOrder.get(o.id) || []) : undefined,
+        createdAt: o.created_at,
+        updatedAt: o.updated_at,
+        billedAt: o.billed_at
+      };
+    });
+
+    const [[statsRow]] = await pool.query(
+      `SELECT
+         COUNT(*) AS total_orders,
+         SUM(CASE WHEN o.status != 'cancelled' THEN 1 ELSE 0 END) AS active_orders,
+         SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled_orders,
+         SUM(CASE WHEN o.payment_status = 'completed' THEN 1 ELSE 0 END) AS fully_paid_orders,
+         SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.total_amount, 0) ELSE 0 END) AS total_spent,
+         AVG(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.total_amount, 0) ELSE NULL END) AS avg_order_value,
+         MIN(o.created_at) AS first_order_at,
+         MAX(o.created_at) AS last_order_at
+       FROM orders o
+       WHERE o.customer_id = ?`,
+      [customerId]
+    );
+
+    const [byOrderTypeRows] = await pool.query(
+      `SELECT
+         o.order_type,
+         COUNT(*) AS count,
+         SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.total_amount, 0) ELSE 0 END) AS amount
+       FROM orders o
+       WHERE o.customer_id = ?
+       GROUP BY o.order_type`,
+      [customerId]
+    );
+
+    const [byPaymentStatusRows] = await pool.query(
+      `SELECT
+         o.payment_status,
+         COUNT(*) AS count,
+         SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.total_amount, 0) ELSE 0 END) AS amount
+       FROM orders o
+       WHERE o.customer_id = ?
+       GROUP BY o.payment_status`,
+      [customerId]
+    );
+
+    const pagination = paginate
+      ? {
+          page: safePage,
+          limit: safeLimit,
+          total,
+          totalPages: Math.ceil(total / safeLimit)
+        }
+      : {
+          page: 1,
+          limit: total,
+          total,
+          totalPages: total > 0 ? 1 : 0
+        };
+
+    return {
+      customer,
+      orderHistory,
+      pagination,
+      historyStats: {
+        totalOrders: Number(statsRow.total_orders) || 0,
+        activeOrders: Number(statsRow.active_orders) || 0,
+        cancelledOrders: Number(statsRow.cancelled_orders) || 0,
+        fullyPaidOrders: Number(statsRow.fully_paid_orders) || 0,
+        totalSpent: parseFloat(statsRow.total_spent) || 0,
+        avgOrderValue: parseFloat(statsRow.avg_order_value) || 0,
+        firstOrderAt: statsRow.first_order_at || null,
+        lastOrderAt: statsRow.last_order_at || null
+      },
+      historyBreakdown: {
+        byOrderType: byOrderTypeRows.map((row) => ({
+          orderType: row.order_type,
+          count: Number(row.count) || 0,
+          amount: parseFloat(row.amount) || 0
+        })),
+        byPaymentStatus: byPaymentStatusRows.map((row) => ({
+          paymentStatus: row.payment_status,
+          count: Number(row.count) || 0,
+          amount: parseFloat(row.amount) || 0
+        }))
+      }
     };
   },
 
