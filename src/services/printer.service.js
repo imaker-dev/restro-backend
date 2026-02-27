@@ -16,7 +16,7 @@ const { loadOutletLogo } = require('../utils/escpos-image');
 
 const BRIDGE_STATUS_STALE_SECONDS = parseInt(process.env.BRIDGE_STATUS_STALE_SECONDS, 10) || 90;
 const BRIDGE_ONLINE_WINDOW_SECONDS = parseInt(process.env.BRIDGE_ONLINE_WINDOW_SECONDS, 10) || 90;
-const DEFAULT_PRINT_LOGO_PATH = path.resolve(__dirname, '../../public/Whatsapp.jpeg');
+const DEFAULT_PRINT_LOGO_PATH = path.resolve(__dirname, '../../public/Whatsapp.bmp');
 
 function resolveLogoSource(preferredLogoUrl) {
   if (typeof preferredLogoUrl === 'string' && preferredLogoUrl.trim()) {

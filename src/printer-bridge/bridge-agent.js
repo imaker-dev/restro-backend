@@ -29,7 +29,7 @@ const CONFIG = {
   CLOUD_URL: process.env.CLOUD_URL || 'https://restro-backend.imaker.in',
   
   // Outlet ID from your system
-  OUTLET_ID: process.env.OUTLET_ID || '34',
+  OUTLET_ID: process.env.OUTLET_ID || '44',
   
   // Bridge code (created via API: POST /api/v1/printers/bridges)
   BRIDGE_CODE: process.env.BRIDGE_CODE || 'KITCHEN-BRIDGE-1',
@@ -56,7 +56,8 @@ const CONFIG = {
     test: { ip: '192.168.1.13', port: 9100 },
     bar: { ip: '192.168.1.13', port: 9100 },
     cashier: { ip: '192.168.1.13', port: 9100 },
-    dessert: { ip: '192.168.1.13', port: 9100 }
+    dessert: { ip: '192.168.1.13', port: 9100 },
+    tandoor: { ip: '192.168.1.13', port: 9100 }
   },
   
   // Fallback printer if station not found
