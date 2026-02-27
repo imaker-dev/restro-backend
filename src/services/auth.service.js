@@ -72,6 +72,13 @@ class AuthService {
     // Get user's outlets
     const { outlets, outletId, outletName } = await this._getUserOutlets(user.id);
 
+    // Check if user has any outlets assigned (unless super_admin)
+    const isSuperAdmin = user.role_slugs && user.role_slugs.includes('super_admin');
+    if (outlets.length === 0 && !isSuperAdmin) {
+      await this.logAuthActivity(user.id, 'login_failed', deviceInfo, { reason: 'no_outlet_assigned' });
+      throw new Error('No outlet assigned to this user. Contact administrator');
+    }
+
     // Get assigned floors for the active outlet
     const assignedFloors = await this._getUserFloors(user.id, outletId);
 
@@ -318,9 +325,8 @@ class AuthService {
   async getCurrentUser(userId) {
     const pool = getPool();
     
-    // Try cache first
-    const cached = await cache.get(`${CACHE_KEYS.USER_SESSION}:${userId}`);
-    if (cached) return cached;
+    // NOTE: Caching disabled for /auth/me to ensure real-time data
+    // Changes to outlets, stations, floors should reflect immediately
 
     const [users] = await pool.query(
       `SELECT u.id, u.uuid, u.employee_code, u.name, u.email, u.phone, 
@@ -337,12 +343,14 @@ class AuthService {
     const user = users[0];
 
     // Get roles with outlet info (deduplicate by role slug + outlet_id)
+    // Only include roles where outlet is active OR outlet_id is NULL (super_admin has no outlet)
     const [rawRoles] = await pool.query(
       `SELECT DISTINCT r.id, r.name, r.slug, ur.outlet_id, o.name as outlet_name
        FROM user_roles ur
        JOIN roles r ON ur.role_id = r.id
        LEFT JOIN outlets o ON ur.outlet_id = o.id
-       WHERE ur.user_id = ? AND ur.is_active = 1 AND r.is_active = 1`,
+       WHERE ur.user_id = ? AND ur.is_active = 1 AND r.is_active = 1
+         AND (ur.outlet_id IS NULL OR o.is_active = 1)`,
       [userId]
     );
     // Deduplicate roles by slug + outlet_id
@@ -408,8 +416,7 @@ class AuthService {
       }, {}),
     };
 
-    // Cache for 5 minutes
-    await cache.set(`${CACHE_KEYS.USER_SESSION}:${userId}`, result, CACHE_TTL.SHORT);
+    // NOTE: No caching - data should always be fresh for /auth/me
 
     return result;
   }

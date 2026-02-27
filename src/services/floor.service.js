@@ -250,49 +250,54 @@ const floorService = {
     const floor = await this.getById(floorId);
     if (!floor) return null;
 
+    // Get sections linked to THIS floor via floor_sections table
+    const [allSections] = await pool.query(
+      `SELECT s.id, s.name, s.code, s.description, s.section_type, s.color_code, s.display_order, s.is_active
+       FROM sections s
+       JOIN floor_sections fs ON s.id = fs.section_id AND fs.is_active = 1
+       WHERE fs.floor_id = ? AND s.is_active = 1
+       ORDER BY s.display_order, s.name`,
+      [floorId]
+    );
+
     // Get all tables for this floor with section and order info
     const [tables] = await pool.query(
       `SELECT 
         t.id, t.table_number, t.name, t.capacity, t.min_capacity, t.shape,
         t.status, t.is_mergeable, t.is_splittable, t.is_active, t.section_id,
-        s.id as sec_id, s.name as section_name, s.code as section_code, s.description as section_description,
-        s.section_type, s.color_code, s.display_order as section_display_order, s.is_active as section_is_active,
         ts.guest_name, ts.guest_count,
         o.order_number, o.total_amount
        FROM tables t
-       LEFT JOIN sections s ON t.section_id = s.id
        LEFT JOIN table_sessions ts ON t.id = ts.table_id AND ts.status IN ('active', 'billing')
        LEFT JOIN orders o ON ts.order_id = o.id AND o.status NOT IN ('cancelled', 'completed', 'paid')
        WHERE t.floor_id = ? AND t.is_active = 1
-       ORDER BY s.display_order, s.name, t.display_order, t.table_number`,
+       ORDER BY t.display_order, t.table_number`,
       [floorId]
     );
 
-    // Group tables by section
+    // Build section map with all sections (including empty ones)
     const sectionMap = new Map();
+    for (const section of allSections) {
+      sectionMap.set(section.id, {
+        id: section.id,
+        name: section.name,
+        code: section.code,
+        description: section.description,
+        section_type: section.section_type,
+        color_code: section.color_code,
+        display_order: section.display_order,
+        is_active: section.is_active,
+        tables: []
+      });
+    }
 
+    // Add tables to their sections
     for (const table of tables) {
       const sectionId = table.section_id;
       
-      // Skip tables without section
-      if (!sectionId) continue;
+      // Skip tables without section or if section not in map
+      if (!sectionId || !sectionMap.has(sectionId)) continue;
 
-      // Create section entry if not exists
-      if (!sectionMap.has(sectionId)) {
-        sectionMap.set(sectionId, {
-          id: sectionId,
-          name: table.section_name,
-          code: table.section_code,
-          description: table.section_description,
-          section_type: table.section_type,
-          color_code: table.color_code,
-          display_order: table.section_display_order,
-          is_active: table.section_is_active,
-          tables: []
-        });
-      }
-
-      // Add table to section
       sectionMap.get(sectionId).tables.push({
         id: table.id,
         table_number: table.table_number,

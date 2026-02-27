@@ -19,6 +19,7 @@ const VALID_FOOD_TYPES = ['veg', 'nonveg', 'non_veg', 'egg', 'vegan'];
 const VALID_ITEM_TYPES = ['veg', 'non_veg', 'egg', 'vegan'];
 const VALID_SERVICE_TYPES = ['restaurant', 'bar', 'both'];
 const GST_RATES = { '0': 0, '5': 5, '12': 12, '18': 18, '28': 28 };
+const VAT_RATES = { '0': 0, '5': 5, '12': 12, '18': 18, '20': 20, '25': 25, '28': 28 };
 
 // Normalize food type to database format
 const normalizeFoodType = (type) => {
@@ -328,8 +329,15 @@ const bulkUploadService = {
               const shortName = row.ShortName || row.shortname || null;
               
               const gst = row.GST || row.gst;
+              const vat = row.VAT || row.vat;
               let taxGroupId = null;
-              if (gst && GST_RATES[gst] !== undefined) {
+              
+              // VAT takes precedence for liquor items
+              if (vat && VAT_RATES[vat] !== undefined) {
+                const vatKey = `VAT_${vat}`;
+                taxGroupId = taxMap.get(vatKey) || await this._getOrCreateVatGroup(conn, outletId, vat);
+                if (taxGroupId) taxMap.set(vatKey, taxGroupId);
+              } else if (gst && GST_RATES[gst] !== undefined) {
                 taxGroupId = taxMap.get(gst) || await this._getOrCreateTaxGroup(conn, outletId, gst);
                 if (taxGroupId) taxMap.set(gst, taxGroupId);
               }
@@ -568,6 +576,22 @@ const bulkUploadService = {
     return r.insertId;
   },
 
+  async _getOrCreateVatGroup(conn, outletId, rate) {
+    // Check for existing VAT group
+    const [existing] = await conn.query(
+      `SELECT id FROM tax_groups WHERE code = ? AND (outlet_id = ? OR outlet_id IS NULL) AND is_active = 1 LIMIT 1`,
+      [`VAT_${rate}`, outletId]
+    );
+    if (existing.length > 0) return existing[0].id;
+
+    // Create VAT tax group for liquor
+    const [r] = await conn.query(
+      `INSERT INTO tax_groups (outlet_id, name, code, total_rate, is_active) VALUES (?, ?, ?, ?, 1)`,
+      [outletId, `VAT ${rate}%`, `VAT_${rate}`, rate]
+    );
+    return r.insertId;
+  },
+
   async _invalidateCaches(outletId) {
     try {
       await cache.del(`categories:${outletId}:false`);
@@ -599,32 +623,30 @@ const bulkUploadService = {
     }
 
     // Fallback to basic template if sample file not found
-    const header = 'Type,Name,Category,Price,FoodType,GST,Station,Description,Parent,ShortName,SKU,Default,SelectionType,Min,Max,Required,Group,Item';
+    const header = 'Type,Name,Category,Price,ItemType,GST,VAT,Station,Description,Parent,ShortName,SKU,Default,SelectionType,Min,Max,Required,Group,Item,ServiceType';
     const examples = [
       '# MENU CATEGORIES',
-      'CATEGORY,Starters,,,,,,Appetizers and snacks,,,,,,,,,',
-      'CATEGORY,Veg Starters,,,,,,Vegetarian starters,Starters,,,,,,,,',
-      'CATEGORY,Non-Veg Starters,,,,,,Non-vegetarian starters,Starters,,,,,,,,',
+      'CATEGORY,Starters,,,,,,,Appetizers and snacks,,,,,,,,,,,restaurant',
+      'CATEGORY,Veg Starters,,,,,,,Vegetarian starters,Starters,,,,,,,,,,restaurant',
+      'CATEGORY,Beverages,,,,,,,Drinks and beverages,,,,,,,,,,,both',
+      'CATEGORY,Whisky,,,,,,,Whisky category,,,,,,,,,,,bar',
       '',
-      '# MENU ITEMS (Category can be omitted if placed after CATEGORY row)',
-      'ITEM,Paneer Tikka,Veg Starters,250,veg,5,Main Kitchen,Grilled cottage cheese,,P.Tikka,PTK001,,,,,,,',
-      'ITEM,Veg Spring Roll,Veg Starters,180,veg,5,Main Kitchen,Crispy vegetable rolls,,Spr.Roll,VSR001,,,,,,,',
-      'ITEM,Chicken Tikka,Non-Veg Starters,320,nonveg,5,Main Kitchen,Grilled chicken pieces,,C.Tikka,CTK001,,,,,,,',
+      '# MENU ITEMS - Use GST for food items',
+      'ITEM,Paneer Tikka,Veg Starters,250,veg,5,,Main Kitchen,Grilled cottage cheese,,P.Tikka,PTK001,,,,,,,,restaurant',
+      'ITEM,Chicken Tikka,Veg Starters,320,non_veg,5,,Main Kitchen,Grilled chicken pieces,,C.Tikka,CTK001,,,,,,,,restaurant',
+      '',
+      '# LIQUOR ITEMS - Use VAT instead of GST',
+      'ITEM,Royal Stag,Whisky,0,veg,,18,Bar,,,Roya Stag,WHI001,,,,,,,,bar',
       '',
       '# VARIANTS (Place after ITEM row, or specify Item column)',
-      'VARIANT,Half,,150,,,,,,,,no,,,,,,Paneer Tikka',
-      'VARIANT,Full,,250,,,,,,,,yes,,,,,,Paneer Tikka',
+      'VARIANT,Small 30 ML,,110,,,,,,,,,no,,,,,,Royal Stag,',
+      'VARIANT,Large 60 ML,,210,,,,,,,,,no,,,,,,Royal Stag,',
       '',
       '# ADDON GROUPS',
-      'ADDON_GROUP,Extra Toppings,,,,,,,,,,,multiple,0,3,no,,',
-      'ADDON_GROUP,Cooking Style,,,,,,,,,,,single,1,1,yes,,',
+      'ADDON_GROUP,Extra Toppings,,,,,,,,,,,,multiple,0,3,no,,',
       '',
-      '# ADDONS (Place after ADDON_GROUP row, or specify Group column)',
-      'ADDON,Extra Cheese,,30,veg,,,,,,,,,,,,Extra Toppings,',
-      'ADDON,Jalapenos,,20,veg,,,,,,,,,,,,Extra Toppings,',
-      'ADDON,Mild,,0,veg,,,,,,,,,,,,Cooking Style,',
-      'ADDON,Medium,,0,veg,,,,,,,,,,,,Cooking Style,',
-      'ADDON,Spicy,,0,veg,,,,,,,,,,,,Cooking Style,'
+      '# ADDONS',
+      'ADDON,Extra Cheese,,30,veg,,,,,,,,,,,,,Extra Toppings,'
     ];
 
     return header + '\n' + examples.join('\n');
@@ -640,8 +662,9 @@ const bulkUploadService = {
         { name: 'Name', required: true, description: 'Name of the item/category/addon' },
         { name: 'Category', required: false, description: 'Category name (for items)' },
         { name: 'Price', required: false, description: 'Price (required for ITEM, VARIANT, ADDON)' },
-        { name: 'FoodType', required: false, description: 'veg, nonveg, egg (default: veg)' },
-        { name: 'GST', required: false, description: 'Tax rate: 0, 5, 12, 18, 28' },
+        { name: 'ItemType', required: false, description: 'veg, non_veg, egg, vegan (for items)' },
+        { name: 'GST', required: false, description: 'GST tax rate: 0, 5, 12, 18, 28 (for food items)' },
+        { name: 'VAT', required: false, description: 'VAT tax rate: 0, 5, 12, 18, 20, 25, 28 (for liquor items)' },
         { name: 'Station', required: false, description: 'Kitchen station name' },
         { name: 'Description', required: false, description: 'Description text' },
         { name: 'Parent', required: false, description: 'Parent category (for subcategories)' },
@@ -654,12 +677,11 @@ const bulkUploadService = {
         { name: 'Required', required: false, description: 'Is required (yes/no)' },
         { name: 'Group', required: false, description: 'Addon group name (for addons)' },
         { name: 'Item', required: false, description: 'Item name (for variants)' },
-        { name: 'ServiceType', required: false, description: 'restaurant, bar, both (for categories/items)' },
-        { name: 'ItemType', required: false, description: 'veg, non_veg, egg, vegan (for items)' }
+        { name: 'ServiceType', required: false, description: 'restaurant, bar, both (for categories/items)' }
       ],
       types: {
         CATEGORY: { required: ['Name'], optional: ['Description', 'Parent', 'ServiceType'] },
-        ITEM: { required: ['Name', 'Price'], optional: ['Category', 'ItemType', 'FoodType', 'GST', 'Station', 'Description', 'ShortName', 'SKU', 'ServiceType'] },
+        ITEM: { required: ['Name', 'Price'], optional: ['Category', 'ItemType', 'GST', 'VAT', 'Station', 'Description', 'ShortName', 'SKU', 'ServiceType'] },
         VARIANT: { required: ['Name', 'Price'], optional: ['Item', 'SKU', 'Default'] },
         ADDON_GROUP: { required: ['Name'], optional: ['SelectionType', 'Min', 'Max', 'Required'] },
         ADDON: { required: ['Name'], optional: ['Group', 'Price', 'FoodType'] }
@@ -667,7 +689,8 @@ const bulkUploadService = {
       itemTypes: ['veg', 'non_veg', 'egg', 'vegan'],
       serviceTypes: ['restaurant', 'bar', 'both'],
       foodTypes: ['veg', 'nonveg', 'non_veg', 'egg', 'vegan'],
-      gstRates: ['0', '5', '12', '18', '28']
+      gstRates: ['0', '5', '12', '18', '28'],
+      vatRates: ['0', '5', '12', '18', '20', '25', '28']
     };
   },
 

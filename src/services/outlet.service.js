@@ -71,19 +71,34 @@ const outletService = {
   },
 
   /**
-   * Get all outlets
+   * Get all outlets (filtered by user's assigned outlets)
+   * super_admin: all active outlets
+   * admin/manager: only outlets assigned via user_roles
    */
-  async getAll(filters = {}) {
+  async getAll(filters = {}, userId = null, userRoles = []) {
     const pool = getPool();
+    
+    // Check if user is super_admin
+    const isSuperAdmin = userRoles && userRoles.includes('super_admin');
     
     let query = `
       SELECT o.*, 
         (SELECT COUNT(*) FROM floors f WHERE f.outlet_id = o.id) as floor_count,
         (SELECT COUNT(*) FROM tables t WHERE t.outlet_id = o.id AND t.is_active = 1) as table_count
       FROM outlets o
-      WHERE o.deleted_at IS NULL
+      WHERE o.deleted_at IS NULL AND o.is_active = 1
     `;
     const params = [];
+
+    // Filter by user's assigned outlets (unless super_admin)
+    if (!isSuperAdmin && userId) {
+      query += ` AND o.id IN (
+        SELECT DISTINCT ur.outlet_id 
+        FROM user_roles ur 
+        WHERE ur.user_id = ? AND ur.is_active = 1 AND ur.outlet_id IS NOT NULL
+      )`;
+      params.push(userId);
+    }
 
     if (filters.isActive !== undefined) {
       query += ' AND o.is_active = ?';

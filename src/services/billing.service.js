@@ -182,13 +182,39 @@ const billingService = {
   // ========================
 
   /**
-   * Get bill printer for an outlet (station = 'bill')
-   * Falls back to any active printer if no dedicated bill printer found
+   * Get bill printer for an outlet based on floor
+   * Priority: 1) Floor-specific cashier's bill station printer
+   *           2) Outlet-level bill printer (station = 'bill')
+   *           3) Any active network printer for the outlet
+   * 
+   * @param {number} outletId - Outlet ID
+   * @param {number} floorId - Optional floor ID for floor-based routing
    */
-  async getBillPrinter(outletId) {
+  async getBillPrinter(outletId, floorId = null) {
     const pool = getPool();
 
-    // First try dedicated bill printer
+    // Priority 1: Find printer from cashier's bill station for this floor
+    if (floorId) {
+      const [floorPrinters] = await pool.query(
+        `SELECT DISTINCT p.*
+         FROM user_floors uf
+         JOIN user_roles ur ON uf.user_id = ur.user_id AND ur.outlet_id = uf.outlet_id AND ur.is_active = 1
+         JOIN roles r ON ur.role_id = r.id AND r.slug = 'cashier'
+         JOIN user_stations us ON uf.user_id = us.user_id AND us.outlet_id = uf.outlet_id AND us.is_active = 1
+         JOIN kitchen_stations ks ON us.station_id = ks.id AND ks.is_active = 1 AND ks.station_type = 'bill'
+         JOIN printers p ON ks.printer_id = p.id AND p.is_active = 1
+         WHERE uf.floor_id = ? AND uf.outlet_id = ? AND uf.is_active = 1
+         ORDER BY us.is_primary DESC, uf.is_primary DESC
+         LIMIT 1`,
+        [floorId, outletId]
+      );
+      if (floorPrinters[0]) {
+        logger.info(`Bill printer found via floor ${floorId} cashier station: ${floorPrinters[0].name}`);
+        return floorPrinters[0];
+      }
+    }
+
+    // Priority 2: Dedicated outlet-level bill printer
     let [printers] = await pool.query(
       `SELECT * FROM printers 
        WHERE outlet_id = ? AND station = 'bill' AND is_active = 1
@@ -197,7 +223,7 @@ const billingService = {
     );
     if (printers[0]) return printers[0];
 
-    // Fallback: any active network printer for this outlet
+    // Priority 3: Any active network printer for this outlet
     [printers] = await pool.query(
       `SELECT * FROM printers 
        WHERE outlet_id = ? AND is_active = 1 AND ip_address IS NOT NULL
@@ -273,7 +299,9 @@ const billingService = {
       openDrawer: false
     };
 
-    const printer = await this.getBillPrinter(billPrintData.outletId);
+    // Get floor ID for floor-based printer routing
+    const floorId = invoice.floorId || order.floor_id || null;
+    const printer = await this.getBillPrinter(billPrintData.outletId, floorId);
     if (printer && printer.ip_address) {
       try {
         await printerService.printBillDirect(billPrintData, printer.ip_address, printer.port || 9100);
@@ -754,12 +782,14 @@ const billingService = {
   async getInvoiceById(id) {
     const pool = getPool();
     const [rows] = await pool.query(
-      `SELECT i.*, o.order_number, o.order_type, o.table_id,
+      `SELECT i.*, o.order_number, o.order_type, o.table_id, o.floor_id,
         t.table_number, t.name as table_name,
+        f.name as floor_name,
         u.name as generated_by_name
        FROM invoices i
        LEFT JOIN orders o ON i.order_id = o.id
        LEFT JOIN tables t ON o.table_id = t.id
+       LEFT JOIN floors f ON o.floor_id = f.id
        LEFT JOIN users u ON i.generated_by = u.id
        WHERE i.id = ?`,
       [id]
@@ -849,7 +879,7 @@ const billingService = {
   async printInvoice(id, userId) {
     const invoice = await this.resolveInvoice(id);
 
-    await this.printBillToThermal(invoice, { outlet_id: invoice.outletId }, userId);
+    await this.printBillToThermal(invoice, { outlet_id: invoice.outletId, floor_id: invoice.floorId }, userId);
     return invoice;
   },
 
@@ -883,7 +913,7 @@ const billingService = {
 
     // Print duplicate bill to thermal printer using shared helper
     try {
-      await this.printBillToThermal(invoice, { outlet_id: invoice.outletId }, userId);
+      await this.printBillToThermal(invoice, { outlet_id: invoice.outletId, floor_id: invoice.floorId }, userId);
     } catch (printError) {
       logger.error(`Duplicate bill #${duplicateNumber} print failed for ${invoice.invoiceNumber}:`, printError.message);
     }
