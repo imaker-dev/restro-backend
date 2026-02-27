@@ -30,7 +30,7 @@ const CONFIG = {
   CLOUD_URL: process.env.CLOUD_URL || 'https://restro-backend.imaker.in',
   
   // Outlet ID from your system
-  OUTLET_ID: process.env.OUTLET_ID || '44',
+  OUTLET_ID: process.env.OUTLET_ID || '45',
   
   // Bridge code (created via API: POST /api/v1/printers/bridges)
   BRIDGE_CODE: process.env.BRIDGE_CODE || 'KITCHEN-BRIDGE-1',
