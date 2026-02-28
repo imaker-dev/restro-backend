@@ -16,16 +16,88 @@ const { loadOutletLogo } = require('../utils/escpos-image');
 
 const BRIDGE_STATUS_STALE_SECONDS = parseInt(process.env.BRIDGE_STATUS_STALE_SECONDS, 10) || 90;
 const BRIDGE_ONLINE_WINDOW_SECONDS = parseInt(process.env.BRIDGE_ONLINE_WINDOW_SECONDS, 10) || 90;
-const DEFAULT_PRINT_LOGO_PATH = path.resolve(__dirname, '../../public/Whatsapp.jpeg');
+const DEFAULT_PRINT_LOGO_PATH = path.resolve(__dirname, '../../public/Whatsapp.bmp');
+const BINARY_CONTENT_PREFIX = 'b64:';
+const AUTO_BRIDGE_NAME = 'Kitchen Bridge';
+const AUTO_BRIDGE_CODE = 'KITCHEN-BRIDGE-1';
+const AUTO_BRIDGE_API_KEY = '855242e269ca0ba825f22a58306ee63bef7d4f75c710ee8d081c24e474989509';
+const AUTO_BRIDGE_ASSIGNED_STATIONS = [
+  'kot_kitchen',
+  'bar',
+  'bill',
+  'kot_kitchen',
+  'kot_bar',
+  'kot_dessert',
+  'dessert',
+  'cashier',
+  'tandoor'
+];
+
+function resolveExistingLocalPath(source) {
+  if (typeof source !== 'string') return null;
+  const value = source.trim();
+  if (!value) return null;
+
+  const normalized = value.replace(/\\/g, '/');
+  const candidates = [];
+
+  // Absolute filesystem path
+  if (path.isAbsolute(value)) {
+    candidates.push(value);
+  }
+
+  // Relative to project root
+  candidates.push(path.resolve(process.cwd(), value.replace(/^\/+/, '')));
+
+  // Friendly fallback for values like "/logo.bmp" or "logo.bmp"
+  const stripped = value.replace(/^\/+/, '');
+  candidates.push(path.resolve(process.cwd(), 'public', stripped));
+  candidates.push(path.resolve(process.cwd(), 'uploads', stripped));
+
+  // Additional explicit cases for paths that already contain folder segments
+  if (normalized.startsWith('/public/')) {
+    candidates.push(path.resolve(process.cwd(), normalized.replace(/^\/+/, '')));
+  }
+  if (normalized.startsWith('/uploads/')) {
+    candidates.push(path.resolve(process.cwd(), normalized.replace(/^\/+/, '')));
+  }
+
+  const uniqueCandidates = Array.from(new Set(candidates));
+  for (const candidate of uniqueCandidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
 
 function resolveLogoSource(preferredLogoUrl) {
+  const candidates = [];
   if (typeof preferredLogoUrl === 'string' && preferredLogoUrl.trim()) {
-    return preferredLogoUrl.trim();
+    candidates.push(preferredLogoUrl.trim());
   }
-  if (fs.existsSync(DEFAULT_PRINT_LOGO_PATH)) {
-    return DEFAULT_PRINT_LOGO_PATH;
+  candidates.push(DEFAULT_PRINT_LOGO_PATH);
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    if (candidate.startsWith('http://') || candidate.startsWith('https://')) {
+      return candidate;
+    }
+    const localPath = resolveExistingLocalPath(candidate);
+    if (localPath) {
+      return localPath;
+    }
   }
+
   return null;
+}
+
+function encodePrintContentForStorage(content) {
+  if (Buffer.isBuffer(content)) {
+    return `${BINARY_CONTENT_PREFIX}${content.toString('base64')}`;
+  }
+  return content;
 }
 
 function parseDbDateToUtcMs(value) {
@@ -66,6 +138,7 @@ const printerService = {
 
   async createPrinter(data) {
     const pool = getPool();
+    const connection = await pool.getConnection();
     const uuid = uuidv4();
     const code = data.code || `PRN${Date.now().toString(36).toUpperCase()}`;
 
@@ -79,25 +152,86 @@ const printerService = {
     const supportsCashDrawer = data.supportsCashDrawer || data.supports_cash_drawer || false;
     const supportsCutter = data.supportsCutter !== undefined ? data.supportsCutter : (data.supports_cutter !== undefined ? data.supports_cutter : true);
     const supportsLogo = data.supportsLogo || data.supports_logo || false;
+    const outletId = data.outletId;
 
-    const [result] = await pool.query(
-      `INSERT INTO printers (
-        uuid, outlet_id, name, code, printer_type, station,
-        station_id, ip_address, port,
-        connection_type, paper_width, characters_per_line,
-        supports_cash_drawer, supports_cutter, supports_logo
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        uuid, data.outletId, data.name, code, printerType,
-        data.station || null, stationId,
-        ipAddress, data.port || 9100, connectionType,
-        paperWidth, charactersPerLine,
-        supportsCashDrawer, supportsCutter,
-        supportsLogo
-      ]
-    );
+    try {
+      await connection.beginTransaction();
 
-    return this.getPrinterById(result.insertId);
+      // Resolve printer station from kitchen_stations.code by stationId.
+      // Store station in lowercase for consistent routing keys.
+      let stationValue = typeof data.station === 'string' && data.station.trim()
+        ? data.station.trim().toLowerCase()
+        : null;
+
+      if (stationId) {
+        const [stationRows] = await connection.query(
+          `SELECT code
+           FROM kitchen_stations
+           WHERE id = ? AND outlet_id = ?
+           LIMIT 1`,
+          [stationId, outletId]
+        );
+
+        const stationCode = stationRows[0]?.code;
+        if (typeof stationCode === 'string' && stationCode.trim()) {
+          stationValue = stationCode.trim().toLowerCase();
+        }
+      }
+
+      const [result] = await connection.query(
+        `INSERT INTO printers (
+          uuid, outlet_id, name, code, printer_type, station,
+          station_id, ip_address, port,
+          connection_type, paper_width, characters_per_line,
+          supports_cash_drawer, supports_cutter, supports_logo
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          uuid, outletId, data.name, code, printerType,
+          stationValue, stationId,
+          ipAddress, data.port || 9100, connectionType,
+          paperWidth, charactersPerLine,
+          supportsCashDrawer, supportsCutter,
+          supportsLogo
+        ]
+      );
+
+      // Auto-create default bridge when first printer is created for an outlet.
+      const [[printerCountRow]] = await connection.query(
+        `SELECT COUNT(*) as total FROM printers WHERE outlet_id = ?`,
+        [outletId]
+      );
+
+      if ((printerCountRow?.total || 0) === 1) {
+        const [bridgeRows] = await connection.query(
+          `SELECT id FROM printer_bridges WHERE outlet_id = ? LIMIT 1`,
+          [outletId]
+        );
+
+        if (!bridgeRows[0]) {
+          await connection.query(
+            `INSERT INTO printer_bridges (
+              uuid, outlet_id, name, bridge_code, api_key, assigned_stations
+            ) VALUES (?, ?, ?, ?, ?, ?)`,
+            [
+              uuidv4(),
+              outletId,
+              AUTO_BRIDGE_NAME,
+              AUTO_BRIDGE_CODE,
+              AUTO_BRIDGE_API_KEY,
+              JSON.stringify(AUTO_BRIDGE_ASSIGNED_STATIONS)
+            ]
+          );
+        }
+      }
+
+      await connection.commit();
+      return this.getPrinterById(result.insertId);
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   },
 
   async getPrinters(outletId, filters = {}) {
@@ -183,6 +317,7 @@ const printerService = {
   async createPrintJob(data) {
     const pool = getPool();
     const uuid = uuidv4();
+    const contentForStorage = encodePrintContentForStorage(data.content);
 
     // Find appropriate printer for this station
     let printerId = data.printerId;
@@ -199,7 +334,7 @@ const printerService = {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         uuid, data.outletId, printerId, data.jobType, data.station,
-        data.kotId, data.orderId, data.invoiceId, data.content,
+        data.kotId, data.orderId, data.invoiceId, contentForStorage,
         data.contentType || 'text', data.referenceNumber,
         data.tableNumber, data.priority || 0, data.createdBy
       ]

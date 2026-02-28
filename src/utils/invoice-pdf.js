@@ -6,7 +6,7 @@
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
-const DEFAULT_LOGO_PATH = path.resolve(__dirname, '../../public/Whatsapp.jpeg');
+const DEFAULT_LOGO_PATH = path.resolve(__dirname, '../../public/Whatsapp.bmp');
 
 /**
  * Fetch image from URL and return as buffer (uses built-in fetch)

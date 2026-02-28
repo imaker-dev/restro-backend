@@ -18,6 +18,7 @@
 
 const axios = require('axios');
 const net = require('net');
+const BINARY_CONTENT_PREFIX = 'b64:';
 
 // ========================
 // CONFIGURATION
@@ -29,7 +30,7 @@ const CONFIG = {
   CLOUD_URL: process.env.CLOUD_URL || 'https://restro-backend.imaker.in',
   
   // Outlet ID from your system
-  OUTLET_ID: process.env.OUTLET_ID || '34',
+  OUTLET_ID: process.env.OUTLET_ID || '45',
   
   // Bridge code (created via API: POST /api/v1/printers/bridges)
   BRIDGE_CODE: process.env.BRIDGE_CODE || 'KITCHEN-BRIDGE-1',
@@ -56,7 +57,8 @@ const CONFIG = {
     test: { ip: '192.168.1.13', port: 9100 },
     bar: { ip: '192.168.1.13', port: 9100 },
     cashier: { ip: '192.168.1.13', port: 9100 },
-    dessert: { ip: '192.168.1.13', port: 9100 }
+    dessert: { ip: '192.168.1.13', port: 9100 },
+    tandoor: { ip: '192.168.1.13', port: 9100 }
   },
   
   // Fallback printer if station not found
@@ -108,6 +110,32 @@ function sendToPrinter(printerIp, printerPort, data) {
       reject(new Error('Connection timeout'));
     });
   });
+}
+
+function decodeJobContent(content) {
+  if (content === null || content === undefined) {
+    throw new Error('Missing print content');
+  }
+
+  if (Buffer.isBuffer(content)) {
+    return content;
+  }
+
+  // Safety for APIs that serialize Buffer as { type: 'Buffer', data: [...] }.
+  if (typeof content === 'object' && content.type === 'Buffer' && Array.isArray(content.data)) {
+    return Buffer.from(content.data);
+  }
+
+  if (typeof content === 'string' && content.startsWith(BINARY_CONTENT_PREFIX)) {
+    const base64Payload = content.slice(BINARY_CONTENT_PREFIX.length);
+    if (!base64Payload) {
+      throw new Error('Empty base64 print content');
+    }
+    return Buffer.from(base64Payload, 'base64');
+  }
+
+  // Backward compatibility for old jobs already stored as plain text.
+  return content;
 }
 
 /**
@@ -284,8 +312,9 @@ async function processNextJob() {
     console.log(`   Printer: ${printer.ip}:${printer.port}`);
     
     try {
+      const printableContent = decodeJobContent(job.content);
       // Send to printer
-      await sendToPrinter(printer.ip, printer.port, job.content);
+      await sendToPrinter(printer.ip, printer.port, printableContent);
       
       // Report success
       await acknowledgeJob(job.id, 'printed');
