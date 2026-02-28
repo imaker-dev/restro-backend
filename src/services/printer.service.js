@@ -581,15 +581,38 @@ const printerService = {
     };
   },
 
+  /**
+   * Get bridge by outlet and code (no API key required)
+   * Used for public/global bridge access
+   */
+  async getBridgeByCode(outletId, bridgeCode) {
+    const pool = getPool();
+
+    const [bridges] = await pool.query(
+      `SELECT * FROM printer_bridges 
+       WHERE outlet_id = ? AND bridge_code = ? AND is_active = 1
+       LIMIT 1`,
+      [outletId, bridgeCode]
+    );
+
+    if (bridges[0]) {
+      // Update last seen
+      await pool.query(
+        `UPDATE printer_bridges SET is_online = 1, last_poll_at = NOW() WHERE id = ?`,
+        [bridges[0].id]
+      );
+    }
+
+    return bridges[0] || null;
+  },
+
   async validateBridgeApiKey(outletId, bridgeCode, apiKey) {
     const pool = getPool();
-    if (!apiKey || typeof apiKey !== 'string') {
-      return null;
+    // If no API key provided, use simple lookup (global/public mode)
+    if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
+      return this.getBridgeByCode(outletId, bridgeCode);
     }
     const normalizedApiKey = apiKey.trim();
-    if (!normalizedApiKey) {
-      return null;
-    }
     const hashedKey = crypto.createHash('sha256').update(normalizedApiKey).digest('hex');
 
     const [bridges] = await pool.query(

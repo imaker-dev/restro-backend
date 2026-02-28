@@ -231,14 +231,10 @@ const printerController = {
       const { outletId, bridgeCode } = req.params;
       const apiKey = extractBridgeApiKey(req.headers);
 
-      if (!apiKey) {
-        return res.status(401).json({ success: false, message: 'API key required' });
-      }
-
-      // Validate bridge
+      // API key is now optional - if not provided, uses simple bridge code lookup
       const bridge = await printerService.validateBridgeApiKey(outletId, bridgeCode, apiKey);
       if (!bridge) {
-        return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        return res.status(401).json({ success: false, message: 'Bridge not found or inactive' });
       }
       // Get assigned stations
       const stations = bridge.assigned_stations ? JSON.parse(bridge.assigned_stations) : [];
@@ -281,14 +277,10 @@ const printerController = {
       const apiKey = extractBridgeApiKey(req.headers);
       const { status, error } = req.body;
 
-      if (!apiKey) {
-        return res.status(401).json({ success: false, message: 'API key required' });
-      }
-
-      // Validate bridge
+      // API key is optional - uses simple bridge lookup if not provided
       const bridge = await printerService.validateBridgeApiKey(outletId, bridgeCode, apiKey);
       if (!bridge) {
-        return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        return res.status(401).json({ success: false, message: 'Bridge not found or inactive' });
       }
 
       if (status === 'printed') {
@@ -310,13 +302,10 @@ const printerController = {
       const apiKey = extractBridgeApiKey(req.headers);
       const statuses = Array.isArray(req.body?.statuses) ? req.body.statuses : [];
 
-      if (!apiKey) {
-        return res.status(401).json({ success: false, message: 'API key required' });
-      }
-
+      // API key is optional - uses simple bridge lookup if not provided
       const bridge = await printerService.validateBridgeApiKey(outletId, bridgeCode, apiKey);
       if (!bridge) {
-        return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        return res.status(401).json({ success: false, message: 'Bridge not found or inactive' });
       }
 
       const result = await printerService.reportBridgePrinterStatus({
@@ -345,13 +334,10 @@ const printerController = {
       const { outletId, bridgeCode } = req.params;
       const apiKey = extractBridgeApiKey(req.headers);
 
-      if (!apiKey) {
-        return res.status(401).json({ success: false, message: 'API key required' });
-      }
-
+      // API key is optional - uses simple bridge lookup if not provided
       const config = await printerService.getBridgePrinterConfig(outletId, bridgeCode, apiKey);
       if (!config) {
-        return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        return res.status(401).json({ success: false, message: 'Bridge not found or inactive' });
       }
 
       res.json({

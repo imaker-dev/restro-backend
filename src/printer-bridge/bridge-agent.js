@@ -35,8 +35,8 @@ const CONFIG = {
   // Bridge code (created via API: POST /api/v1/printers/bridges)
   BRIDGE_CODE: process.env.BRIDGE_CODE || 'KITCHEN-BRIDGE-1',
   
-  // API key (provided when bridge was created via API)
-  API_KEY: process.env.API_KEY || '855242e269ca0ba825f22a58306ee63bef7d4f75c710ee8d081c24e474989509',
+  // API key (optional - bridge works without it now)
+  API_KEY: process.env.API_KEY || '',
   
   // Polling interval in milliseconds
   POLL_INTERVAL: parseInt(process.env.POLL_INTERVAL) || 2000,
@@ -162,15 +162,41 @@ function getPrinterForStation(station) {
 // API COMMUNICATION
 // ========================
 
+// Build headers - only include API key if provided
+const apiHeaders = { 'Content-Type': 'application/json' };
+if (CONFIG.API_KEY) {
+  apiHeaders['x-api-key'] = CONFIG.API_KEY;
+  apiHeaders['Authorization'] = `Bearer ${CONFIG.API_KEY}`;
+}
+
 const api = axios.create({
   baseURL: CONFIG.CLOUD_URL,
-  headers: {
-    'x-api-key': CONFIG.API_KEY,
-    Authorization: `Bearer ${CONFIG.API_KEY}`,
-    'Content-Type': 'application/json'
-  },
-  timeout: 15000
+  headers: apiHeaders,
+  timeout: 30000 // Increased timeout for slower connections
 });
+
+/**
+ * Test API connectivity on startup
+ */
+async function testApiConnection() {
+  console.log(`🔗 Testing connection to ${CONFIG.CLOUD_URL}...`);
+  try {
+    const response = await axios.get(`${CONFIG.CLOUD_URL}/health`, { timeout: 10000 });
+    console.log(`✅ API server is reachable (status: ${response.status})`);
+    return true;
+  } catch (error) {
+    if (error.code === 'ECONNREFUSED') {
+      console.error(`❌ Connection refused - server might not be running`);
+    } else if (error.code === 'ENOTFOUND') {
+      console.error(`❌ DNS lookup failed - check CLOUD_URL: ${CONFIG.CLOUD_URL}`);
+    } else if (error.code === 'ETIMEDOUT' || error.message.includes('timeout')) {
+      console.error(`❌ Connection timeout - server not responding or firewall blocking`);
+    } else {
+      console.error(`⚠️ API test: ${error.message}`);
+    }
+    return false;
+  }
+}
 
 /**
  * Poll for next pending print job
@@ -403,31 +429,41 @@ function testPrinterConnections() {
 }
 
 // Start the agent
-if (!CONFIG.API_KEY) {
-  console.error('Missing API_KEY. Set API_KEY in environment before starting bridge-agent.');
-  process.exit(1);
-}
-
 printBanner();
 
-// Optional: Test printer connections on startup
-if (process.argv.includes('--test')) {
-  testPrinterConnections();
-  setTimeout(() => {
-    console.log('\nStarting polling...\n');
-    refreshPrinterConfigFromCloud();
-    setInterval(refreshPrinterConfigFromCloud, CONFIG.PRINTER_CONFIG_REFRESH_INTERVAL);
-    setInterval(processNextJob, CONFIG.POLL_INTERVAL);
-    setInterval(reportPrinterStatuses, CONFIG.STATUS_REPORT_INTERVAL);
-    reportPrinterStatuses();
-  }, 5000);
+// Log API key status
+if (CONFIG.API_KEY) {
+  console.log('🔑 Using API key authentication');
 } else {
+  console.log('🌐 Running in public mode (no API key)');
+}
+
+// Main startup function
+async function startAgent() {
+  // Test API connectivity first
+  const apiReachable = await testApiConnection();
+  if (!apiReachable) {
+    console.log('\n⚠️  API server not reachable. Will retry in background...\n');
+  }
+
+  // Optional: Test printer connections on startup
+  if (process.argv.includes('--test')) {
+    testPrinterConnections();
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    console.log('\nStarting polling...\n');
+  }
+
+  // Start polling loops
   refreshPrinterConfigFromCloud();
   setInterval(refreshPrinterConfigFromCloud, CONFIG.PRINTER_CONFIG_REFRESH_INTERVAL);
   setInterval(processNextJob, CONFIG.POLL_INTERVAL);
   setInterval(reportPrinterStatuses, CONFIG.STATUS_REPORT_INTERVAL);
   reportPrinterStatuses();
+  
+  console.log('🟢 Polling started. Waiting for print jobs...\n');
 }
+
+startAgent();
 
 // Handle graceful shutdown
 process.on('SIGINT', () => {
