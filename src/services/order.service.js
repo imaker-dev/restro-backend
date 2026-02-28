@@ -1673,18 +1673,19 @@ const orderService = {
 
     const order = orders[0];
 
-    // Verify captain owns this order (or is admin/manager)
+    // Verify captain owns this order (or has elevated role)
     const [userRoles] = await pool.query(
       `SELECT r.slug as role_name FROM user_roles ur 
        JOIN roles r ON ur.role_id = r.id 
        WHERE ur.user_id = ? AND ur.is_active = 1`,
       [captainId]
     );
-    const isAdminOrManager = userRoles.some(r => 
-      ['admin', 'manager', 'super_admin'].includes(r.role_name)
+    // Cashier, manager, admin can view any order; captain/waiter can only view their own
+    const canViewAnyOrder = userRoles.some(r => 
+      ['admin', 'manager', 'super_admin', 'cashier'].includes(r.role_name)
     );
 
-    if (order.created_by !== captainId && !isAdminOrManager) {
+    if (order.created_by !== captainId && !canViewAnyOrder) {
       throw new Error('You can only view your own orders');
     }
 

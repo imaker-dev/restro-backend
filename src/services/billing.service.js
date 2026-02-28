@@ -193,16 +193,36 @@ const billingService = {
   // ========================
 
   /**
-   * Get bill printer for an outlet based on floor
-   * Priority: 1) Floor-specific cashier's bill station printer
+   * Get bill printer for an outlet based on cashier user or floor
+   * Priority: 0) Specific cashier user's assigned bill station printer
+   *           1) Floor-specific cashier's bill station printer
    *           2) Outlet-level bill printer (station = 'bill')
    *           3) Any active network printer for the outlet
    * 
    * @param {number} outletId - Outlet ID
    * @param {number} floorId - Optional floor ID for floor-based routing
+   * @param {number} cashierUserId - Optional specific cashier user ID
    */
-  async getBillPrinter(outletId, floorId = null) {
+  async getBillPrinter(outletId, floorId = null, cashierUserId = null) {
     const pool = getPool();
+
+    // Priority 0: Find printer assigned to the specific cashier user (via user_stations -> kitchen_stations)
+    if (cashierUserId) {
+      const [userPrinters] = await pool.query(
+        `SELECT DISTINCT p.*
+         FROM user_stations us
+         JOIN kitchen_stations ks ON us.station_id = ks.id AND ks.is_active = 1 AND ks.station_type = 'bill'
+         JOIN printers p ON ks.printer_id = p.id AND p.is_active = 1
+         WHERE us.user_id = ? AND us.outlet_id = ? AND us.is_active = 1
+         ORDER BY us.is_primary DESC
+         LIMIT 1`,
+        [cashierUserId, outletId]
+      );
+      if (userPrinters[0]) {
+        logger.info(`Bill printer found via cashier user ${cashierUserId}: ${userPrinters[0].name}`);
+        return userPrinters[0];
+      }
+    }
 
     // Priority 1: Find printer from cashier's bill station for this floor
     if (floorId) {
@@ -344,9 +364,10 @@ const billingService = {
       openDrawer: false
     };
 
-    // Get floor ID for floor-based printer routing
+    // Get floor ID and user ID for printer routing
     const floorId = invoice.floorId || order.floor_id || null;
-    const printer = await this.getBillPrinter(billPrintData.outletId, floorId);
+    const cashierUserId = userId || invoice.generatedBy || order.created_by || null;
+    const printer = await this.getBillPrinter(billPrintData.outletId, floorId, cashierUserId);
     if (printer && printer.ip_address) {
       try {
         await printerService.printBillDirect(billPrintData, printer.ip_address, printer.port || 9100);

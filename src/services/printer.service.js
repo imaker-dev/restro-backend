@@ -21,17 +21,8 @@ const BINARY_CONTENT_PREFIX = 'b64:';
 const AUTO_BRIDGE_NAME = 'Kitchen Bridge';
 const AUTO_BRIDGE_CODE = 'KITCHEN-BRIDGE-1';
 const AUTO_BRIDGE_API_KEY = '855242e269ca0ba825f22a58306ee63bef7d4f75c710ee8d081c24e474989509';
-const AUTO_BRIDGE_ASSIGNED_STATIONS = [
-  'kot_kitchen',
-  'bar',
-  'bill',
-  'kot_kitchen',
-  'kot_bar',
-  'kot_dessert',
-  'dessert',
-  'cashier',
-  'tandoor'
-];
+// Use '*' to indicate the bridge should poll for ALL pending stations dynamically
+const AUTO_BRIDGE_ASSIGNED_STATIONS = ['*'];
 
 function resolveExistingLocalPath(source) {
   if (typeof source !== 'string') return null;
@@ -263,13 +254,59 @@ const printerService = {
     return printers[0];
   },
 
+  /**
+   * Get printer for a station (dynamic lookup)
+   * Priority:
+   * 1. Exact match on printers.station
+   * 2. Kitchen station with matching station_type that has printer_id
+   * 3. Counter with matching counter_type that has printer_id
+   * 4. Any active KOT/bill printer for the outlet
+   */
   async getPrinterByStation(outletId, station) {
     const pool = getPool();
-    const [printers] = await pool.query(
+    
+    // Priority 1: Exact match on printers.station
+    let [printers] = await pool.query(
       `SELECT * FROM printers WHERE outlet_id = ? AND station = ? AND is_active = 1 LIMIT 1`,
       [outletId, station]
     );
-    return printers[0];
+    if (printers[0]) return printers[0];
+
+    // Priority 2: Find printer via kitchen_stations with matching station_type
+    [printers] = await pool.query(
+      `SELECT p.* FROM printers p
+       JOIN kitchen_stations ks ON ks.printer_id = p.id
+       WHERE ks.outlet_id = ? AND ks.station_type = ? AND p.is_active = 1 AND ks.is_active = 1
+       LIMIT 1`,
+      [outletId, station]
+    );
+    if (printers[0]) return printers[0];
+
+    // Priority 3: Find printer via counters with matching counter_type
+    [printers] = await pool.query(
+      `SELECT p.* FROM printers p
+       JOIN counters c ON c.printer_id = p.id
+       WHERE c.outlet_id = ? AND c.counter_type = ? AND p.is_active = 1 AND c.is_active = 1
+       LIMIT 1`,
+      [outletId, station]
+    );
+    if (printers[0]) return printers[0];
+
+    // Priority 4: For bill station, find any bill printer
+    if (station === 'bill' || station === 'cashier') {
+      [printers] = await pool.query(
+        `SELECT * FROM printers WHERE outlet_id = ? AND (station = 'bill' OR station = 'cashier') AND is_active = 1 LIMIT 1`,
+        [outletId]
+      );
+      if (printers[0]) return printers[0];
+    }
+
+    // Priority 5: Any active KOT printer as fallback
+    [printers] = await pool.query(
+      `SELECT * FROM printers WHERE outlet_id = ? AND is_active = 1 AND ip_address IS NOT NULL LIMIT 1`,
+      [outletId]
+    );
+    return printers[0] || null;
   },
 
   async updatePrinter(id, data) {
@@ -357,7 +394,7 @@ const printerService = {
       referenceNumber: data.referenceNumber
     });
 
-    logger.info(`Print job created: ${uuid} for ${data.station}`);
+    logger.info(`Print job created: id=${jobId}, uuid=${uuid}, station=${data.station}, type=${data.jobType}, ref=${data.referenceNumber || 'N/A'}`);
     return { id: jobId, uuid };
   },
 
@@ -402,6 +439,38 @@ const printerService = {
         `UPDATE print_jobs SET status = 'processing', processed_at = NOW(), attempts = attempts + 1 WHERE id = ?`,
         [jobs[0].id]
       );
+      logger.debug(`Bridge poll found job: id=${jobs[0].id}, station=${station}, type=${jobs[0].job_type}, ref=${jobs[0].reference_number}`);
+    }
+
+    return jobs[0] || null;
+  },
+
+  /**
+   * Get next pending job for ANY station (dynamic polling)
+   * Used when bridge has '*' in assigned_stations
+   */
+  async getNextPendingJobAny(outletId) {
+    const pool = getPool();
+    
+    const [jobs] = await pool.query(
+      `SELECT pj.*, p.name as printer_name, p.ip_address, p.port
+       FROM print_jobs pj
+       LEFT JOIN printers p ON pj.printer_id = p.id
+       WHERE pj.outlet_id = ? 
+         AND pj.status = 'pending'
+         AND pj.attempts < pj.max_attempts
+       ORDER BY pj.priority DESC, pj.created_at ASC
+       LIMIT 1`,
+      [outletId]
+    );
+
+    if (jobs[0]) {
+      // Mark as processing
+      await pool.query(
+        `UPDATE print_jobs SET status = 'processing', processed_at = NOW(), attempts = attempts + 1 WHERE id = ?`,
+        [jobs[0].id]
+      );
+      logger.debug(`Bridge poll (dynamic) found job: id=${jobs[0].id}, station=${jobs[0].station}, type=${jobs[0].job_type}, ref=${jobs[0].reference_number}`);
     }
 
     return jobs[0] || null;
@@ -687,52 +756,80 @@ const printerService = {
       assignedStations = [];
     }
 
-    const uniqueStations = Array.from(
-      new Set(
-        assignedStations
-          .map((station) => (typeof station === 'string' ? station.trim() : ''))
-          .filter(Boolean)
-      )
-    );
+    // Check for dynamic mode ('*' or empty = all printers)
+    const isDynamicMode = assignedStations.includes('*') || assignedStations.length === 0;
 
-    if (uniqueStations.length === 0) {
-      return {
-        bridgeId: bridge.id,
-        bridgeCode: bridge.bridge_code,
-        assignedStations: [],
-        printers: {},
-        fetchedAt: new Date().toISOString()
-      };
+    let rows;
+    if (isDynamicMode) {
+      // Dynamic mode: return ALL active printers for this outlet
+      // Also include kitchen_station.station_type mappings for dynamic station names
+      [rows] = await pool.query(
+        `SELECT p.station, p.ip_address, p.port, ks.station_type as ks_station_type
+         FROM printers p
+         LEFT JOIN kitchen_stations ks ON ks.printer_id = p.id AND ks.is_active = 1
+         WHERE p.outlet_id = ? AND p.is_active = 1 AND p.ip_address IS NOT NULL
+         ORDER BY p.station ASC, p.id ASC`,
+        [outletId]
+      );
+    } else {
+      // Fixed mode: return only printers matching assigned stations
+      const uniqueStations = Array.from(
+        new Set(
+          assignedStations
+            .map((station) => (typeof station === 'string' ? station.trim() : ''))
+            .filter(Boolean)
+        )
+      );
+
+      if (uniqueStations.length === 0) {
+        return {
+          bridgeId: bridge.id,
+          bridgeCode: bridge.bridge_code,
+          assignedStations: [],
+          printers: {},
+          isDynamic: false,
+          fetchedAt: new Date().toISOString()
+        };
+      }
+
+      const placeholders = uniqueStations.map(() => '?').join(',');
+      [rows] = await pool.query(
+        `SELECT station, ip_address, port
+         FROM printers
+         WHERE outlet_id = ?
+           AND is_active = 1
+           AND station IN (${placeholders})
+         ORDER BY station ASC, id ASC`,
+        [outletId, ...uniqueStations]
+      );
     }
-
-    const placeholders = uniqueStations.map(() => '?').join(',');
-    const [rows] = await pool.query(
-      `SELECT station, ip_address, port
-       FROM printers
-       WHERE outlet_id = ?
-         AND is_active = 1
-         AND station IN (${placeholders})
-       ORDER BY station ASC, id ASC`,
-      [outletId, ...uniqueStations]
-    );
 
     const printers = {};
     for (const row of rows) {
-      const station = typeof row.station === 'string' ? row.station.trim() : '';
-      if (!station || printers[station]) {
-        continue;
-      }
-      printers[station] = {
+      const printerConfig = {
         ip: row.ip_address,
         port: row.port || 9100
       };
+      
+      // Add by printer.station (e.g., 'kot_kitchen', 'bill')
+      const station = typeof row.station === 'string' ? row.station.trim() : '';
+      if (station && !printers[station]) {
+        printers[station] = printerConfig;
+      }
+      
+      // Also add by kitchen_station.station_type for dynamic matching (e.g., 'tandoor', 'main_kitchen')
+      const ksStationType = row.ks_station_type ? String(row.ks_station_type).trim() : '';
+      if (ksStationType && !printers[ksStationType]) {
+        printers[ksStationType] = printerConfig;
+      }
     }
 
     return {
       bridgeId: bridge.id,
       bridgeCode: bridge.bridge_code,
-      assignedStations: uniqueStations,
+      assignedStations: isDynamicMode ? ['*'] : assignedStations,
       printers,
+      isDynamic: isDynamicMode,
       fetchedAt: new Date().toISOString()
     };
   },
@@ -799,6 +896,7 @@ const printerService = {
 
   async printCancelSlip(cancelData, userId) {
     const content = this.formatCancelSlipContent(cancelData);
+    // Use station name as-is (dynamic - matches kitchen_stations.station_type)
     const station = cancelData.station || 'kitchen';
 
     return this.createPrintJob({
@@ -1071,11 +1169,12 @@ const printerService = {
 
   async printKot(kotData, userId) {
     const content = this.formatKotContent(kotData);
+    // Use station name as-is from KOT (dynamic - matches kitchen_stations.station_type)
     const station = kotData.station || 'kitchen';
 
     return this.createPrintJob({
       outletId: kotData.outletId,
-      jobType: station === 'bar' ? 'bot' : 'kot',
+      jobType: station === 'bar' || station === 'main_bar' ? 'bot' : 'kot',
       station,
       kotId: kotData.kotId,
       orderId: kotData.orderId,

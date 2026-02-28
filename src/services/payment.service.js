@@ -1801,13 +1801,23 @@ const paymentService = {
     // Build floor filter for queries - use shift's floor_id
     const floorId = shift.floor_id;
 
-    // Get all cash drawer transactions for this shift (filtered by floor and cashier)
+    // Build shift time range for filtering (shift-specific, not day-wise)
+    // Combine session_date with opening_time and closing_time
+    const shiftStartTime = shift.opening_time 
+      ? `${shift.session_date} ${shift.opening_time}` 
+      : `${shift.session_date} 00:00:00`;
+    // For open shifts, use current time as end; for closed shifts use closing_time
+    const shiftEndTime = shift.closing_time 
+      ? `${shift.session_date} ${shift.closing_time}` 
+      : (shift.status === 'open' ? new Date().toISOString().slice(0, 19).replace('T', ' ') : `${shift.session_date} 23:59:59`);
+
+    // Get all cash drawer transactions for this shift (filtered by shift time range)
     let transQuery = `
       SELECT cd.*, u.name as user_name
       FROM cash_drawer cd
       LEFT JOIN users u ON cd.user_id = u.id
-      WHERE cd.outlet_id = ? AND DATE(cd.created_at) = ?`;
-    const transParams = [shift.outlet_id, shift.session_date];
+      WHERE cd.outlet_id = ? AND cd.created_at >= ? AND cd.created_at <= ?`;
+    const transParams = [shift.outlet_id, shiftStartTime, shiftEndTime];
     
     if (floorId) {
       transQuery += ` AND cd.floor_id = ?`;
@@ -1821,12 +1831,12 @@ const paymentService = {
     
     const [transactions] = await pool.query(transQuery, transParams);
 
-    // Get payment breakdown for the shift (filtered by floor)
+    // Get payment breakdown for the shift (filtered by shift time range)
     let paymentQuery = `
       SELECT payment_mode, COUNT(*) as count, SUM(total_amount) as total
       FROM payments
-      WHERE outlet_id = ? AND DATE(created_at) = ? AND status = 'completed'`;
-    const paymentParams = [shift.outlet_id, shift.session_date];
+      WHERE outlet_id = ? AND created_at >= ? AND created_at <= ? AND status = 'completed'`;
+    const paymentParams = [shift.outlet_id, shiftStartTime, shiftEndTime];
     
     if (floorId) {
       paymentQuery += ` AND floor_id = ?`;
@@ -1836,7 +1846,7 @@ const paymentService = {
     
     const [paymentBreakdown] = await pool.query(paymentQuery, paymentParams);
 
-    // Get order statistics (filtered by floor)
+    // Get order statistics (filtered by shift time range)
     let orderQuery = `
       SELECT 
         COUNT(*) as total_orders,
@@ -1849,8 +1859,8 @@ const paymentService = {
         MAX(CASE WHEN status != 'cancelled' THEN total_amount ELSE NULL END) as max_order_value,
         MIN(CASE WHEN status != 'cancelled' AND total_amount > 0 THEN total_amount ELSE NULL END) as min_order_value
       FROM orders
-      WHERE outlet_id = ? AND DATE(created_at) = ?`;
-    const orderParams = [shift.outlet_id, shift.session_date];
+      WHERE outlet_id = ? AND created_at >= ? AND created_at <= ?`;
+    const orderParams = [shift.outlet_id, shiftStartTime, shiftEndTime];
     
     if (floorId) {
       orderQuery += ` AND floor_id = ?`;
@@ -1859,7 +1869,7 @@ const paymentService = {
     
     const [orderStats] = await pool.query(orderQuery, orderParams);
 
-    // Get staff who worked during this shift (filtered by floor)
+    // Get staff who worked during this shift (filtered by shift time range)
     let staffQuery = `
       SELECT 
         u.id as user_id,
@@ -1868,8 +1878,8 @@ const paymentService = {
         SUM(CASE WHEN o.status != 'cancelled' THEN o.total_amount ELSE 0 END) as total_sales
       FROM orders o
       JOIN users u ON o.created_by = u.id
-      WHERE o.outlet_id = ? AND DATE(o.created_at) = ?`;
-    const staffParams = [shift.outlet_id, shift.session_date];
+      WHERE o.outlet_id = ? AND o.created_at >= ? AND o.created_at <= ?`;
+    const staffParams = [shift.outlet_id, shiftStartTime, shiftEndTime];
     
     if (floorId) {
       staffQuery += ` AND o.floor_id = ?`;

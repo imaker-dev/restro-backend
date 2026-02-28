@@ -48,17 +48,22 @@ const CONFIG = {
   PRINTER_CONFIG_REFRESH_INTERVAL: parseInt(process.env.PRINTER_CONFIG_REFRESH_INTERVAL) || 30000,
   
   // Printers configuration - map stations to printer IP/port
-  // Update these IPs to match your local network printers
+  // Station names are DYNAMIC and match kitchen_stations.station_type or counter_type
+  // Examples: main_kitchen, tandoor, bar, dessert, mocktail, bill, cashier
+  // These are loaded dynamically from server via refreshPrinterConfigFromCloud()
+  // Initial config is used as fallback if server is unreachable
   PRINTERS: {
-    kot_kitchen: { ip: '192.168.1.13', port: 9100 },
-    kot_bar: { ip: '192.168.1.13', port: 9100 },
-    bill: { ip: '192.168.1.13', port: 9100 },
+    // KOT stations (from kitchen_stations.station_type)
+    main_kitchen: { ip: '192.168.1.13', port: 9100 },
     kitchen: { ip: '192.168.1.13', port: 9100 },
-    test: { ip: '192.168.1.13', port: 9100 },
+    tandoor: { ip: '192.168.1.13', port: 9100 },
     bar: { ip: '192.168.1.13', port: 9100 },
-    cashier: { ip: '192.168.1.13', port: 9100 },
     dessert: { ip: '192.168.1.13', port: 9100 },
-    tandoor: { ip: '192.168.1.13', port: 9100 }
+    mocktail: { ip: '192.168.1.13', port: 9100 },
+    // Bill/cashier stations
+    bill: { ip: '192.168.1.13', port: 9100 },
+    cashier: { ip: '192.168.1.13', port: 9100 },
+    test: { ip: '192.168.1.13', port: 9100 }
   },
   
   // Fallback printer if station not found
@@ -139,10 +144,18 @@ function decodeJobContent(content) {
 }
 
 /**
- * Get printer config for a station
+ * Get printer config for a station (dynamic lookup)
+ * Station names come directly from kitchen_stations.station_type (e.g., main_kitchen, tandoor, bar)
  */
 function getPrinterForStation(station) {
-  return CONFIG.PRINTERS[station] || CONFIG.DEFAULT_PRINTER;
+  const printer = CONFIG.PRINTERS[station];
+  if (printer) {
+    return printer;
+  }
+  
+  // Log when using default printer for unknown station
+  console.log(`   ⚠️ No dedicated printer for station "${station}", using default printer`);
+  return CONFIG.DEFAULT_PRINTER;
 }
 
 // ========================
@@ -275,7 +288,7 @@ async function refreshPrinterConfigFromCloud() {
 
     CONFIG.PRINTERS = normalizedPrinters;
     CONFIG.DEFAULT_PRINTER = normalizedPrinters[stations[0]];
-    console.log(`🔄 Printer config refreshed from DB (${stations.length} station mappings).`);
+    console.log(`🔄 Printer config refreshed from DB (${stations.length} stations: ${stations.join(', ')})`);
   } catch (error) {
     const message = error.response?.data?.message || error.message;
     console.error(`Printer config refresh failed: ${message}`);

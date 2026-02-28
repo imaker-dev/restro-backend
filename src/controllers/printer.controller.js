@@ -243,11 +243,21 @@ const printerController = {
       // Get assigned stations
       const stations = bridge.assigned_stations ? JSON.parse(bridge.assigned_stations) : [];
       
-      // Get next pending job for any assigned station
+      // Check if bridge uses dynamic polling ('*' means poll for ANY pending job)
+      const isDynamicPolling = stations.includes('*') || stations.length === 0;
+      
       let job = null;
-      for (const station of stations) {
-        job = await printerService.getNextPendingJob(outletId, station);
-        if (job) break;
+      if (isDynamicPolling) {
+        // Dynamic polling - get any pending job for this outlet
+        logger.debug(`Bridge ${bridgeCode} polling dynamically for ANY station`);
+        job = await printerService.getNextPendingJobAny(outletId);
+      } else {
+        // Fixed station polling - iterate through assigned stations
+        logger.debug(`Bridge ${bridgeCode} polling for stations: [${stations.join(', ')}]`);
+        for (const station of stations) {
+          job = await printerService.getNextPendingJob(outletId, station);
+          if (job) break;
+        }
       }
 
 
