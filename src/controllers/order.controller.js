@@ -697,12 +697,14 @@ const orderController = {
   async openCashDrawer(req, res) {
     try {
       const { outletId } = req.params;
+      const { openingCash, floorId } = req.body;
       const result = await paymentService.openCashDrawer(
         outletId,
-        req.body.openingCash,
-        req.user.userId
+        openingCash,
+        req.user.userId,
+        floorId || null
       );
-      res.json({ success: true, message: 'Cash drawer opened', data: result });
+      res.json({ success: true, message: 'Shift opened for floor', data: result });
     } catch (error) {
       logger.error('Open cash drawer error:', error);
       res.status(500).json({ success: false, message: error.message });
@@ -712,13 +714,15 @@ const orderController = {
   async closeCashDrawer(req, res) {
     try {
       const { outletId } = req.params;
+      const { actualCash, notes, floorId } = req.body;
       const result = await paymentService.closeCashDrawer(
         outletId,
-        req.body.actualCash,
+        actualCash,
         req.user.userId,
-        req.body.notes
+        notes,
+        floorId || null
       );
-      res.json({ success: true, message: 'Cash drawer closed', data: result });
+      res.json({ success: true, message: 'Shift closed for floor', data: result });
     } catch (error) {
       logger.error('Close cash drawer error:', error);
       res.status(500).json({ success: false, message: error.message });
@@ -728,10 +732,45 @@ const orderController = {
   async getCashDrawerStatus(req, res) {
     try {
       const { outletId } = req.params;
-      const status = await paymentService.getCashDrawerStatus(outletId);
+      const { floorId } = req.query;
+      const status = await paymentService.getCashDrawerStatus(
+        outletId,
+        floorId ? parseInt(floorId) : null,
+        req.user.userId
+      );
       res.json({ success: true, data: status });
     } catch (error) {
       logger.error('Get cash drawer status error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
+   * Get all floor shifts status for an outlet
+   * GET /api/v1/orders/:outletId/shifts/floors
+   */
+  async getAllFloorShiftsStatus(req, res) {
+    try {
+      const { outletId } = req.params;
+      const result = await paymentService.getAllFloorShiftsStatus(outletId);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      logger.error('Get all floor shifts status error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
+   * Check if shift is open for a specific floor
+   * GET /api/v1/orders/:outletId/shifts/floor/:floorId/status
+   */
+  async getFloorShiftStatus(req, res) {
+    try {
+      const { outletId, floorId } = req.params;
+      const result = await paymentService.isFloorShiftOpen(outletId, parseInt(floorId));
+      res.json({ success: true, data: result });
+    } catch (error) {
+      logger.error('Get floor shift status error:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   },
@@ -976,9 +1015,17 @@ const orderController = {
   async getFloorSectionReport(req, res) {
     try {
       const { outletId } = req.params;
-      const { startDate, endDate } = req.query;
+      const { startDate, endDate, search, page, limit, sortBy, sortOrder } = req.query;
       const floorIds = await getUserFloorIds(req.user.userId, outletId);
-      const report = await reportsService.getFloorSectionReport(outletId, startDate, endDate, floorIds);
+      
+      const report = await reportsService.getFloorSectionReport(outletId, startDate, endDate, {
+        floorIds,
+        search,
+        page: parseInt(page) || 1,
+        limit: parseInt(limit) || 50,
+        sortBy,
+        sortOrder
+      });
       res.json({ success: true, data: report });
     } catch (error) {
       logger.error('Get floor section report error:', error);
@@ -1117,6 +1164,12 @@ const orderController = {
     try {
       const { outletId } = req.params;
       const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      
+      // Determine user role - cashiers see all floor orders, captains see only their own
+      // Note: req.user.roles is array of role strings like ['cashier', 'admin']
+      const isCashier = req.user.roles?.includes('cashier');
+      const isCaptain = req.user.roles?.includes('captain') || req.user.roles?.includes('waiter');
+      
       const filters = {
         status: req.query.status,
         search: req.query.search || req.query.q,
@@ -1126,7 +1179,9 @@ const orderController = {
         limit: req.query.limit,
         sortBy: req.query.sortBy,
         sortOrder: req.query.sortOrder,
-        floorIds: floorIds.length > 0 ? floorIds : undefined
+        floorIds: floorIds.length > 0 ? floorIds : undefined,
+        // Cashiers see all orders for their assigned floors, captains see only their own
+        viewAllFloorOrders: isCashier && !isCaptain
       };
       
       const result = await orderService.getCaptainOrderHistory(
@@ -1191,11 +1246,19 @@ const orderController = {
   /**
    * Get shift history with pagination and filters
    * GET /api/v1/orders/shifts/:outletId/history
+   * @query floorId - Filter by floor ID
+   * @query cashierId - Filter by cashier ID
+   * @query userId - Filter by user (opened_by, closed_by, or cashier_id)
+   * @query startDate - Filter from date
+   * @query endDate - Filter to date
+   * @query status - 'open', 'closed', 'all'
    */
   async getShiftHistory(req, res) {
     try {
       const { outletId } = req.params;
       const {
+        floorId,
+        cashierId,
         userId,
         startDate,
         endDate,
@@ -1206,9 +1269,16 @@ const orderController = {
         sortOrder = 'DESC'
       } = req.query;
 
+      // If cashier role, filter to only their own shifts
+      // Note: req.user.roles is array of role strings like ['cashier', 'admin']
+      const isCashier = req.user.roles?.includes('cashier');
+      const effectiveCashierId = isCashier ? req.user.userId : (cashierId || null);
+
       const result = await paymentService.getShiftHistory({
         outletId,
-        userId: userId || null,
+        floorId: floorId ? parseInt(floorId) : null,
+        cashierId: effectiveCashierId ? parseInt(effectiveCashierId) : null,
+        userId: userId ? parseInt(userId) : null,
         startDate: startDate || null,
         endDate: endDate || null,
         status: status || null,
@@ -1228,16 +1298,26 @@ const orderController = {
   /**
    * Get detailed shift information
    * GET /api/v1/orders/shifts/:shiftId/detail
+   * Cashiers can only view their own shifts
    */
   async getShiftDetail(req, res) {
     try {
       const { shiftId } = req.params;
-      const shift = await paymentService.getShiftDetail(shiftId);
+      
+      // If cashier role, only allow viewing their own shifts
+      // Note: req.user.roles is array of role strings like ['cashier', 'admin']
+      const isCashier = req.user.roles?.includes('cashier');
+      const cashierId = isCashier ? req.user.userId : null;
+      
+      const shift = await paymentService.getShiftDetail(shiftId, cashierId);
       res.json({ success: true, data: shift });
     } catch (error) {
       logger.error('Get shift detail error:', error);
       if (error.message === 'Shift not found') {
         return res.status(404).json({ success: false, message: error.message });
+      }
+      if (error.message === 'You can only view your own shifts') {
+        return res.status(403).json({ success: false, message: error.message });
       }
       res.status(500).json({ success: false, message: error.message });
     }
@@ -1246,16 +1326,31 @@ const orderController = {
   /**
    * Get shift summary statistics
    * GET /api/v1/orders/shifts/:outletId/summary
+   * Cashiers see only their own shift summary
    */
   async getShiftSummary(req, res) {
     try {
       const { outletId } = req.params;
-      const { startDate, endDate } = req.query;
+      const { startDate, endDate, floorId } = req.query;
+
+      // If cashier role, filter to only their own shifts
+      // Note: req.user.roles is array of role strings like ['cashier', 'admin']
+      const isCashier = req.user.roles?.includes('cashier');
+      const cashierId = isCashier ? req.user.userId : null;
+      
+      // Get user's floor if not provided
+      let effectiveFloorId = floorId ? parseInt(floorId) : null;
+      if (!effectiveFloorId && isCashier) {
+        const floorIds = await getUserFloorIds(req.user.userId, outletId);
+        effectiveFloorId = floorIds.length > 0 ? floorIds[0] : null;
+      }
 
       const summary = await paymentService.getShiftSummary({
         outletId,
         startDate: startDate || null,
-        endDate: endDate || null
+        endDate: endDate || null,
+        floorId: effectiveFloorId,
+        cashierId
       });
 
       res.json({ success: true, data: summary });

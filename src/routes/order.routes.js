@@ -416,10 +416,25 @@ router.post('/cash-drawer/:outletId/close', validate(orderValidation.closeCashDr
 
 /**
  * @route   GET /api/v1/orders/cash-drawer/:outletId/status
- * @desc    Get cash drawer status
+ * @desc    Get cash drawer status for user's assigned floor
  * @access  Private
+ * @query   floorId - Optional floor ID (defaults to user's assigned floor)
  */
 router.get('/cash-drawer/:outletId/status', orderController.getCashDrawerStatus);
+
+/**
+ * @route   GET /api/v1/orders/shifts/:outletId/floors
+ * @desc    Get all floor shifts status for an outlet
+ * @access  Private (cashier, manager, admin)
+ */
+router.get('/shifts/:outletId/floors', authorize('super_admin', 'admin', 'manager', 'cashier'), orderController.getAllFloorShiftsStatus);
+
+/**
+ * @route   GET /api/v1/orders/shifts/:outletId/floor/:floorId/status
+ * @desc    Check if shift is open for a specific floor
+ * @access  Private
+ */
+router.get('/shifts/:outletId/floor/:floorId/status', orderController.getFloorShiftStatus);
 
 // ========================
 // REPORTS

@@ -481,7 +481,7 @@ const orderService = {
     );
 
     const subtotal = parseFloat(items[0].subtotal) || 0;
-    const taxAmount = parseFloat(items[0].tax_total) || 0;
+    const originalTaxAmount = parseFloat(items[0].tax_total) || 0;
 
     // Get discount
     const [discounts] = await pool.query(
@@ -490,16 +490,25 @@ const orderService = {
     );
     const discountAmount = parseFloat(discounts[0].total) || 0;
 
-    // Calculate total
-    const totalAmount = subtotal - discountAmount + taxAmount;
-    const roundOff = Math.round(totalAmount) - totalAmount;
+    // Calculate taxable amount after discount
+    const taxableAmount = subtotal - discountAmount;
+    
+    // Apply discount ratio to tax (same as calculateBillDetails in billing.service.js)
+    // Tax should be proportionally reduced when discount is applied
+    const discountRatio = subtotal > 0 ? (taxableAmount / subtotal) : 1;
+    const adjustedTaxAmount = parseFloat((originalTaxAmount * discountRatio).toFixed(2));
+
+    // Calculate total: taxableAmount + adjustedTax (matches invoice grand_total calculation)
+    const preRoundTotal = taxableAmount + adjustedTaxAmount;
+    const totalAmount = Math.round(preRoundTotal);
+    const roundOff = totalAmount - preRoundTotal;
 
     await pool.query(
       `UPDATE orders SET 
         subtotal = ?, discount_amount = ?, tax_amount = ?,
         round_off = ?, total_amount = ?, updated_at = NOW()
        WHERE id = ?`,
-      [subtotal, discountAmount, taxAmount, roundOff, Math.round(totalAmount), orderId]
+      [subtotal, discountAmount, adjustedTaxAmount, roundOff, totalAmount, orderId]
     );
   },
 
@@ -512,7 +521,11 @@ const orderService = {
     const [rows] = await pool.query(
       `SELECT o.*, t.table_number, t.name as table_name,
         f.name as floor_name, s.name as section_name,
-        u.name as created_by_name
+        u.name as created_by_name,
+        CASE 
+          WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount)
+          ELSE o.total_amount
+        END as display_amount
        FROM orders o
        LEFT JOIN tables t ON o.table_id = t.id
        LEFT JOIN floors f ON o.floor_id = f.id
@@ -1093,7 +1106,7 @@ const orderService = {
       const [items] = await connection.query(
         `SELECT oi.*, o.outlet_id, o.status as order_status, o.order_number, o.table_id,
           t.table_number, kt.kot_number, kt.station as kot_station,
-          (SELECT COUNT(*) FROM invoices inv WHERE inv.order_id = o.id AND inv.status != 'cancelled') as has_invoice
+          (SELECT COUNT(*) FROM invoices inv WHERE inv.order_id = o.id AND inv.is_cancelled = 0) as has_invoice
          FROM order_items oi
          JOIN orders o ON oi.order_id = o.id
          LEFT JOIN tables t ON o.table_id = t.id
@@ -1291,7 +1304,7 @@ const orderService = {
 
       // Extra safety: Check if invoice exists for this order
       const [invoiceCheck] = await connection.query(
-        `SELECT COUNT(*) as count FROM invoices WHERE order_id = ? AND status != 'cancelled'`,
+        `SELECT COUNT(*) as count FROM invoices WHERE order_id = ? AND is_cancelled = 0`,
         [orderId]
       );
       if (invoiceCheck[0].count > 0) {
@@ -1484,6 +1497,7 @@ const orderService = {
   /**
    * Get captain's order history with filters
    * Captain sees only their own orders
+   * Cashier with viewAllFloorOrders sees all orders for their assigned floors
    */
   async getCaptainOrderHistory(captainId, outletId, filters = {}) {
     const pool = getPool();
@@ -1496,10 +1510,12 @@ const orderService = {
       page = 1,
       limit = 20,
       sortBy = 'created_at',
-      sortOrder = 'DESC'
+      sortOrder = 'DESC',
+      viewAllFloorOrders = false  // Cashiers see all floor orders
     } = filters;
 
     // Optimized query with LEFT JOIN aggregations instead of subqueries for better performance
+    // Use paid_amount for completed orders to show actual amount after discount
     let query = `
       SELECT 
         o.id,
@@ -1511,6 +1527,11 @@ const orderService = {
         o.tax_amount,
         o.discount_amount,
         o.total_amount,
+        o.paid_amount,
+        CASE 
+          WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount)
+          ELSE o.total_amount
+        END as display_amount,
         o.guest_count,
         o.customer_name,
         o.customer_phone,
@@ -1541,11 +1562,18 @@ const orderService = {
         FROM kot_tickets 
         GROUP BY order_id
       ) kot_stats ON o.id = kot_stats.order_id
-      WHERE o.outlet_id = ? AND o.created_by = ?
+      WHERE o.outlet_id = ?
     `;
-    const params = [outletId, captainId];
+    const params = [outletId];
 
-    // Floor restriction
+    // Cashiers with viewAllFloorOrders see all orders for their floors
+    // Captains see only their own orders
+    if (!viewAllFloorOrders) {
+      query += ` AND o.created_by = ?`;
+      params.push(captainId);
+    }
+
+    // Floor restriction - for cashiers, shows only orders from their assigned floors
     if (filters.floorIds && filters.floorIds.length > 0) {
       query += ` AND o.floor_id IN (${filters.floorIds.map(() => '?').join(',')})`;
       params.push(...filters.floorIds);
@@ -2102,8 +2130,15 @@ const orderService = {
       [...queryParams, parseInt(limit), parseInt(offset)]
     );
 
-    // Format orders
-    const formattedOrders = orders.map(order => ({
+    // Format orders - use paid_amount for completed orders to show correct amount after discount
+    const formattedOrders = orders.map(order => {
+      const totalAmt = parseFloat(order.total_amount) || 0;
+      const paidAmt = parseFloat(order.paid_amount) || 0;
+      const isCompleted = ['paid', 'completed'].includes(order.status);
+      // Display amount: for completed orders use paid_amount, otherwise use total_amount
+      const displayAmt = isCompleted ? (paidAmt || totalAmt) : totalAmt;
+      
+      return {
       id: order.id,
       uuid: order.uuid,
       orderNumber: order.order_number,
@@ -2124,8 +2159,9 @@ const orderService = {
       discountAmount: parseFloat(order.discount_amount) || 0,
       taxAmount: parseFloat(order.tax_amount) || 0,
       serviceCharge: parseFloat(order.service_charge) || 0,
-      totalAmount: parseFloat(order.total_amount) || 0,
-      paidAmount: parseFloat(order.paid_amount) || 0,
+      totalAmount: totalAmt,
+      paidAmount: paidAmt,
+      displayAmount: displayAmt,
       captainId: order.created_by,
       captainName: order.captain_name,
       invoiceId: order.invoice_id,
@@ -2137,19 +2173,19 @@ const orderService = {
       specialInstructions: order.special_instructions,
       createdAt: order.created_at,
       updatedAt: order.updated_at
-    }));
+    }});
 
-    // Get summary statistics for the filtered results
+    // Get summary statistics for the filtered results - use paid_amount for completed orders
     const [summaryResult] = await pool.query(
       `SELECT 
         COUNT(DISTINCT o.id) as total_orders,
-        SUM(o.total_amount) as total_amount,
-        SUM(CASE WHEN o.status = 'completed' OR o.status = 'paid' THEN o.total_amount ELSE 0 END) as completed_amount,
+        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE o.total_amount END) as total_amount,
+        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END) as completed_amount,
         SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_count,
         SUM(CASE WHEN o.order_type = 'dine_in' THEN 1 ELSE 0 END) as dine_in_count,
         SUM(CASE WHEN o.order_type = 'takeaway' THEN 1 ELSE 0 END) as takeaway_count,
         SUM(CASE WHEN o.order_type = 'delivery' THEN 1 ELSE 0 END) as delivery_count,
-        AVG(o.total_amount) as avg_order_value
+        AVG(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE o.total_amount END) as avg_order_value
        FROM orders o
        LEFT JOIN tables t ON o.table_id = t.id
        LEFT JOIN invoices inv ON o.id = inv.order_id
@@ -2562,18 +2598,25 @@ const orderService = {
         email: order.captain_email,
         phone: order.captain_phone
       },
-      amounts: {
-        subtotal: parseFloat(order.subtotal) || 0,
-        discountAmount: parseFloat(order.discount_amount) || 0,
-        taxAmount: parseFloat(order.tax_amount) || 0,
-        serviceCharge: parseFloat(order.service_charge) || 0,
-        packagingCharge: parseFloat(order.packaging_charge) || 0,
-        deliveryCharge: parseFloat(order.delivery_charge) || 0,
-        roundOff: parseFloat(order.round_off) || 0,
-        totalAmount: parseFloat(order.total_amount) || 0,
-        paidAmount: parseFloat(order.paid_amount) || 0,
-        balanceAmount: parseFloat(order.total_amount) - parseFloat(order.paid_amount || 0)
-      },
+      amounts: (() => {
+        const totalAmt = parseFloat(order.total_amount) || 0;
+        const paidAmt = parseFloat(order.paid_amount) || 0;
+        const isCompleted = ['paid', 'completed'].includes(order.status);
+        const displayAmt = isCompleted ? (paidAmt || totalAmt) : totalAmt;
+        return {
+          subtotal: parseFloat(order.subtotal) || 0,
+          discountAmount: parseFloat(order.discount_amount) || 0,
+          taxAmount: parseFloat(order.tax_amount) || 0,
+          serviceCharge: parseFloat(order.service_charge) || 0,
+          packagingCharge: parseFloat(order.packaging_charge) || 0,
+          deliveryCharge: parseFloat(order.delivery_charge) || 0,
+          roundOff: parseFloat(order.round_off) || 0,
+          totalAmount: totalAmt,
+          paidAmount: paidAmt,
+          displayAmount: displayAmt,
+          balanceAmount: totalAmt - paidAmt
+        };
+      })(),
       specialInstructions: order.special_instructions,
       items: formattedItems,
       kots: formattedKots,

@@ -219,6 +219,7 @@ const kotService = {
           kotNumber,
           station,
           stationId,
+          isCounter: firstItem?._isCounter || false,
           stationName: items[0]?._stationName || station,
           tableNumber: order.table_number,
           orderNumber: order.order_number,
@@ -306,12 +307,14 @@ const kotService = {
 
         // Try direct printing first (to configured printer)
         try {
-          const printer = await this.getPrinterForStation(order.outlet_id, ticket.station);
+          // Pass stationId and isCounter for accurate printer lookup
+          const printer = await this.getPrinterForStation(order.outlet_id, ticket.station, ticket.stationId, ticket.isCounter);
           if (printer && printer.ip_address) {
             await printerService.printKotDirect(kotPrintData, printer.ip_address, printer.port || 9100);
-            logger.info(`KOT ${ticket.kotNumber} printed directly to ${printer.ip_address}`);
+            logger.info(`KOT ${ticket.kotNumber} printed directly to ${printer.ip_address}:${printer.port || 9100} (station: ${ticket.stationName}, isCounter: ${ticket.isCounter})`);
           } else {
             // Fallback: create print job for bridge polling
+            logger.warn(`No printer with IP found for station ${ticket.station} (id: ${ticket.stationId}, isCounter: ${ticket.isCounter}), creating print job`);
             await printerService.printKot(kotPrintData, createdBy);
           }
         } catch (printError) {
@@ -374,6 +377,7 @@ const kotService = {
       let station = 'kitchen'; // default station type for routing
       let stationId = null;
       let stationName = null;
+      let isCounter = false; // Flag to indicate if this is a counter (bar) vs kitchen station
       let groupKey = 'kitchen'; // key for grouping - ensures separate KOTs per physical station
 
       // Priority 1: Has counter (bar items) - counter_id takes precedence
@@ -381,7 +385,8 @@ const kotService = {
         station = item.counter_type || 'bar';
         stationId = item.counter_id || item.counter_db_id;
         stationName = item.counter_name || 'Bar';
-        groupKey = `${station}:${stationId}`; // Group by counter ID
+        isCounter = true;
+        groupKey = `counter:${station}:${stationId}`; // Group by counter ID
         logger.info(`KOT routing: "${item.item_name}" → counter ${station} (id: ${stationId}), groupKey: ${groupKey}`);
       }
       // Priority 2: Has kitchen station - group by station_id for precise routing
@@ -389,7 +394,8 @@ const kotService = {
         station = item.station_type || 'main_kitchen';
         stationId = item.kitchen_station_id || item.ks_id;
         stationName = item.station_name || station;
-        groupKey = `${station}:${stationId}`; // Group by station ID - ensures separate KOTs per physical station
+        isCounter = false;
+        groupKey = `station:${station}:${stationId}`; // Group by station ID - ensures separate KOTs per physical station
         logger.info(`KOT routing: "${item.item_name}" → station ${station} (id: ${stationId}), groupKey: ${groupKey}`);
       }
       // Priority 3: Default to kitchen - LOG WARNING for debugging
@@ -402,6 +408,7 @@ const kotService = {
       item._station = station;
       item._stationId = stationId;
       item._stationName = stationName || item.station_name || item.counter_name || station;
+      item._isCounter = isCounter;
       item._groupKey = groupKey;
 
       // Group by groupKey (station_type:station_id) for separate KOTs per physical station
@@ -1099,21 +1106,114 @@ const kotService = {
 
   /**
    * Get printer configuration for a station
-   * Falls back to default kitchen/bar printer if station-specific not found
+   * Priority:
+   * 1a. Kitchen station's assigned printer (via kitchen_stations.printer_id)
+   * 1b. Counter's assigned printer (via counters.printer_id) for bar items
+   * 2. Printer with matching station type from any station with printer
+   * 3. Printer.station column (kot_kitchen, kot_bar, etc.)
+   * 4. Any active KOT printer for the outlet
+   * 
+   * @param {number} outletId - Outlet ID
+   * @param {string} station - Station type (main_kitchen, bar, tandoor, dessert, etc.)
+   * @param {number} stationId - Optional specific kitchen_station ID or counter ID
+   * @param {boolean} isCounter - Whether stationId refers to a counter (default false)
    */
-  async getPrinterForStation(outletId, station) {
+  async getPrinterForStation(outletId, station, stationId = null, isCounter = false) {
     const pool = getPool();
     
-    // Map station to printer station type
-    const stationMap = {
-      'kitchen': 'kot_kitchen',
-      'bar': 'kot_bar',
-      'dessert': 'kot_dessert',
-      'mocktail': 'kot_kitchen' // fallback
-    };
-    const printerStation = stationMap[station] || 'kot_kitchen';
+    // Priority 1a: If stationId provided and it's a counter, get printer from counters table
+    if (stationId && isCounter) {
+      const [counterPrinters] = await pool.query(
+        `SELECT p.* FROM printers p
+         JOIN counters c ON c.printer_id = p.id
+         WHERE c.id = ? AND c.outlet_id = ? AND p.is_active = 1
+         LIMIT 1`,
+        [stationId, outletId]
+      );
+      if (counterPrinters[0]) {
+        logger.info(`Printer found via counter ${stationId}: ${counterPrinters[0].name}`);
+        return counterPrinters[0];
+      }
+    }
     
-    // First try to find station-specific printer
+    // Priority 1b: If stationId provided, get printer from kitchen_stations table
+    if (stationId && !isCounter) {
+      const [stationPrinters] = await pool.query(
+        `SELECT p.* FROM printers p
+         JOIN kitchen_stations ks ON ks.printer_id = p.id
+         WHERE ks.id = ? AND ks.outlet_id = ? AND p.is_active = 1
+         LIMIT 1`,
+        [stationId, outletId]
+      );
+      if (stationPrinters[0]) {
+        logger.info(`Printer found via kitchen_station ${stationId}: ${stationPrinters[0].name}`);
+        return stationPrinters[0];
+      }
+    }
+
+    // Priority 2a: Find printer by station_type matching from kitchen_stations
+    const stationTypeMap = {
+      'kitchen': ['main_kitchen', 'wok', 'tandoor', 'grill'],
+      'main_kitchen': ['main_kitchen'],
+      'tandoor': ['tandoor'],
+      'wok': ['wok'],
+      'grill': ['grill'],
+      'bar': ['bar', 'main_bar'],
+      'main_bar': ['main_bar', 'bar'],
+      'dessert': ['dessert'],
+      'mocktail': ['mocktail', 'beverage']
+    };
+    const matchingTypes = stationTypeMap[station] || [station];
+    
+    const [typePrinters] = await pool.query(
+      `SELECT p.* FROM printers p
+       JOIN kitchen_stations ks ON ks.printer_id = p.id
+       WHERE ks.outlet_id = ? AND ks.station_type IN (?) AND p.is_active = 1 AND ks.is_active = 1
+       ORDER BY ks.display_order LIMIT 1`,
+      [outletId, matchingTypes]
+    );
+    if (typePrinters[0]) {
+      logger.info(`Printer found via kitchen station_type ${station}: ${typePrinters[0].name}`);
+      return typePrinters[0];
+    }
+
+    // Priority 2b: Find printer by counter_type matching from counters
+    const counterTypeMap = {
+      'bar': ['main_bar', 'bar'],
+      'main_bar': ['main_bar', 'bar'],
+      'mocktail': ['mocktail', 'beverage'],
+      'live_counter': ['live_counter']
+    };
+    const matchingCounterTypes = counterTypeMap[station] || [];
+    
+    if (matchingCounterTypes.length > 0) {
+      const [counterTypePrinters] = await pool.query(
+        `SELECT p.* FROM printers p
+         JOIN counters c ON c.printer_id = p.id
+         WHERE c.outlet_id = ? AND c.counter_type IN (?) AND p.is_active = 1 AND c.is_active = 1
+         ORDER BY c.display_order LIMIT 1`,
+        [outletId, matchingCounterTypes]
+      );
+      if (counterTypePrinters[0]) {
+        logger.info(`Printer found via counter_type ${station}: ${counterTypePrinters[0].name}`);
+        return counterTypePrinters[0];
+      }
+    }
+    
+    // Priority 3: Map station to printer.station column (kot_kitchen, kot_bar, etc.)
+    const printerStationMap = {
+      'kitchen': 'kot_kitchen',
+      'main_kitchen': 'kot_kitchen',
+      'tandoor': 'kot_kitchen',
+      'wok': 'kot_kitchen',
+      'grill': 'kot_kitchen',
+      'bar': 'kot_bar',
+      'main_bar': 'kot_bar',
+      'dessert': 'kot_dessert',
+      'mocktail': 'kot_kitchen'
+    };
+    const printerStation = printerStationMap[station] || 'kot_kitchen';
+    
     let [printers] = await pool.query(
       `SELECT * FROM printers 
        WHERE outlet_id = ? AND station = ? AND is_active = 1
@@ -1121,15 +1221,24 @@ const kotService = {
       [outletId, printerStation]
     );
 
-    if (printers[0]) return printers[0];
+    if (printers[0]) {
+      logger.info(`Printer found via printer.station=${printerStation}: ${printers[0].name}`);
+      return printers[0];
+    }
 
-    // Fall back to default KOT kitchen printer for this outlet
+    // Priority 4: Fall back to any active KOT printer for this outlet
     [printers] = await pool.query(
       `SELECT * FROM printers 
-       WHERE outlet_id = ? AND station LIKE 'kot_%' AND is_active = 1
-       ORDER BY is_default DESC, id LIMIT 1`,
+       WHERE outlet_id = ? AND (station LIKE 'kot_%' OR printer_type = 'kot') AND is_active = 1
+       ORDER BY id LIMIT 1`,
       [outletId]
     );
+
+    if (printers[0]) {
+      logger.info(`Printer fallback to any KOT printer: ${printers[0].name}`);
+    } else {
+      logger.warn(`No printer found for station ${station} (id: ${stationId}) in outlet ${outletId}`);
+    }
 
     return printers[0] || null;
   }

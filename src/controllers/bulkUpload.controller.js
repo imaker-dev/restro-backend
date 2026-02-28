@@ -224,7 +224,8 @@ const bulkUploadController = {
             preview.categories.push({
               name,
               parent: row.Parent || row.parent || null,
-              description: row.Description || row.description
+              description: row.Description || row.description,
+              serviceType: row.ServiceType || row.servicetype || 'both'
             });
             break;
 
@@ -234,9 +235,11 @@ const bulkUploadController = {
               name,
               category: row.Category || row.category || currentCategory,
               price: row.Price || row.price,
-              foodType: row.FoodType || row.foodtype || 'veg',
-              gst: row.GST || row.gst,
-              station: row.Station || row.station
+              foodType: row.ItemType || row.itemtype || row.FoodType || row.foodtype || 'veg',
+              gst: row.GST || row.gst || null,
+              vat: row.VAT || row.vat || null,
+              station: row.Station || row.station,
+              serviceType: row.ServiceType || row.servicetype || 'both'
             });
             break;
 

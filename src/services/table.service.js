@@ -4,6 +4,17 @@ const { emit } = require('../config/socket');
 const logger = require('../utils/logger');
 const { prefixImageUrl } = require('../utils/helpers');
 
+/**
+ * Get local date string (YYYY-MM-DD) accounting for server timezone
+ */
+function getLocalDate(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 const TABLE_STATUSES = ['available', 'occupied', 'running', 'reserved', 'billing', 'blocked', 'merged'];
 
 /**
@@ -658,10 +669,23 @@ const tableService = {
   },
 
   /**
-   * Get tables by floor with real-time data including KOT summary
+   * Get tables by floor with real-time data including KOT summary and shift status
    */
   async getByFloor(floorId) {
     const pool = getPool();
+    const today = getLocalDate();
+    
+    // Get floor info and shift status
+    const [floorInfo] = await pool.query(
+      `SELECT f.id, f.name, f.outlet_id, f.floor_number,
+        ds.id as shift_id, ds.status as shift_status, ds.cashier_id,
+        u.name as cashier_name, ds.opening_cash
+       FROM floors f
+       LEFT JOIN day_sessions ds ON f.id = ds.floor_id AND ds.session_date = ? AND ds.status = 'open'
+       LEFT JOIN users u ON ds.cashier_id = u.id
+       WHERE f.id = ?`,
+      [today, floorId]
+    );
     
     const [tables] = await pool.query(
       `SELECT t.*, 
@@ -736,7 +760,40 @@ const tableService = {
       }
     }
 
-    return tables;
+    // Get sections for this floor
+    const [sections] = await pool.query(
+      `SELECT s.id, s.name, s.section_type, s.display_order
+       FROM sections s
+       JOIN floor_sections fs ON s.id = fs.section_id
+       WHERE fs.floor_id = ? AND s.is_active = 1
+       ORDER BY s.display_order, s.name`,
+      [floorId]
+    );
+
+    // Build response with floor info, shift status, sections, and tables
+    const floor = floorInfo[0] || {};
+    return {
+      floor: {
+        id: floor.id,
+        name: floor.name,
+        outletId: floor.outlet_id,
+        floorNumber: floor.floor_number
+      },
+      shift: {
+        isOpen: !!floor.shift_id,
+        shiftId: floor.shift_id || null,
+        cashierId: floor.cashier_id || null,
+        cashierName: floor.cashier_name || null,
+        openingCash: floor.opening_cash || null
+      },
+      sections: sections.map(s => ({
+        id: s.id,
+        name: s.name,
+        sectionType: s.section_type,
+        displayOrder: s.display_order
+      })),
+      tables
+    };
   },
 
   /**
@@ -900,6 +957,7 @@ const tableService = {
 
   /**
    * Start table session (occupy table)
+   * Validates that floor shift is open before allowing session start
    */
   async startSession(tableId, data, userId) {
     const pool = getPool();
@@ -912,6 +970,24 @@ const tableService = {
       if (!table) throw new Error('Table not found');
       if (table.status !== 'available' && table.status !== 'reserved') {
         throw new Error(`Table is currently ${table.status}`);
+      }
+
+      // Validate floor shift is open before starting session
+      if (table.floor_id) {
+        const today = getLocalDate();
+        const [floorShift] = await connection.query(
+          `SELECT ds.id, ds.status, f.name as floor_name
+           FROM day_sessions ds
+           JOIN floors f ON ds.floor_id = f.id
+           WHERE ds.outlet_id = ? AND ds.floor_id = ? AND ds.session_date = ? AND ds.status = 'open'`,
+          [table.outlet_id, table.floor_id, today]
+        );
+        
+        if (!floorShift[0]) {
+          const [floor] = await connection.query('SELECT name FROM floors WHERE id = ?', [table.floor_id]);
+          const floorName = floor[0]?.name || `Floor ${table.floor_id}`;
+          throw new Error(`Shift not opened for ${floorName}. Please ask the assigned cashier to open the shift first.`);
+        }
       }
 
       // Create session

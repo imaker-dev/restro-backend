@@ -9,6 +9,18 @@ const { cache } = require('../config/redis');
 const logger = require('../utils/logger');
 
 /**
+ * Get local date string (YYYY-MM-DD) accounting for server timezone
+ * Uses local time instead of UTC to match MySQL DATE() function behavior
+ */
+function getLocalDate(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
  * Build SQL snippet + params for floor restriction.
  * @param {number[]} floorIds - array of allowed floor IDs (empty = no restriction)
  * @param {string} alias - table alias for orders, default 'o'
@@ -46,7 +58,7 @@ const reportsService = {
    */
   async aggregateDailySales(outletId, reportDate = null) {
     const pool = getPool();
-    const date = reportDate || new Date().toISOString().slice(0, 10);
+    const date = reportDate || getLocalDate();
 
     // Get order totals
     const [orderStats] = await pool.query(
@@ -163,7 +175,7 @@ const reportsService = {
 
   async aggregateItemSales(outletId, reportDate = null) {
     const pool = getPool();
-    const date = reportDate || new Date().toISOString().slice(0, 10);
+    const date = reportDate || getLocalDate();
 
     const [items] = await pool.query(
       `SELECT 
@@ -218,14 +230,14 @@ const reportsService = {
 
   async aggregateStaffSales(outletId, reportDate = null) {
     const pool = getPool();
-    const date = reportDate || new Date().toISOString().slice(0, 10);
+    const date = reportDate || getLocalDate();
 
     const [staff] = await pool.query(
       `SELECT 
         o.created_by as user_id, u.name as user_name,
         COUNT(*) as order_count,
         SUM(o.guest_count) as guest_count,
-        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN o.total_amount ELSE 0 END) as net_sales,
+        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END) as net_sales,
         SUM(o.discount_amount) as discount_given,
         SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_orders,
         SUM(CASE WHEN o.status = 'cancelled' THEN o.total_amount ELSE 0 END) as cancelled_amount
@@ -279,9 +291,10 @@ const reportsService = {
 
   /**
    * Helper: default date range (today if not provided)
+   * Uses local date to match MySQL DATE() function behavior
    */
   _dateRange(startDate, endDate) {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getLocalDate();
     return {
       start: startDate || today,
       end: endDate || startDate || today
@@ -306,7 +319,7 @@ const reportsService = {
         COUNT(CASE WHEN o.status = 'cancelled' THEN 1 END) as cancelled_orders,
         SUM(o.guest_count) as total_guests,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.subtotal ELSE 0 END) as gross_sales,
-        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN o.total_amount ELSE 0 END) as net_sales,
+        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END) as net_sales,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as discount_amount,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.tax_amount ELSE 0 END) as tax_amount,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.service_charge ELSE 0 END) as service_charge,
@@ -663,7 +676,7 @@ const reportsService = {
    */
   async getHourlySalesReport(outletId, reportDate, floorIds = []) {
     const pool = getPool();
-    const date = reportDate || new Date().toISOString().slice(0, 10);
+    const date = reportDate || getLocalDate();
     const ff = floorFilter(floorIds);
 
     const [rows] = await pool.query(
@@ -671,7 +684,7 @@ const reportsService = {
         HOUR(o.created_at) as hour,
         COUNT(*) as order_count,
         SUM(o.guest_count) as guest_count,
-        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN o.total_amount ELSE 0 END) as net_sales,
+        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END) as net_sales,
         COUNT(CASE WHEN o.order_type = 'dine_in' THEN 1 END) as dine_in_count,
         COUNT(CASE WHEN o.order_type = 'takeaway' THEN 1 END) as takeaway_count
        FROM orders o
@@ -720,7 +733,7 @@ const reportsService = {
         o.created_by as user_id, u.name as user_name,
         COUNT(*) as total_orders,
         SUM(o.guest_count) as total_guests,
-        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN o.total_amount ELSE 0 END) as total_sales,
+        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END) as total_sales,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as total_discounts,
         COUNT(CASE WHEN o.status = 'cancelled' THEN 1 END) as cancelled_orders,
         SUM(CASE WHEN o.status = 'cancelled' THEN o.total_amount ELSE 0 END) as cancelled_amount
@@ -781,53 +794,169 @@ const reportsService = {
 
   /**
    * Floor/Section Sales Report — live from orders
+   * Supports: filters, search, pagination for admin/manager view
+   * @param {number} outletId
+   * @param {string} startDate
+   * @param {string} endDate
+   * @param {Object} options - { floorIds, search, page, limit, sortBy, sortOrder }
    */
-  async getFloorSectionReport(outletId, startDate, endDate, floorIds = []) {
+  async getFloorSectionReport(outletId, startDate, endDate, options = {}) {
     const pool = getPool();
     const { start, end } = this._dateRange(startDate, endDate);
+    
+    const floorIds = options.floorIds || [];
+    const search = (options.search || '').trim();
+    const page = Math.max(1, parseInt(options.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(options.limit) || 50));
+    const offset = (page - 1) * limit;
+    const sortBy = options.sortBy || 'net_sales';
+    const sortOrder = (options.sortOrder || 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+    
     const ff = floorFilter(floorIds);
 
-    const [rows] = await pool.query(
+    // Build search condition for floor query
+    let floorSearchSql = '';
+    const floorSearchParams = [];
+    if (search) {
+      floorSearchSql = ` AND f.name LIKE ?`;
+      floorSearchParams.push(`%${search}%`);
+    }
+
+    // Build search condition for section query  
+    let sectionSearchSql = '';
+    const sectionSearchParams = [];
+    if (search) {
+      sectionSearchSql = ` AND (f.name LIKE ? OR s.name LIKE ?)`;
+      sectionSearchParams.push(`%${search}%`, `%${search}%`);
+    }
+
+    // Valid sort columns
+    const validSorts = ['net_sales', 'order_count', 'guest_count', 'floor_name', 'section_name'];
+    const orderCol = validSorts.includes(sortBy) ? sortBy : 'net_sales';
+
+    // Get floor-wise breakdown
+    const [floorRows] = await pool.query(
       `SELECT 
-        o.floor_id, f.name as floor_name,
-        o.section_id, s.name as section_name,
+        o.floor_id, 
+        f.name as floor_name,
         COUNT(*) as order_count,
-        SUM(o.guest_count) as guest_count,
-        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN o.total_amount ELSE 0 END) as net_sales,
-        COUNT(CASE WHEN o.status = 'cancelled' THEN 1 END) as cancelled_orders
+        COALESCE(SUM(CAST(o.guest_count AS UNSIGNED)), 0) as guest_count,
+        COALESCE(SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END), 0) as net_sales,
+        SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_orders
+       FROM orders o
+       LEFT JOIN floors f ON o.floor_id = f.id
+       WHERE o.outlet_id = ? AND DATE(o.created_at) BETWEEN ? AND ?${ff.sql}${floorSearchSql}
+       GROUP BY o.floor_id, f.name
+       ORDER BY net_sales DESC`,
+      [outletId, start, end, ...ff.params, ...floorSearchParams]
+    );
+
+    // Get section-wise breakdown with pagination
+    const [countResult] = await pool.query(
+      `SELECT COUNT(DISTINCT CONCAT(COALESCE(o.floor_id, 0), '-', COALESCE(o.section_id, 0))) as total
        FROM orders o
        LEFT JOIN floors f ON o.floor_id = f.id
        LEFT JOIN sections s ON o.section_id = s.id
-       WHERE o.outlet_id = ? AND DATE(o.created_at) BETWEEN ? AND ? AND o.status != 'cancelled'${ff.sql}
+       WHERE o.outlet_id = ? AND DATE(o.created_at) BETWEEN ? AND ?${ff.sql}${sectionSearchSql}`,
+      [outletId, start, end, ...ff.params, ...sectionSearchParams]
+    );
+    const total = countResult[0]?.total || 0;
+
+    const [sectionRows] = await pool.query(
+      `SELECT 
+        o.floor_id, 
+        f.name as floor_name,
+        o.section_id, 
+        s.name as section_name,
+        COUNT(*) as order_count,
+        COALESCE(SUM(CAST(o.guest_count AS UNSIGNED)), 0) as guest_count,
+        COALESCE(SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END), 0) as net_sales,
+        SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_orders
+       FROM orders o
+       LEFT JOIN floors f ON o.floor_id = f.id
+       LEFT JOIN sections s ON o.section_id = s.id
+       WHERE o.outlet_id = ? AND DATE(o.created_at) BETWEEN ? AND ?${ff.sql}${sectionSearchSql}
        GROUP BY o.floor_id, f.name, o.section_id, s.name
-       ORDER BY net_sales DESC`,
-      [outletId, start, end, ...ff.params]
+       ORDER BY ${orderCol} ${sortOrder}
+       LIMIT ? OFFSET ?`,
+      [outletId, start, end, ...ff.params, ...sectionSearchParams, limit, offset]
     );
 
-    const sections = rows.map(r => ({
-      ...r,
-      avg_order_value: r.order_count > 0 ? (parseFloat(r.net_sales) / r.order_count).toFixed(2) : '0.00'
+    // Format sections first for grouping
+    const formattedSections = sectionRows.map(r => ({
+      floorId: r.floor_id,
+      floorName: r.floor_name || 'Unassigned',
+      sectionId: r.section_id,
+      sectionName: r.section_name || 'No Section',
+      orderCount: parseInt(r.order_count) || 0,
+      guestCount: parseInt(r.guest_count) || 0,
+      netSales: parseFloat(r.net_sales) || 0,
+      cancelledOrders: parseInt(r.cancelled_orders) || 0,
+      avgOrderValue: r.order_count > 0 ? parseFloat((parseFloat(r.net_sales) / r.order_count).toFixed(2)) : 0
     }));
 
-    // Calculate summary totals
-    const totalOrders = rows.reduce((s, r) => s + (r.order_count || 0), 0);
-    const totalGuests = rows.reduce((s, r) => s + (r.guest_count || 0), 0);
-    const totalSales = rows.reduce((s, r) => s + parseFloat(r.net_sales || 0), 0);
-    const cancelledOrders = rows.reduce((s, r) => s + (r.cancelled_orders || 0), 0);
+    // Group sections by floor
+    const sectionsByFloor = {};
+    for (const section of formattedSections) {
+      const key = section.floorId || 'unassigned';
+      if (!sectionsByFloor[key]) {
+        sectionsByFloor[key] = [];
+      }
+      sectionsByFloor[key].push({
+        sectionId: section.sectionId,
+        sectionName: section.sectionName,
+        orderCount: section.orderCount,
+        guestCount: section.guestCount,
+        netSales: section.netSales,
+        cancelledOrders: section.cancelledOrders,
+        avgOrderValue: section.avgOrderValue
+      });
+    }
+
+    // Format floors with nested sections
+    const floors = floorRows.map(r => {
+      const floorId = r.floor_id;
+      const floorSections = sectionsByFloor[floorId] || sectionsByFloor['unassigned'] || [];
+      return {
+        floorId: floorId,
+        floorName: r.floor_name || 'Unassigned',
+        orderCount: parseInt(r.order_count) || 0,
+        guestCount: parseInt(r.guest_count) || 0,
+        netSales: parseFloat(r.net_sales) || 0,
+        cancelledOrders: parseInt(r.cancelled_orders) || 0,
+        avgOrderValue: r.order_count > 0 ? parseFloat((parseFloat(r.net_sales) / r.order_count).toFixed(2)) : 0,
+        sections: floorSections
+      };
+    });
+
+    // Calculate summary totals from floors (more accurate)
+    const totalOrders = floors.reduce((s, r) => s + r.orderCount, 0);
+    const totalGuests = floors.reduce((s, r) => s + r.guestCount, 0);
+    const totalSales = floors.reduce((s, r) => s + r.netSales, 0);
+    const cancelledOrders = floors.reduce((s, r) => s + r.cancelledOrders, 0);
+
+    // Find top section by sales
+    const topSection = formattedSections.length > 0 ? formattedSections.reduce((a, b) => a.netSales > b.netSales ? a : b) : null;
 
     return {
       dateRange: { start, end },
-      sections,
+      floors,
       summary: {
-        total_floors: new Set(rows.map(r => r.floor_id)).size,
-        total_sections: sections.length,
+        total_floors: floors.length,
+        total_sections: total,
         total_orders: totalOrders,
         total_guests: totalGuests,
         total_sales: totalSales.toFixed(2),
         cancelled_orders: cancelledOrders,
         average_order_value: totalOrders > 0 ? (totalSales / totalOrders).toFixed(2) : '0.00',
-        top_section: sections.length > 0 ? sections[0].section_name : null,
-        top_section_sales: sections.length > 0 ? parseFloat(sections[0].net_sales).toFixed(2) : '0.00'
+        top_section: topSection?.sectionName || null,
+        top_section_sales: topSection ? topSection.netSales.toFixed(2) : '0.00'
+      },
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit)
       }
     };
   },
@@ -840,43 +969,65 @@ const reportsService = {
     const { start, end } = this._dateRange(startDate, endDate);
     const ff = floorFilter(floorIds);
 
+    // Get counter/station breakdown using station_id for actual counter/station names
     const [rows] = await pool.query(
       `SELECT 
-        kt.station,
+        kt.station as station_type,
+        kt.station_id,
+        COALESCE(ks.name, c.name, kt.station) as station_name,
+        COALESCE(ks.station_type, c.counter_type, kt.station) as station_category,
         COUNT(DISTINCT kt.id) as ticket_count,
         COUNT(ki.id) as item_count,
-        SUM(ki.quantity) as total_quantity,
+        COALESCE(SUM(ki.quantity), 0) as total_quantity,
         AVG(CASE WHEN kt.ready_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, kt.created_at, kt.ready_at) ELSE NULL END) as avg_prep_time_mins,
-        COUNT(CASE WHEN kt.status = 'served' THEN 1 END) as served_count,
-        COUNT(CASE WHEN kt.status = 'cancelled' THEN 1 END) as cancelled_count
+        SUM(CASE WHEN ki.status = 'served' THEN 1 ELSE 0 END) as served_count,
+        SUM(CASE WHEN ki.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_count
        FROM kot_tickets kt
        LEFT JOIN kot_items ki ON kt.id = ki.kot_id
+       LEFT JOIN kitchen_stations ks ON kt.station_id = ks.id AND ks.outlet_id = kt.outlet_id
+       LEFT JOIN counters c ON kt.station_id = c.id AND c.outlet_id = kt.outlet_id 
+         AND kt.station IN ('bar', 'main_bar', 'mocktail', 'live_counter')
        JOIN orders o ON kt.order_id = o.id
        WHERE kt.outlet_id = ? AND DATE(kt.created_at) BETWEEN ? AND ?${ff.sql}
-       GROUP BY kt.station
+       GROUP BY kt.station, kt.station_id, ks.name, c.name, ks.station_type, c.counter_type
        ORDER BY ticket_count DESC`,
       [outletId, start, end, ...ff.params]
     );
 
+    // Format stations with proper naming
+    const stations = rows.map(r => ({
+      stationId: r.station_id,
+      stationName: r.station_name || r.station_type || 'Unknown',
+      stationType: r.station_type,
+      stationCategory: r.station_category,
+      ticketCount: parseInt(r.ticket_count) || 0,
+      itemCount: parseInt(r.item_count) || 0,
+      totalQuantity: parseInt(r.total_quantity) || 0,
+      avgPrepTimeMins: r.avg_prep_time_mins ? parseFloat(r.avg_prep_time_mins).toFixed(1) : null,
+      servedCount: parseInt(r.served_count) || 0,
+      cancelledCount: parseInt(r.cancelled_count) || 0
+    }));
+
     // Calculate summary totals
-    const totalTickets = rows.reduce((s, r) => s + (r.ticket_count || 0), 0);
-    const totalItems = rows.reduce((s, r) => s + (r.item_count || 0), 0);
-    const totalQuantity = rows.reduce((s, r) => s + parseInt(r.total_quantity || 0), 0);
-    const servedCount = rows.reduce((s, r) => s + (r.served_count || 0), 0);
-    const cancelledCount = rows.reduce((s, r) => s + (r.cancelled_count || 0), 0);
+    const totalTickets = stations.reduce((s, r) => s + r.ticketCount, 0);
+    const totalItems = stations.reduce((s, r) => s + r.itemCount, 0);
+    const totalQuantity = stations.reduce((s, r) => s + r.totalQuantity, 0);
+    const servedCount = stations.reduce((s, r) => s + r.servedCount, 0);
+    const cancelledCount = stations.reduce((s, r) => s + r.cancelledCount, 0);
+    const busiestStation = stations.length > 0 ? stations[0] : null;
 
     return {
       dateRange: { start, end },
-      stations: rows,
+      stations,
       summary: {
-        total_stations: rows.length,
+        total_stations: stations.length,
         total_tickets: totalTickets,
         total_items: totalItems,
         total_quantity: totalQuantity,
         served_count: servedCount,
         cancelled_count: cancelledCount,
-        busiest_station: rows.length > 0 ? rows[0].station : null,
-        busiest_station_tickets: rows.length > 0 ? rows[0].ticket_count : 0
+        busiest_station: busiestStation?.stationName || null,
+        busiest_station_tickets: busiestStation?.ticketCount || 0
       }
     };
   },
@@ -1208,67 +1359,144 @@ const reportsService = {
 
   /**
    * 8.8 Cancellation Report — live from order_cancel_logs + cancelled items
+   * Supports all roles: admin, manager, cashier, captain
    */
   async getCancellationReport(outletId, startDate, endDate, floorIds = []) {
     const pool = getPool();
     const { start, end } = this._dateRange(startDate, endDate);
     const ff = floorFilter(floorIds);
 
-    // Order-level cancellations
+    // Order-level cancellations - use created_at as fallback if cancelled_at is NULL
     const [orderCancels] = await pool.query(
       `SELECT 
         'full_order' as cancel_type,
-        o.order_number, o.order_type, o.total_amount,
+        o.id as order_id,
+        o.order_number, 
+        o.order_type, 
+        o.subtotal,
+        o.total_amount,
         o.cancel_reason as reason,
         u.name as cancelled_by_name,
-        o.cancelled_at
+        c.name as captain_name,
+        f.name as floor_name,
+        t.table_number,
+        COALESCE(o.cancelled_at, o.updated_at) as cancelled_at,
+        DATE(COALESCE(o.cancelled_at, o.updated_at)) as cancel_date
        FROM orders o
        LEFT JOIN users u ON o.cancelled_by = u.id
-       WHERE o.outlet_id = ? AND DATE(o.cancelled_at) BETWEEN ? AND ? AND o.status = 'cancelled'${ff.sql}
-       ORDER BY o.cancelled_at DESC`,
+       LEFT JOIN users c ON o.created_by = c.id
+       LEFT JOIN floors f ON o.floor_id = f.id
+       LEFT JOIN tables t ON o.table_id = t.id
+       WHERE o.outlet_id = ? 
+         AND DATE(COALESCE(o.cancelled_at, o.created_at)) BETWEEN ? AND ? 
+         AND o.status = 'cancelled'${ff.sql}
+       ORDER BY COALESCE(o.cancelled_at, o.updated_at) DESC`,
       [outletId, start, end, ...ff.params]
     );
 
-    // Item-level cancellations
+    // Item-level cancellations - include items cancelled within active orders
     const [itemCancels] = await pool.query(
       `SELECT 
         'item' as cancel_type,
-        o.order_number, oi.item_name, oi.variant_name,
+        o.id as order_id,
+        o.order_number, 
+        o.order_type,
+        oi.id as item_id,
+        oi.item_name, 
+        oi.variant_name,
         oi.quantity as cancelled_quantity,
+        oi.unit_price,
         oi.total_price as cancelled_amount,
         oi.cancel_reason as reason,
         u.name as cancelled_by_name,
-        oi.cancelled_at
+        c.name as captain_name,
+        f.name as floor_name,
+        t.table_number,
+        COALESCE(oi.cancelled_at, oi.updated_at) as cancelled_at,
+        DATE(COALESCE(oi.cancelled_at, oi.updated_at)) as cancel_date
        FROM order_items oi
        JOIN orders o ON oi.order_id = o.id
        LEFT JOIN users u ON oi.cancelled_by = u.id
-       WHERE o.outlet_id = ? AND DATE(oi.cancelled_at) BETWEEN ? AND ? AND oi.status = 'cancelled'${ff.sql}
-       ORDER BY oi.cancelled_at DESC`,
+       LEFT JOIN users c ON o.created_by = c.id
+       LEFT JOIN floors f ON o.floor_id = f.id
+       LEFT JOIN tables t ON o.table_id = t.id
+       WHERE o.outlet_id = ? 
+         AND DATE(COALESCE(oi.cancelled_at, oi.created_at)) BETWEEN ? AND ? 
+         AND oi.status = 'cancelled'${ff.sql}
+       ORDER BY COALESCE(oi.cancelled_at, oi.updated_at) DESC`,
       [outletId, start, end, ...ff.params]
     );
 
-    // Summary by reason
+    // Summary by reason - combine both order and item cancellations
     const [reasonSummary] = await pool.query(
-      `SELECT 
-        COALESCE(ocl.reason_text, o.cancel_reason, 'No reason') as reason,
-        COUNT(*) as count,
-        SUM(o.total_amount) as total_amount
-       FROM order_cancel_logs ocl
-       JOIN orders o ON ocl.order_id = o.id
-       WHERE o.outlet_id = ? AND DATE(ocl.created_at) BETWEEN ? AND ?${ff.sql}
-       GROUP BY COALESCE(ocl.reason_text, o.cancel_reason, 'No reason')
-       ORDER BY count DESC`,
-      [outletId, start, end, ...ff.params]
+      `SELECT reason, SUM(cnt) as count, SUM(amount) as total_amount FROM (
+        SELECT 
+          COALESCE(o.cancel_reason, 'No reason') as reason,
+          1 as cnt,
+          o.total_amount as amount
+        FROM orders o
+        WHERE o.outlet_id = ? 
+          AND DATE(COALESCE(o.cancelled_at, o.created_at)) BETWEEN ? AND ? 
+          AND o.status = 'cancelled'${ff.sql}
+        UNION ALL
+        SELECT 
+          COALESCE(oi.cancel_reason, 'No reason') as reason,
+          1 as cnt,
+          oi.total_price as amount
+        FROM order_items oi
+        JOIN orders o ON oi.order_id = o.id
+        WHERE o.outlet_id = ? 
+          AND DATE(COALESCE(oi.cancelled_at, oi.created_at)) BETWEEN ? AND ? 
+          AND oi.status = 'cancelled'${ff.sql}
+      ) combined
+      GROUP BY reason
+      ORDER BY count DESC`,
+      [outletId, start, end, ...ff.params, outletId, start, end, ...ff.params]
     );
+
+    // Daily breakdown
+    const dailyBreakdown = {};
+    for (const cancel of orderCancels) {
+      const day = cancel.cancel_date instanceof Date 
+        ? cancel.cancel_date.toISOString().slice(0, 10) 
+        : String(cancel.cancel_date);
+      if (!dailyBreakdown[day]) {
+        dailyBreakdown[day] = { orders: 0, items: 0, orderAmount: 0, itemAmount: 0 };
+      }
+      dailyBreakdown[day].orders++;
+      dailyBreakdown[day].orderAmount += parseFloat(cancel.total_amount || 0);
+    }
+    for (const cancel of itemCancels) {
+      const day = cancel.cancel_date instanceof Date 
+        ? cancel.cancel_date.toISOString().slice(0, 10) 
+        : String(cancel.cancel_date);
+      if (!dailyBreakdown[day]) {
+        dailyBreakdown[day] = { orders: 0, items: 0, orderAmount: 0, itemAmount: 0 };
+      }
+      dailyBreakdown[day].items++;
+      dailyBreakdown[day].itemAmount += parseFloat(cancel.cancelled_amount || 0);
+    }
+
+    const totalOrderAmount = orderCancels.reduce((s, r) => s + parseFloat(r.total_amount || 0), 0);
+    const totalItemAmount = itemCancels.reduce((s, r) => s + parseFloat(r.cancelled_amount || 0), 0);
 
     return {
+      dateRange: { start, end },
       order_cancellations: orderCancels,
       item_cancellations: itemCancels,
+      daily_breakdown: Object.entries(dailyBreakdown).map(([date, data]) => ({
+        date,
+        ...data,
+        orderAmount: parseFloat(data.orderAmount.toFixed(2)),
+        itemAmount: parseFloat(data.itemAmount.toFixed(2))
+      })).sort((a, b) => b.date.localeCompare(a.date)),
       summary: {
         total_order_cancellations: orderCancels.length,
         total_item_cancellations: itemCancels.length,
-        total_order_cancel_amount: orderCancels.reduce((s, r) => s + parseFloat(r.total_amount || 0), 0).toFixed(2),
-        total_item_cancel_amount: itemCancels.reduce((s, r) => s + parseFloat(r.cancelled_amount || 0), 0).toFixed(2),
+        total_cancellations: orderCancels.length + itemCancels.length,
+        total_order_cancel_amount: totalOrderAmount.toFixed(2),
+        total_item_cancel_amount: totalItemAmount.toFixed(2),
+        total_cancel_amount: (totalOrderAmount + totalItemAmount).toFixed(2),
         by_reason: reasonSummary
       }
     };
@@ -1766,16 +1994,16 @@ const reportsService = {
    */
   async getLiveDashboard(outletId, floorIds = []) {
     const pool = getPool();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getLocalDate();
     const ff = floorFilter(floorIds);
     const ffT = floorFilter(floorIds, 't');
 
-    // Today's sales
+    // Today's sales - use paid_amount for completed orders for accurate sales
     const [todaySales] = await pool.query(
       `SELECT 
         COUNT(*) as total_orders,
         SUM(guest_count) as total_guests,
-        SUM(CASE WHEN status IN ('paid', 'completed') THEN total_amount ELSE 0 END) as net_sales,
+        SUM(CASE WHEN status IN ('paid', 'completed') THEN COALESCE(paid_amount, total_amount) ELSE 0 END) as net_sales,
         COUNT(CASE WHEN status NOT IN ('paid', 'completed', 'cancelled') THEN 1 END) as active_orders
        FROM orders o
        WHERE o.outlet_id = ? AND DATE(o.created_at) = ?${ff.sql}`,
@@ -1930,7 +2158,7 @@ const reportsService = {
         SUM(CASE WHEN o.status != 'cancelled' THEN o.subtotal ELSE 0 END) as gross_sales,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as total_discount,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.tax_amount ELSE 0 END) as total_tax,
-        SUM(CASE WHEN o.status IN ('paid','completed') THEN o.total_amount ELSE 0 END) as net_sales
+        SUM(CASE WHEN o.status IN ('paid','completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END) as net_sales
        ${baseFrom} ${whereClause}`,
       params
     );
@@ -2237,7 +2465,7 @@ const reportsService = {
         floorName: o.floor_name || null,
         guestCount: o.guest_count || 0,
 
-        // Amounts
+        // Amounts - use paid_amount for completed orders as displayAmount
         subtotal: parseFloat(o.subtotal) || 0,
         discountAmount: parseFloat(o.discount_amount) || 0,
         taxAmount: parseFloat(o.tax_amount) || 0,
@@ -2247,6 +2475,9 @@ const reportsService = {
         roundOff: parseFloat(o.round_off) || 0,
         totalAmount: parseFloat(o.total_amount) || 0,
         paidAmount: parseFloat(o.paid_amount) || 0,
+        displayAmount: ['paid', 'completed'].includes(o.status) 
+          ? (parseFloat(o.paid_amount) || parseFloat(o.total_amount) || 0) 
+          : (parseFloat(o.total_amount) || 0),
         dueAmount: parseFloat(o.due_amount) || 0,
 
         // Flags

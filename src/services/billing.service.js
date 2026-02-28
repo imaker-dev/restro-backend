@@ -13,6 +13,17 @@ const taxService = require('./tax.service');
 const printerService = require('./printer.service');
 const { prefixImageUrl } = require('../utils/helpers');
 
+/**
+ * Get local date string (YYYY-MM-DD) accounting for server timezone
+ */
+function getLocalDate(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // ========================
 // FORMAT HELPERS — clean camelCase output matching KOT details style
 // ========================
@@ -212,24 +223,58 @@ const billingService = {
         logger.info(`Bill printer found via floor ${floorId} cashier station: ${floorPrinters[0].name}`);
         return floorPrinters[0];
       }
+
+      // Priority 1b: Find bill printer assigned to any cashier on this floor (simpler join)
+      const [cashierPrinters] = await pool.query(
+        `SELECT DISTINCT p.*
+         FROM user_floors uf
+         JOIN user_roles ur ON uf.user_id = ur.user_id AND ur.outlet_id = uf.outlet_id AND ur.is_active = 1
+         JOIN roles r ON ur.role_id = r.id AND r.slug = 'cashier'
+         JOIN printers p ON p.outlet_id = uf.outlet_id AND p.station = 'bill' AND p.is_active = 1
+         WHERE uf.floor_id = ? AND uf.outlet_id = ? AND uf.is_active = 1
+         LIMIT 1`,
+        [floorId, outletId]
+      );
+      if (cashierPrinters[0]) {
+        logger.info(`Bill printer found via floor ${floorId} cashier (outlet-level): ${cashierPrinters[0].name}`);
+        return cashierPrinters[0];
+      }
     }
 
     // Priority 2: Dedicated outlet-level bill printer
     let [printers] = await pool.query(
       `SELECT * FROM printers 
        WHERE outlet_id = ? AND station = 'bill' AND is_active = 1
-       ORDER BY is_default DESC LIMIT 1`,
+       ORDER BY id LIMIT 1`,
       [outletId]
     );
-    if (printers[0]) return printers[0];
+    if (printers[0]) {
+      logger.info(`Bill printer found via outlet-level bill station: ${printers[0].name}`);
+      return printers[0];
+    }
 
-    // Priority 3: Any active network printer for this outlet
+    // Priority 3: Bill printer type
+    [printers] = await pool.query(
+      `SELECT * FROM printers 
+       WHERE outlet_id = ? AND printer_type = 'bill' AND is_active = 1
+       ORDER BY id LIMIT 1`,
+      [outletId]
+    );
+    if (printers[0]) {
+      logger.info(`Bill printer found via printer_type=bill: ${printers[0].name}`);
+      return printers[0];
+    }
+
+    // Priority 4: Any active network printer for this outlet
     [printers] = await pool.query(
       `SELECT * FROM printers 
        WHERE outlet_id = ? AND is_active = 1 AND ip_address IS NOT NULL
-       ORDER BY is_default DESC LIMIT 1`,
+       ORDER BY id LIMIT 1`,
       [outletId]
     );
+    if (printers[0]) {
+      logger.info(`Bill printer fallback to any network printer: ${printers[0].name}`);
+    }
     return printers[0] || null;
   },
 
@@ -583,12 +628,29 @@ const billingService = {
         timestamp: new Date().toISOString()
       });
 
+      // Get floor cashier for routing bill request to correct cashier
+      let floorCashierId = null;
+      if (order.floor_id) {
+        const today = getLocalDate();
+        const [floorShift] = await pool.query(
+          `SELECT ds.cashier_id FROM day_sessions ds
+           WHERE ds.outlet_id = ? AND ds.floor_id = ? AND ds.session_date = ? AND ds.status = 'open'`,
+          [order.outlet_id, order.floor_id, today]
+        );
+        if (floorShift[0]?.cashier_id) {
+          floorCashierId = floorShift[0].cashier_id;
+        }
+      }
+
       // Emit bill status event for Captain real-time tracking
+      // Include floorId and cashierId for floor-based routing
       await publishMessage('bill:status', {
         outletId: order.outlet_id,
         orderId,
         tableId: order.table_id,
         tableNumber: order.table_number,
+        floorId: order.floor_id,
+        floorCashierId,
         captainId: order.created_by,
         invoiceId,
         invoiceNumber,
@@ -723,14 +785,32 @@ const billingService = {
       }
     }
 
-    // totalTax: sum from taxBreakup to ensure ALL tax types are included
-    // (even if a code doesn't match CGST/SGST/IGST/VAT/CESS categories)
+    // Get discount amount and calculate discount ratio
+    const discountAmount = parseFloat(order.discount_amount) || 0;
+    const taxableAmount = subtotal - discountAmount;
+    
+    // Calculate discount ratio to proportionally reduce tax
+    // Tax should be calculated on discounted amount, not full subtotal
+    const discountRatio = subtotal > 0 ? (taxableAmount / subtotal) : 1;
+
+    // Apply discount ratio to all tax amounts (tax on discounted subtotal)
+    for (const key of Object.keys(taxBreakup)) {
+      taxBreakup[key].taxableAmount = parseFloat((taxBreakup[key].taxableAmount * discountRatio).toFixed(2));
+      taxBreakup[key].taxAmount = parseFloat((taxBreakup[key].taxAmount * discountRatio).toFixed(2));
+    }
+
+    // Recalculate tax amounts after discount adjustment
+    cgstAmount = parseFloat((cgstAmount * discountRatio).toFixed(2));
+    sgstAmount = parseFloat((sgstAmount * discountRatio).toFixed(2));
+    igstAmount = parseFloat((igstAmount * discountRatio).toFixed(2));
+    vatAmount = parseFloat((vatAmount * discountRatio).toFixed(2));
+    cessAmount = parseFloat((cessAmount * discountRatio).toFixed(2));
+
+    // totalTax: sum from adjusted taxBreakup
     let totalTax = 0;
     for (const key of Object.keys(taxBreakup)) {
       totalTax += taxBreakup[key].taxAmount;
     }
-    const discountAmount = parseFloat(order.discount_amount) || 0;
-    const taxableAmount = subtotal - discountAmount;
 
     // Service charge
     let serviceCharge = 0;
@@ -759,11 +839,11 @@ const billingService = {
       subtotal: parseFloat(subtotal.toFixed(2)),
       discountAmount: parseFloat(discountAmount.toFixed(2)),
       taxableAmount: parseFloat(taxableAmount.toFixed(2)),
-      cgstAmount: parseFloat(cgstAmount.toFixed(2)),
-      sgstAmount: parseFloat(sgstAmount.toFixed(2)),
-      igstAmount: parseFloat(igstAmount.toFixed(2)),
-      vatAmount: parseFloat(vatAmount.toFixed(2)),
-      cessAmount: parseFloat(cessAmount.toFixed(2)),
+      cgstAmount,
+      sgstAmount,
+      igstAmount,
+      vatAmount,
+      cessAmount,
       totalTax: parseFloat(totalTax.toFixed(2)),
       serviceCharge: parseFloat(serviceCharge.toFixed(2)),
       packagingCharge: parseFloat(packagingCharge.toFixed(2)),

@@ -1,0 +1,543 @@
+Type,Name,Category,Price,ItemType,GST,VAT,Station,Description,Parent,ShortName,SKU,Default,SelectionType,Min,Max,Required,Group,Item,ServiceType
+CATEGORY,Chinese Non Veg Starter,,,,,,Chinese Non Veg Starter,,,,,,,,,,restaurant,,
+CATEGORY,Chinese Veg Starter,,,,,,Chinese Veg Starter,,,,,,,,,,restaurant,,
+CATEGORY,Main Course Non Veg,,,,,,Main Course Non Veg,,,,,,,,,,restaurant,,
+CATEGORY,Raita,,,,,,Raita,,,,,,,,,,restaurant,,
+CATEGORY,Accompaniments,,,,,,Accompaniments,,,,,,,,,,restaurant,,
+CATEGORY,Desserts,,,,,,Desserts,,,,,,,,,,restaurant,,
+CATEGORY,Breads,,,,,,Breads,,,,,,,,,,restaurant,,
+CATEGORY,Dal,,,,,,Dal,,,,,,,,,,restaurant,,
+CATEGORY,Khushbu & Basmati,,,,,,Khushbu & Basmati,,,,,,,,,,restaurant,,
+CATEGORY,Main Course Veg,,,,,,Main Course Veg,,,,,,,,,,restaurant,,
+CATEGORY,Chinese Veg Soups,,,,,,Chinese Veg Soups,,,,,,,,,,restaurant,,
+CATEGORY,Chinese Non Veg Soups,,,,,,Chinese Non Veg Soups,,,,,,,,,,restaurant,,
+CATEGORY,Tandoor Veg Starter,,,,,,Tandoor Veg Starter,,,,,,,,,,restaurant,,
+CATEGORY,Tandoor Non Veg Starter,,,,,,Tandoor Non Veg Starter,,,,,,,,,,restaurant,,
+CATEGORY,Beverage,,,,,,Beverage,,,,,,,,,,both,,
+CATEGORY,Mocktail & Shakes,,,,,,Mocktail & Shakes,,,,,,,,,,both,,
+CATEGORY,Pizza & Pasta,,,,,,Pizza & Pasta,,,,,,,,,,restaurant,,
+CATEGORY,Burger & Sandwich,,,,,,Burger & Sandwich,,,,,,,,,,restaurant,,
+CATEGORY,Beer,,,,,,Beer,,,,,,,,,,bar,,
+CATEGORY,Soft Beverage,,,,,,Soft Beverage,,,,,,,,,,both,,
+CATEGORY,Whisky,,,,,,Whisky,,,,,,,,,,bar,,
+CATEGORY,Rum,,,,,,Rum,,,,,,,,,,bar,,
+CATEGORY,Gin,,,,,,Gin,,,,,,,,,,bar,,
+CATEGORY,Vodka,,,,,,Vodka,,,,,,,,,,bar,,
+CATEGORY,Taquila,,,,,,Taquila,,,,,,,,,,bar,,
+CATEGORY,Liqour,,,,,,Liqour,,,,,,,,,,bar,,
+CATEGORY,Wine,,,,,,Wine,,,,,,,,,,bar,,
+CATEGORY,Open Item,,,,,,Open Item,,,,,,,,,,restaurant,,
+CATEGORY,Single Malt,,,,,,Single Malt,,,,,,,,,,bar,,
+CATEGORY,IRISH,,,,,,IRISH,,,,,,,,,,bar,,
+CATEGORY,Blended Scotch,,,,,,Blended Scotch,,,,,,,,,,bar,,
+CATEGORY,Extra,,,,,,Extra,,,,,,,,,,restaurant,,
+CATEGORY,Eggs,,,,,,Eggs,,,,,,,,,,restaurant,,
+ITEM,Chilli Chicken Dry,Chinese Non Veg Starter,319,non_veg,5,,Kitchen,,,Chil Chic Dry,CHI001,,,,,,,,restaurant
+ITEM,Chilli Chicken Gravy,Chinese Non Veg Starter,319,non_veg,5,,Kitchen,,,Chil Chic Grav,CHI002,,,,,,,,restaurant
+ITEM,Chicken 65,Chinese Non Veg Starter,319,non_veg,5,,Kitchen,,,Chic 65,CHI003,,,,,,,,restaurant
+ITEM,Drums Of Heaven,Chinese Non Veg Starter,339,non_veg,5,,Kitchen,,,Drum Of Heav,CHI004,,,,,,,,restaurant
+ITEM,Chilli Garlic Chicken,Chinese Non Veg Starter,329,non_veg,5,,Kitchen,,,Chil Garl Chic,CHI005,,,,,,,,restaurant
+ITEM,Egg Chilli Dry,Chinese Non Veg Starter,299,egg,5,,Kitchen,,,Egg Chil Dry,CHI006,,,,,,,,restaurant
+ITEM,Egg Chilli Gravy,Chinese Non Veg Starter,299,egg,5,,Kitchen,,,Egg Chil Grav,CHI007,,,,,,,,restaurant
+ITEM,Crispy Chicken Salt And Pepper,Chinese Non Veg Starter,329,non_veg,5,,Kitchen,,,Cris Chic Salt ,CHI008,,,,,,,,restaurant
+ITEM,Crispy Honey Chicken,Chinese Non Veg Starter,339,non_veg,5,,Kitchen,,,Cris Hone Chic,CHI009,,,,,,,,restaurant
+ITEM,Chicken Spring Roll,Chinese Non Veg Starter,339,non_veg,5,,Kitchen,,,Chic Spri Roll,CHI010,,,,,,,,restaurant
+ITEM,Chilli Fish Dry,Chinese Non Veg Starter,359,non_veg,5,,Kitchen,,,Chil Fish Dry,CHI011,,,,,,,,restaurant
+ITEM,Chilli Fish Gravy,Chinese Non Veg Starter,359,non_veg,5,,Kitchen,,,Chil Fish Grav,CHI012,,,,,,,,restaurant
+ITEM,Chicken Fried Rice,Chinese Non Veg Starter,289,non_veg,5,,Kitchen,,,Chic Frie Rice,CHI013,,,,,,,,restaurant
+ITEM,Chicken Schezwan Fried Rice,Chinese Non Veg Starter,299,non_veg,5,,Kitchen,,,Chic Sche Frie ,CHI014,,,,,,,,restaurant
+ITEM,Singaporean Chicken Fried Rice,Chinese Non Veg Starter,299,non_veg,5,,Kitchen,,,Sing Chic Frie ,CHI015,,,,,,,,restaurant
+ITEM,Chicken Manchurian Dry,Chinese Non Veg Starter,319,non_veg,5,,Kitchen,,,Chic Manc Dry,CHI016,,,,,,,,restaurant
+ITEM,Chicken Manchurian Gravy,Chinese Non Veg Starter,319,non_veg,5,,Kitchen,,,Chic Manc Grav,CHI017,,,,,,,,restaurant
+ITEM,Egg Noodles,Chinese Non Veg Starter,269,egg,5,,Kitchen,,,Egg Nood,CHI018,,,,,,,,restaurant
+ITEM,Chicken Hakka Noodles,Chinese Non Veg Starter,299,non_veg,5,,Kitchen,,,Chic Hakk Nood,CHI019,,,,,,,,restaurant
+ITEM,Chilli Garlic Chicken Noodles,Chinese Non Veg Starter,319,non_veg,5,,Kitchen,,,Chil Garl Chic ,CHI020,,,,,,,,restaurant
+ITEM,Blackpepper Chicken,Chinese Non Veg Starter,319,non_veg,5,,Kitchen,,,Blac Chic,CHI021,,,,,,,,restaurant
+ITEM,Lemon Fish,Chinese Non Veg Starter,339,non_veg,5,,Kitchen,,,Lemo Fish,CHI022,,,,,,,,restaurant
+ITEM,Fish Garlic Sauce,Chinese Non Veg Starter,359,non_veg,5,,Kitchen,,,Fish Garl Sauc,CHI023,,,,,,,,restaurant
+ITEM,Lemon Coriander,Chinese Non Veg Starter,359,non_veg,5,,Kitchen,,,Lemo Cori,CHI024,,,,,,,,restaurant
+ITEM,Egg Kali Mirch,Chinese Non Veg Starter,249,egg,5,,Kitchen,,,Egg Kali Mirc,CHI025,,,,,,,,restaurant
+ITEM,Ginger Chicken,Chinese Non Veg Starter,359,non_veg,5,,Kitchen,,,Ging Chic,CHI026,,,,,,,,restaurant
+ITEM,Chicken Kali Mirch,Chinese Non Veg Starter,359,non_veg,5,,Kitchen,,,Chic Kali Mirc,CHI027,,,,,,,,restaurant
+ITEM,Kung Pao Chicken,Chinese Non Veg Starter,359,non_veg,5,,Kitchen,,,Kung Pao Chic,CHI028,,,,,,,,restaurant
+ITEM,Chicken China Town,Chinese Non Veg Starter,359,non_veg,5,,Kitchen,,,Chic Chin Town,CHI029,,,,,,,,restaurant
+ITEM,Chicken Hunan Sauce,Chinese Non Veg Starter,359,non_veg,5,,Kitchen,,,Chic Huna Sauc,CHI030,,,,,,,,restaurant
+ITEM,Chicken Mongolian,Chinese Non Veg Starter,359,non_veg,5,,Kitchen,,,Chic Mong,CHI031,,,,,,,,restaurant
+ITEM,Chilli Paneer Dry,Chinese Veg Starter,289,veg,5,,Kitchen,,,Chil Pane Dry,CHI032,,,,,,,,restaurant
+ITEM,Chilli Paneer Gravy,Chinese Veg Starter,289,veg,5,,Kitchen,,,Chil Pane Grav,CHI033,,,,,,,,restaurant
+ITEM,Paneer 65,Chinese Veg Starter,289,veg,5,,Kitchen,,,Pane 65,CHI034,,,,,,,,restaurant
+ITEM,Paneer Jungali,Chinese Veg Starter,289,veg,5,,Kitchen,,,Pane Jung,CHI035,,,,,,,,restaurant
+ITEM,Crispy Corn Salt & Pepper,Chinese Veg Starter,219,veg,5,,Kitchen,,,Cris Corn Salt ,CHI036,,,,,,,,restaurant
+ITEM,Veg Kothe,Chinese Veg Starter,219,veg,5,,Kitchen,,,Veg Koth,CHI037,,,,,,,,restaurant
+ITEM,Veg Lollypop,Chinese Veg Starter,219,veg,5,,Kitchen,,,Veg Loll,CHI038,,,,,,,,restaurant
+ITEM,Veg Spring Roll,Chinese Veg Starter,249,veg,5,,Kitchen,,,Veg Spri Roll,CHI039,,,,,,,,restaurant
+ITEM,Chilli Potato,Chinese Veg Starter,219,veg,5,,Kitchen,,,Chil Pota,CHI040,,,,,,,,restaurant
+ITEM,Crispy Honey Chilli Potato,Chinese Veg Starter,219,veg,5,,Kitchen,,,Cris Hone Chil ,CHI041,,,,,,,,restaurant
+ITEM,Mushroom Chilli,Chinese Veg Starter,289,veg,5,,Kitchen,,,Mush Chil,CHI042,,,,,,,,restaurant
+ITEM,Paneer Garlic,Chinese Veg Starter,289,veg,5,,Kitchen,,,Pane Garl,CHI043,,,,,,,,restaurant
+ITEM,Chana Chilli,Chinese Veg Starter,219,veg,5,,Kitchen,,,Chan Chil,CHI044,,,,,,,,restaurant
+ITEM,Paneer Kali Mirch,Chinese Veg Starter,289,veg,5,,Kitchen,,,Pane Kali Mirc,CHI045,,,,,,,,restaurant
+ITEM,Veg Fried Rice,Chinese Veg Starter,259,veg,5,,Kitchen,,,Veg Frie Rice,CHI046,,,,,,,,restaurant
+ITEM,Veg Schezwan Fried Rice,Chinese Veg Starter,269,veg,5,,Kitchen,,,Veg Sche Frie R,CHI047,,,,,,,,restaurant
+ITEM,Triple Fried Rice,Chinese Veg Starter,289,veg,5,,Kitchen,,,Trip Frie Rice,CHI048,,,,,,,,restaurant
+ITEM,Veg Chilli Garlic Fried Rice,Chinese Veg Starter,269,veg,5,,Kitchen,,,Veg Chil Garl F,CHI049,,,,,,,,restaurant
+ITEM,Veg Noodles,Chinese Veg Starter,219,veg,5,,Kitchen,,,Veg Nood,CHI050,,,,,,,,restaurant
+ITEM,Veg Hakka Noodles,Chinese Veg Starter,229,veg,5,,Kitchen,,,Veg Hakk Nood,CHI051,,,,,,,,restaurant
+ITEM,Veg Schezwan Noodles,Chinese Veg Starter,249,veg,5,,Kitchen,,,Veg Sche Nood,CHI052,,,,,,,,restaurant
+ITEM,Veg Singapori Noodles,Chinese Veg Starter,259,veg,5,,Kitchen,,,Veg Sing Nood,CHI053,,,,,,,,restaurant
+ITEM,Veg Manchuriyan Dry,Chinese Veg Starter,249,veg,5,,Kitchen,,,Veg Manc Dry,CHI054,,,,,,,,restaurant
+ITEM,Veg Manchuriyan Gravy,Chinese Veg Starter,249,veg,5,,Kitchen,,,Veg Manc Grav,CHI055,,,,,,,,restaurant
+ITEM,Paneer Manchuriyan Dry,Chinese Veg Starter,269,veg,5,,Kitchen,,,Pane Manc Dry,CHI056,,,,,,,,restaurant
+ITEM,Paneer Manchuriyan Gravy,Chinese Veg Starter,269,veg,5,,Kitchen,,,Pane Manc Grav,CHI057,,,,,,,,restaurant
+ITEM,Paneer Noodles,Chinese Veg Starter,259,veg,5,,Kitchen,,,Pane Nood,CHI058,,,,,,,,restaurant
+ITEM,Chilly Garlic Noodles,Chinese Veg Starter,259,veg,5,,Kitchen,,,Chil Garl Nood,CHI059,,,,,,,,restaurant
+ITEM,Chana Roast,Chinese Veg Starter,219,veg,5,,Kitchen,,,Chan Roas,CHI060,,,,,,,,restaurant
+ITEM,Paneer China Town,Chinese Veg Starter,249,veg,5,,Kitchen,,,Pane Chin Town,CHI061,,,,,,,,restaurant
+ITEM,Paneer Mushroom Golden Fry,Chinese Veg Starter,269,veg,5,,Kitchen,,,Pane Mush Gold ,CHI062,,,,,,,,restaurant
+ITEM,Chicken Bagheli,Main Course Non Veg,0,non_veg,5,,Kitchen,,,Chic Bagh,MAI001,,,,,,,,restaurant
+VARIANT,Single,,299,,,,,,,,,no,,,,,,Chicken Bagheli,
+VARIANT,Family,,449,,,,,,,,,no,,,,,,Chicken Bagheli,
+ITEM,Chicken Handi,Main Course Non Veg,0,non_veg,5,,Kitchen,,,Chic Hand,MAI002,,,,,,,,restaurant
+VARIANT,Single,,299,,,,,,,,,no,,,,,,Chicken Handi,
+VARIANT,Family,,449,,,,,,,,,no,,,,,,Chicken Handi,
+ITEM,Chicken Curry,Main Course Non Veg,0,non_veg,5,,Kitchen,,,Chic Curr,MAI003,,,,,,,,restaurant
+VARIANT,Single,,299,,,,,,,,,no,,,,,,Chicken Curry,
+VARIANT,Family,,449,,,,,,,,,no,,,,,,Chicken Curry,
+ITEM,Chicken Do Pyaza,Main Course Non Veg,0,non_veg,5,,Kitchen,,,Chic Do Pyaz,MAI004,,,,,,,,restaurant
+VARIANT,Single,,299,,,,,,,,,no,,,,,,Chicken Do Pyaza,
+VARIANT,Family,,449,,,,,,,,,no,,,,,,Chicken Do Pyaza,
+ITEM,Butter Chicken,Main Course Non Veg,0,non_veg,5,,Kitchen,,,Butt Chic,MAI005,,,,,,,,restaurant
+VARIANT,Single,,329,,,,,,,,,no,,,,,,Butter Chicken,
+VARIANT,Family,,499,,,,,,,,,no,,,,,,Butter Chicken,
+ITEM,Kadhai Chicken,Main Course Non Veg,0,non_veg,5,,Kitchen,,,Kadh Chic,MAI006,,,,,,,,restaurant
+VARIANT,Single,,329,,,,,,,,,no,,,,,,Kadhai Chicken,
+VARIANT,Family,,499,,,,,,,,,no,,,,,,Kadhai Chicken,
+ITEM,Chicken Masala,Main Course Non Veg,0,non_veg,5,,Kitchen,,,Chic Masa,MAI007,,,,,,,,restaurant
+VARIANT,Single,,329,,,,,,,,,no,,,,,,Chicken Masala,
+VARIANT,Family,,499,,,,,,,,,no,,,,,,Chicken Masala,
+ITEM,Chicken Tikka Masala,Main Course Non Veg,0,non_veg,5,,Kitchen,,,Chic Tikk Masa,MAI008,,,,,,,,restaurant
+VARIANT,Single,,329,,,,,,,,,no,,,,,,Chicken Tikka Masala,
+VARIANT,Family,,499,,,,,,,,,no,,,,,,Chicken Tikka Masala,
+ITEM,Chicken Methi Malai,Main Course Non Veg,0,non_veg,5,,Kitchen,,,Chic Meth Mala,MAI009,,,,,,,,restaurant
+VARIANT,Single,,329,,,,,,,,,no,,,,,,Chicken Methi Malai,
+VARIANT,Family,,499,,,,,,,,,no,,,,,,Chicken Methi Malai,
+ITEM,Rahra Chicken,Main Course Non Veg,0,non_veg,5,,Kitchen,,,Rahr Chic,MAI010,,,,,,,,restaurant
+VARIANT,Single,,329,,,,,,,,,no,,,,,,Rahra Chicken,
+VARIANT,Family,,499,,,,,,,,,no,,,,,,Rahra Chicken,
+ITEM,Bhuna Chicken,Main Course Non Veg,0,non_veg,5,,Kitchen,,,Bhun Chic,MAI011,,,,,,,,restaurant
+VARIANT,Single,,329,,,,,,,,,no,,,,,,Bhuna Chicken,
+VARIANT,Family,,499,,,,,,,,,no,,,,,,Bhuna Chicken,
+ITEM,Mutton Bagheli,Main Course Non Veg,0,non_veg,5,,Kitchen,,,Mutt Bagh,MAI012,,,,,,,,restaurant
+VARIANT,Single,,369,,,,,,,,,no,,,,,,Mutton Bagheli,
+VARIANT,Family,,569,,,,,,,,,no,,,,,,Mutton Bagheli,
+ITEM,Mutton Masala,Main Course Non Veg,0,non_veg,5,,Kitchen,,,Mutt Masa,MAI013,,,,,,,,restaurant
+VARIANT,Single,,379,,,,,,,,,no,,,,,,Mutton Masala,
+VARIANT,Family,,579,,,,,,,,,no,,,,,,Mutton Masala,
+ITEM,Mutton Handi,Main Course Non Veg,0,non_veg,5,,Kitchen,,,Mutt Hand,MAI014,,,,,,,,restaurant
+VARIANT,Single,,379,,,,,,,,,no,,,,,,Mutton Handi,
+VARIANT,Family,,579,,,,,,,,,no,,,,,,Mutton Handi,
+ITEM,Dhawa Mutton,Main Course Non Veg,0,non_veg,5,,Kitchen,,,Dhaw Mutt,MAI015,,,,,,,,restaurant
+VARIANT,Single,,379,,,,,,,,,no,,,,,,Dhawa Mutton,
+VARIANT,Family,,579,,,,,,,,,no,,,,,,Dhawa Mutton,
+ITEM,Rahra Mutton,Main Course Non Veg,0,non_veg,5,,Kitchen,,,Rahr Mutt,MAI016,,,,,,,,restaurant
+VARIANT,Single,,379,,,,,,,,,no,,,,,,Rahra Mutton,
+VARIANT,Family,,579,,,,,,,,,no,,,,,,Rahra Mutton,
+ITEM,Mutton Kadhai,Main Course Non Veg,0,non_veg,5,,Kitchen,,,Mutt Kadh,MAI017,,,,,,,,restaurant
+VARIANT,Single,,379,,,,,,,,,no,,,,,,Mutton Kadhai,
+VARIANT,Family,,579,,,,,,,,,no,,,,,,Mutton Kadhai,
+ITEM,Bhuna Mutton,Main Course Non Veg,0,non_veg,5,,Kitchen,,,Bhun Mutt,MAI018,,,,,,,,restaurant
+VARIANT,Single,,379,,,,,,,,,no,,,,,,Bhuna Mutton,
+VARIANT,Family,,579,,,,,,,,,no,,,,,,Bhuna Mutton,
+ITEM,Fish Curry,Main Course Non Veg,0,non_veg,5,,Kitchen,,,Fish Curr,MAI019,,,,,,,,restaurant
+VARIANT,Single,,299,,,,,,,,,no,,,,,,Fish Curry,
+VARIANT,Family,,449,,,,,,,,,no,,,,,,Fish Curry,
+ITEM,Fish Masala,Main Course Non Veg,0,non_veg,5,,Kitchen,,,Fish Masa,MAI020,,,,,,,,restaurant
+VARIANT,Single,,329,,,,,,,,,no,,,,,,Fish Masala,
+VARIANT,Family,,499,,,,,,,,,no,,,,,,Fish Masala,
+ITEM,Egg Curry,Main Course Non Veg,199,egg,5,,Kitchen,,,Egg Curr,MAI021,,,,,,,,restaurant
+ITEM,Egg Masala,Main Course Non Veg,229,egg,5,,Kitchen,,,Egg Masa,MAI022,,,,,,,,restaurant
+ITEM,Plain Curd,Raita,89,veg,5,,Kitchen,,,Plai Curd,RAI001,,,,,,,,restaurant
+ITEM,Mix Veg Raita,Raita,99,veg,5,,Kitchen,,,Mix Veg Rait,RAI002,,,,,,,,restaurant
+ITEM,Boondi Raita,Raita,99,veg,5,,Kitchen,,,Boon Rait,RAI003,,,,,,,,restaurant
+ITEM,Fruit Raita,Raita,119,veg,5,,Kitchen,,,Frui Rait,RAI004,,,,,,,,restaurant
+ITEM,Pineapple Raita,Raita,119,veg,5,,Kitchen,,,Pine Rait,RAI005,,,,,,,,restaurant
+ITEM,Papad Roasted,Accompaniments,29,veg,5,,Kitchen,,,Papa Roas,ACC001,,,,,,,,restaurant
+ITEM,Papad Fried,Accompaniments,29,veg,5,,Kitchen,,,Papa Frie,ACC002,,,,,,,,restaurant
+ITEM,Masala Papad,Accompaniments,69,veg,5,,Kitchen,,,Masa Papa,ACC003,,,,,,,,restaurant
+ITEM,Masala Peanut,Accompaniments,119,veg,5,,Kitchen,,,Masa Pean,ACC004,,,,,,,,restaurant
+ITEM,Onion Salad,Accompaniments,89,veg,5,,Kitchen,,,Onio Sala,ACC005,,,,,,,,restaurant
+ITEM,Green Salad,Accompaniments,99,veg,5,,Kitchen,,,Gree Sala,ACC006,,,,,,,,restaurant
+ITEM,Russian Salad,Accompaniments,119,veg,5,,Kitchen,,,Russ Sala,ACC007,,,,,,,,restaurant
+ITEM,Kimchi Salad,Accompaniments,119,veg,5,,Kitchen,,,Kimc Sala,ACC008,,,,,,,,restaurant
+ITEM,Kuchumber Salad,Accompaniments,99,veg,5,,Kitchen,,,Kuch Sala,ACC009,,,,,,,,restaurant
+ITEM,Sprout Salad,Accompaniments,119,veg,5,,Kitchen,,,Spro Sala,ACC010,,,,,,,,restaurant
+ITEM,Choice Of Ice Cream (2 Scoops),Desserts,95,veg,5,,Dessert,,,Choi Of Ice Cre,DES001,,,,,,,,restaurant
+ITEM,Matka Kulfi,Desserts,109,veg,5,,Dessert,,,Matk Kulf,DES002,,,,,,,,restaurant
+ITEM,Gulab Jamun,Desserts,95,veg,5,,Dessert,,,Gula Jamu,DES003,,,,,,,,restaurant
+ITEM,Rasmalai,Desserts,109,veg,5,,Dessert,,,Rasmalai,DES004,,,,,,,,restaurant
+ITEM,Shahi Thandi Kheer,Desserts,109,veg,5,,Dessert,,,Shah Than Khee,DES005,,,,,,,,restaurant
+ITEM,Brownie With Ice Cream,Desserts,119,veg,5,,Dessert,,,Brow With Ice C,DES006,,,,,,,,restaurant
+ITEM,Gajar Halwa,Desserts,119,veg,5,,Dessert,,,Gaja Halw,DES007,,,,,,,,restaurant
+ITEM,Tandoori Roti,Breads,30,veg,5,,Kitchen,,,Tand Roti,BRE001,,,,,,,,restaurant
+ITEM,Tandoori Roti Butter,Breads,35,veg,5,,Kitchen,,,Tand Roti Butt,BRE002,,,,,,,,restaurant
+ITEM,Hari Mirch Ki Roti,Breads,35,veg,5,,Kitchen,,,Hari Mirc Ki Ro,BRE003,,,,,,,,restaurant
+ITEM,Lal Mirch Ki Roti,Breads,35,veg,5,,Kitchen,,,Lal Mirc Ki Rot,BRE004,,,,,,,,restaurant
+ITEM,Missi Roti,Breads,35,veg,5,,Kitchen,,,Miss Roti,BRE005,,,,,,,,restaurant
+ITEM,Naan,Breads,40,veg,5,,Kitchen,,,Naan,BRE006,,,,,,,,restaurant
+ITEM,Butter Naan,Breads,50,veg,5,,Kitchen,,,Butt Naan,BRE007,,,,,,,,restaurant
+ITEM,Garlic Naan,Breads,60,veg,5,,Kitchen,,,Garl Naan,BRE008,,,,,,,,restaurant
+ITEM,Laccha Paratha,Breads,60,veg,5,,Kitchen,,,Lacc Para,BRE009,,,,,,,,restaurant
+ITEM,Ajwaini Paratha,Breads,55,veg,5,,Kitchen,,,Ajwa Para,BRE010,,,,,,,,restaurant
+ITEM,Pudina Paratha,Breads,55,veg,5,,Kitchen,,,Pudi Para,BRE011,,,,,,,,restaurant
+ITEM,Aloo Paratha,Breads,89,veg,5,,Kitchen,,,Aloo Para,BRE012,,,,,,,,restaurant
+ITEM,Aloo-Pyaaz Paratha,Breads,110,veg,5,,Kitchen,,,Aloo Para,BRE013,,,,,,,,restaurant
+ITEM,Gobhi Paratha,Breads,110,veg,5,,Kitchen,,,Gobh Para,BRE014,,,,,,,,restaurant
+ITEM,Paneer Paratha,Breads,110,veg,5,,Kitchen,,,Pane Para,BRE015,,,,,,,,restaurant
+ITEM,Stuffed Kulcha,Breads,110,veg,5,,Kitchen,,,Stuf Kulc,BRE016,,,,,,,,restaurant
+ITEM,Kashmiri Naan,Breads,80,veg,5,,Kitchen,,,Kash Naan,BRE017,,,,,,,,restaurant
+ITEM,Bread Basket,Breads,210,veg,5,,Kitchen,,,Brea Bask,BRE018,,,,,,,,restaurant
+ITEM,Dal Fry,Dal,249,veg,5,,Kitchen,,,Dal Fry,DAL001,,,,,,,,restaurant
+ITEM,Dal Tadka,Dal,249,veg,5,,Kitchen,,,Dal Tadk,DAL002,,,,,,,,restaurant
+ITEM,Dal Pachrangi,Dal,279,veg,5,,Kitchen,,,Dal Pach,DAL003,,,,,,,,restaurant
+ITEM,Dal Makhani,Dal,289,veg,5,,Kitchen,,,Dal Makh,DAL004,,,,,,,,restaurant
+ITEM,Dal Muglai,Dal,289,veg,5,,Kitchen,,,Dal Mugl,DAL005,,,,,,,,restaurant
+ITEM,Punjabi Dal Tadka,Dal,289,veg,5,,Kitchen,,,Punj Dal Tadk,DAL006,,,,,,,,restaurant
+ITEM,Plain Rice,Khushbu & Basmati,139,veg,5,,Kitchen,,,Plai Rice,KHU001,,,,,,,,restaurant
+ITEM,Jeera Rice,Khushbu & Basmati,159,veg,5,,Kitchen,,,Jeer Rice,KHU002,,,,,,,,restaurant
+ITEM,Peas Pulao,Khushbu & Basmati,169,veg,5,,Kitchen,,,Peas Pula,KHU003,,,,,,,,restaurant
+ITEM,Veg Pulao,Khushbu & Basmati,169,veg,5,,Kitchen,,,Veg Pula,KHU004,,,,,,,,restaurant
+ITEM,Curd Rice,Khushbu & Basmati,169,veg,5,,Kitchen,,,Curd Rice,KHU005,,,,,,,,restaurant
+ITEM,Kashmiri Pulao,Khushbu & Basmati,189,veg,5,,Kitchen,,,Kash Pula,KHU006,,,,,,,,restaurant
+ITEM,Veg Biriyani,Khushbu & Basmati,299,veg,5,,Kitchen,,,Veg Biri,KHU007,,,,,,,,restaurant
+ITEM,Egg Biriyani,Khushbu & Basmati,299,egg,5,,Kitchen,,,Egg Biri,KHU008,,,,,,,,restaurant
+ITEM,Chicken Biriyani,Khushbu & Basmati,359,non_veg,5,,Kitchen,,,Chic Biri,KHU009,,,,,,,,restaurant
+ITEM,Mutton Biriyani,Khushbu & Basmati,449,non_veg,5,,Kitchen,,,Mutt Biri,KHU010,,,,,,,,restaurant
+ITEM,Fish Tikka Biriyani,Khushbu & Basmati,399,non_veg,5,,Kitchen,,,Fish Tikk Biri,KHU011,,,,,,,,restaurant
+ITEM,Chicken Tikka Biriyani,Khushbu & Basmati,399,non_veg,5,,Kitchen,,,Chic Tikk Biri,KHU012,,,,,,,,restaurant
+ITEM,Aaj Ki Sabzi,Main Course Veg,279,veg,5,,Kitchen,,,Aaj Ki Sabz,MAI023,,,,,,,,restaurant
+ITEM,Mix Veg,Main Course Veg,279,veg,5,,Kitchen,,,Mix Veg,MAI024,,,,,,,,restaurant
+ITEM,Palak Corn,Main Course Veg,279,veg,5,,Kitchen,,,Pala Corn,MAI025,,,,,,,,restaurant
+ITEM,Pindi Chole,Main Course Veg,279,veg,5,,Kitchen,,,Pind Chol,MAI026,,,,,,,,restaurant
+ITEM,Heeng Dhaniya Ke Aloo,Main Course Veg,279,veg,5,,Kitchen,,,Heen Dhan Ke Al,MAI027,,,,,,,,restaurant
+ITEM,Jeera Aloo,Main Course Veg,269,veg,5,,Kitchen,,,Jeer Aloo,MAI028,,,,,,,,restaurant
+ITEM,Kashmiri Dum Aloo,Main Course Veg,289,veg,5,,Kitchen,,,Kash Dum Aloo,MAI029,,,,,,,,restaurant
+ITEM,Stuff Tomato,Main Course Veg,259,veg,5,,Kitchen,,,Stuf Toma,MAI030,,,,,,,,restaurant
+ITEM,Stuff Capsicum,Main Course Veg,259,veg,5,,Kitchen,,,Stuf Caps,MAI031,,,,,,,,restaurant
+ITEM,Mushroom Masala,Main Course Veg,319,veg,5,,Kitchen,,,Mush Masa,MAI032,,,,,,,,restaurant
+ITEM,Matar Mushroom Masala,Main Course Veg,319,veg,5,,Kitchen,,,Mata Mush Masa,MAI033,,,,,,,,restaurant
+ITEM,Malai Kofta,Main Course Veg,329,veg,5,,Kitchen,,,Mala Koft,MAI034,,,,,,,,restaurant
+ITEM,Kaju Curry,Main Course Veg,339,veg,5,,Kitchen,,,Kaju Curr,MAI035,,,,,,,,restaurant
+ITEM,Kaju Masala,Main Course Veg,339,veg,5,,Kitchen,,,Kaju Masa,MAI036,,,,,,,,restaurant
+ITEM,Methi Matar Malai,Main Course Veg,319,veg,5,,Kitchen,,,Meth Mata Mala,MAI037,,,,,,,,restaurant
+ITEM,Soya Chap Masala,Main Course Veg,329,veg,5,,Kitchen,,,Soya Chap Masa,MAI038,,,,,,,,restaurant
+ITEM,Baby Corn Masala,Main Course Veg,339,veg,5,,Kitchen,,,Baby Corn Masa,MAI039,,,,,,,,restaurant
+ITEM,Mushroom Handi,Main Course Veg,329,veg,5,,Kitchen,,,Mush Hand,MAI040,,,,,,,,restaurant
+ITEM,Paneer Butter Masala,Main Course Veg,329,veg,5,,Kitchen,,,Pane Butt Masa,MAI041,,,,,,,,restaurant
+ITEM,Kadhai Paneer,Main Course Veg,329,veg,5,,Kitchen,,,Kadh Pane,MAI042,,,,,,,,restaurant
+ITEM,Paneer Punjabi,Main Course Veg,329,veg,5,,Kitchen,,,Pane Punj,MAI043,,,,,,,,restaurant
+ITEM,Paneer Kolhapuri,Main Course Veg,329,veg,5,,Kitchen,,,Pane Kolh,MAI044,,,,,,,,restaurant
+ITEM,Paneer Tikka Masala,Main Course Veg,339,veg,5,,Kitchen,,,Pane Tikk Masa,MAI045,,,,,,,,restaurant
+ITEM,Shahi Paneer,Main Course Veg,339,veg,5,,Kitchen,,,Shah Pane,MAI046,,,,,,,,restaurant
+ITEM,Mushroom Paneer,Main Course Veg,329,veg,5,,Kitchen,,,Mush Pane,MAI047,,,,,,,,restaurant
+ITEM,Paneer Do Pyaza,Main Course Veg,329,veg,5,,Kitchen,,,Pane Do Pyaz,MAI048,,,,,,,,restaurant
+ITEM,Paneer Toofani,Main Course Veg,329,veg,5,,Kitchen,,,Pane Toof,MAI049,,,,,,,,restaurant
+ITEM,Palak Paneer,Main Course Veg,329,veg,5,,Kitchen,,,Pala Pane,MAI050,,,,,,,,restaurant
+ITEM,Paneer Pasanda,Main Course Veg,329,veg,5,,Kitchen,,,Pane Pasa,MAI051,,,,,,,,restaurant
+ITEM,Paneer Handi,Main Course Veg,329,veg,5,,Kitchen,,,Pane Hand,MAI052,,,,,,,,restaurant
+ITEM,Hot N Sour Soup,Chinese Veg Soups,109,veg,5,,Kitchen,,,Hot N Sour Soup,CHI063,,,,,,,,restaurant
+ITEM,Manchow Soup,Chinese Veg Soups,109,veg,5,,Kitchen,,,Manc Soup,CHI064,,,,,,,,restaurant
+ITEM,Sweet Corn Soup,Chinese Veg Soups,109,veg,5,,Kitchen,,,Swee Corn Soup,CHI065,,,,,,,,restaurant
+ITEM,Veg Clear Soup,Chinese Veg Soups,109,veg,5,,Kitchen,,,Veg Clea Soup,CHI066,,,,,,,,restaurant
+ITEM,Lemon Coriander Soup,Chinese Veg Soups,109,veg,5,,Kitchen,,,Lemo Cori Soup,CHI067,,,,,,,,restaurant
+ITEM,Tomato Soup,Chinese Veg Soups,119,veg,5,,Kitchen,,,Toma Soup,CHI068,,,,,,,,restaurant
+ITEM,Chicken Hot N Sour Soup,Chinese Non Veg Soups,129,non_veg,5,,Kitchen,,,Chic Hot N Sour,CHI069,,,,,,,,restaurant
+ITEM,Chicken Manchow Soup,Chinese Non Veg Soups,129,non_veg,5,,Kitchen,,,Chic Manc Soup,CHI070,,,,,,,,restaurant
+ITEM,Chicken Sweet Corn Soup,Chinese Non Veg Soups,129,non_veg,5,,Kitchen,,,Chic Swee Corn ,CHI071,,,,,,,,restaurant
+ITEM,Chicken Veg Clear Soup,Chinese Non Veg Soups,129,non_veg,5,,Kitchen,,,Chic Veg Clea S,CHI072,,,,,,,,restaurant
+ITEM,Chicken Lemon Coriander Soup,Chinese Non Veg Soups,129,non_veg,5,,Kitchen,,,Chic Lemo Cori ,CHI073,,,,,,,,restaurant
+ITEM,Paneer Tikka,Tandoor Veg Starter,319,veg,5,,Tandoor,,,Pane Tikk,TAN001,,,,,,,,restaurant
+ITEM,Paneer Pahadi Tikka,Tandoor Veg Starter,319,veg,5,,Tandoor,,,Pane Paha Tikk,TAN002,,,,,,,,restaurant
+ITEM,Paneer Garlic Tikka,Tandoor Veg Starter,329,veg,5,,Tandoor,,,Pane Garl Tikk,TAN003,,,,,,,,restaurant
+ITEM,Paneer Parda,Tandoor Veg Starter,349,veg,5,,Tandoor,,,Pane Pard,TAN004,,,,,,,,restaurant
+ITEM,Paneer Malai Tikka,Tandoor Veg Starter,329,veg,5,,Tandoor,,,Pane Mala Tikk,TAN005,,,,,,,,restaurant
+ITEM,Mushroom Stuff Tikka,Tandoor Veg Starter,329,veg,5,,Tandoor,,,Mush Stuf Tikk,TAN006,,,,,,,,restaurant
+ITEM,Mushroom Tikka,Tandoor Veg Starter,319,veg,5,,Tandoor,,,Mush Tikk,TAN007,,,,,,,,restaurant
+ITEM,Hara Bhara Kebab,Tandoor Veg Starter,279,veg,5,,Tandoor,,,Hara Bhar Keba,TAN008,,,,,,,,restaurant
+ITEM,Corn Kebab,Tandoor Veg Starter,279,veg,5,,Tandoor,,,Corn Keba,TAN009,,,,,,,,restaurant
+ITEM,Cheese Chaska Kebab,Tandoor Veg Starter,279,veg,5,,Tandoor,,,Chee Chas Keba,TAN010,,,,,,,,restaurant
+ITEM,Veg 2 In 1,Tandoor Veg Starter,279,veg,5,,Tandoor,,,Veg 2 In 1,TAN011,,,,,,,,restaurant
+ITEM,Veg Sheek Kebab,Tandoor Veg Starter,269,veg,5,,Tandoor,,,Veg Shee Keba,TAN012,,,,,,,,restaurant
+ITEM,Aloo Nazakat Tikka,Tandoor Veg Starter,319,veg,5,,Tandoor,,,Aloo Naza Tikk,TAN013,,,,,,,,restaurant
+ITEM,Aloo Cheese Corn Tikki,Tandoor Veg Starter,319,veg,5,,Tandoor,,,Aloo Chee Corn ,TAN014,,,,,,,,restaurant
+ITEM,Chana Tikki,Tandoor Veg Starter,269,veg,5,,Tandoor,,,Chan Tikk,TAN015,,,,,,,,restaurant
+ITEM,Dahi Ke Shole,Tandoor Veg Starter,319,veg,5,,Tandoor,,,Dahi Ke Shol,TAN016,,,,,,,,restaurant
+ITEM,Veg Kebab Platter,Tandoor Veg Starter,499,veg,5,,Tandoor,,,Veg Keba Plat,TAN017,,,,,,,,restaurant
+ITEM,Tandoori Chicken,Tandoor Non Veg Starter,0,non_veg,5,,Tandoor,,,Tand Chic,TAN018,,,,,,,,restaurant
+VARIANT,Half,,379,,,,,,,,,no,,,,,,Tandoori Chicken,
+VARIANT,Full,,599,,,,,,,,,no,,,,,,Tandoori Chicken,
+ITEM,Chicken Tikka,Tandoor Non Veg Starter,379,non_veg,5,,Tandoor,,,Chic Tikk,TAN019,,,,,,,,restaurant
+ITEM,Chicken Malai Tikka,Tandoor Non Veg Starter,379,non_veg,5,,Tandoor,,,Chic Mala Tikk,TAN020,,,,,,,,restaurant
+ITEM,Chicken Hariyali Tikka,Tandoor Non Veg Starter,379,non_veg,5,,Tandoor,,,Chic Hari Tikk,TAN021,,,,,,,,restaurant
+ITEM,Chicken Pahadi Tikka,Tandoor Non Veg Starter,379,non_veg,5,,Tandoor,,,Chic Paha Tikk,TAN022,,,,,,,,restaurant
+ITEM,Chicken Achari Tikka,Tandoor Non Veg Starter,379,non_veg,5,,Tandoor,,,Chic Acha Tikk,TAN023,,,,,,,,restaurant
+ITEM,Afghani Chicken,Tandoor Non Veg Starter,0,non_veg,5,,Tandoor,,,Afgh Chic,TAN024,,,,,,,,restaurant
+VARIANT,Half,,389,,,,,,,,,no,,,,,,Afghani Chicken,
+VARIANT,Full,,629,,,,,,,,,no,,,,,,Afghani Chicken,
+ITEM,Chicken Sheek Kebab,Tandoor Non Veg Starter,369,non_veg,5,,Tandoor,,,Chic Shee Keba,TAN025,,,,,,,,restaurant
+ITEM,Chicken Neyurani,Tandoor Non Veg Starter,379,non_veg,5,,Tandoor,,,Chic Neyu,TAN026,,,,,,,,restaurant
+ITEM,Chicken Banjara,Tandoor Non Veg Starter,379,non_veg,5,,Tandoor,,,Chic Banj,TAN027,,,,,,,,restaurant
+ITEM,Achari Tagdi Kebab,Tandoor Non Veg Starter,299,non_veg,5,,Tandoor,,,Acha Tagd Keba,TAN028,,,,,,,,restaurant
+ITEM,Egg Neyurani Kebab,Tandoor Non Veg Starter,299,egg,5,,Tandoor,,,Egg Neyu Keba,TAN029,,,,,,,,restaurant
+ITEM,Garlic Fish Tikka,Tandoor Non Veg Starter,379,non_veg,5,,Tandoor,,,Garl Fish Tikk,TAN030,,,,,,,,restaurant
+ITEM,Amritsari Fish Fry,Tandoor Non Veg Starter,399,non_veg,5,,Tandoor,,,Amri Fish Fry,TAN031,,,,,,,,restaurant
+ITEM,Non Veg Kebab Platter,Tandoor Non Veg Starter,599,non_veg,5,,Tandoor,,,Non Veg Keba Pl,TAN032,,,,,,,,restaurant
+ITEM,Mineral Water,Beverage,29,veg,5,,Bar,,,Mine Wate,BEV001,,,,,,,,both
+ITEM,Tea,Beverage,39,veg,5,,Bar,,,Tea,BEV002,,,,,,,,both
+ITEM,Coffee,Beverage,49,veg,5,,Bar,,,Coffee,BEV003,,,,,,,,both
+ITEM,Fresh Lime Soda,Beverage,99,veg,5,,Bar,,,Fres Lime Soda,BEV004,,,,,,,,both
+ITEM,Aerated Beverages,Beverage,99,veg,5,,Bar,,,Aera Beve,BEV005,,,,,,,,both
+ITEM,Lassi,Beverage,99,veg,5,,Bar,,,Lassi,BEV006,,,,,,,,both
+ITEM,Jal Jeera,Beverage,99,veg,5,,Bar,,,Jal Jeer,BEV007,,,,,,,,both
+ITEM,Masala Chhachh,Beverage,99,veg,5,,Bar,,,Masa Chha,BEV008,,,,,,,,both
+ITEM,Juices,Beverage,109,veg,5,,Bar,,,Juices,BEV009,,,,,,,,both
+ITEM,Cold Coffee,Beverage,119,veg,5,,Bar,,,Cold Coff,BEV010,,,,,,,,both
+ITEM,Cold Coffee With Ice Cream,Beverage,139,veg,5,,Bar,,,Cold Coff With ,BEV011,,,,,,,,both
+ITEM,Virgin Mojito,Mocktail & Shakes,149,veg,5,,Bar,,,Virg Moji,MOC001,,,,,,,,both
+ITEM,Blue Lagoon,Mocktail & Shakes,149,veg,5,,Bar,,,Blue Lago,MOC002,,,,,,,,both
+ITEM,Red Bull Mojito,Mocktail & Shakes,219,veg,5,,Bar,,,Red Bull Moji,MOC003,,,,,,,,both
+ITEM,Orange Splash,Mocktail & Shakes,149,veg,5,,Bar,,,Oran Spla,MOC004,,,,,,,,both
+ITEM,Black Currant,Mocktail & Shakes,149,veg,5,,Bar,,,Blac Curr,MOC005,,,,,,,,both
+ITEM,Kit Kat Shake,Mocktail & Shakes,159,veg,5,,Bar,,,Kit Kat Shak,MOC006,,,,,,,,both
+ITEM,Oreo Shake,Mocktail & Shakes,159,veg,5,,Bar,,,Oreo Shak,MOC007,,,,,,,,both
+ITEM,Butter Scotch Shake,Mocktail & Shakes,159,veg,5,,Bar,,,Butt Scot Shak,MOC008,,,,,,,,both
+ITEM,Chocolate Shake,Mocktail & Shakes,159,veg,5,,Bar,,,Choc Shak,MOC009,,,,,,,,both
+ITEM,Vanilla Shake,Mocktail & Shakes,139,veg,5,,Bar,,,Vani Shak,MOC010,,,,,,,,both
+ITEM,Classic Margherita Pizza,Pizza & Pasta,199,veg,5,,Kitchen,[Regular],,Clas Marg Pizz,PIZ001,,,,,,,,restaurant
+ITEM,Fresh Farm Veggie Pizza,Pizza & Pasta,219,veg,5,,Kitchen,[Regular],,Fres Farm Vegg ,PIZ002,,,,,,,,restaurant
+ITEM,Paneer & Corn Capsicum Pizza,Pizza & Pasta,239,veg,5,,Kitchen,[Regular],,Pane & Corn Cap,PIZ003,,,,,,,,restaurant
+ITEM,Peri Peri Paneer Tikka Pizza,Pizza & Pasta,249,veg,5,,Kitchen,[Regular],,Peri Peri Pane ,PIZ004,,,,,,,,restaurant
+ITEM,Chicken Feast Onion Mozzarella Pizza,Pizza & Pasta,269,non_veg,5,,Kitchen,[Regular],,Chic Feas Onio ,PIZ005,,,,,,,,restaurant
+ITEM,Peri Peri Chicken Tikka Pizza,Pizza & Pasta,279,non_veg,5,,Kitchen,[Regular],,Peri Peri Chic ,PIZ006,,,,,,,,restaurant
+ITEM,Pepperoni Chicken Pizza,Pizza & Pasta,299,non_veg,5,,Kitchen,[Regular],,Pepp Chic Pizz,PIZ007,,,,,,,,restaurant
+ITEM,Cheese Pasta,Pizza & Pasta,249,veg,5,,Kitchen,,,Chee Past,PIZ008,,,,,,,,restaurant
+ITEM,Penne Alfredo (Wsp),Pizza & Pasta,299,veg,5,,Kitchen,,,Penn Alfr (Wsp,PIZ009,,,,,,,,restaurant
+ITEM,Chicken Cheese Pasta,Pizza & Pasta,329,non_veg,5,,Kitchen,,,Chic Chee Past,PIZ010,,,,,,,,restaurant
+ITEM,Classic Veg Burger,Burger & Sandwich,119,veg,5,,Kitchen,,,Clas Veg Burg,BUR001,,,,,,,,restaurant
+ITEM,Classic Cheese Burger,Burger & Sandwich,139,veg,5,,Kitchen,,,Clas Chee Burg,BUR002,,,,,,,,restaurant
+ITEM,Paneer Tikka Burger,Burger & Sandwich,149,veg,5,,Kitchen,,,Pane Tikk Burg,BUR003,,,,,,,,restaurant
+ITEM,Double Cheese Paneer Burger,Burger & Sandwich,169,veg,5,,Kitchen,,,Doub Chee Pane ,BUR004,,,,,,,,restaurant
+ITEM,Classic Chicken Burger,Burger & Sandwich,159,non_veg,5,,Kitchen,,,Clas Chic Burg,BUR005,,,,,,,,restaurant
+ITEM,Chicken Tikka Burger,Burger & Sandwich,179,non_veg,5,,Kitchen,,,Chic Tikk Burg,BUR006,,,,,,,,restaurant
+ITEM,Peri Peri Chicken Burger,Burger & Sandwich,189,non_veg,5,,Kitchen,,,Peri Peri Chic ,BUR007,,,,,,,,restaurant
+ITEM,Veg Club Sandwich,Burger & Sandwich,159,veg,5,,Kitchen,,,Veg Club Sand,BUR008,,,,,,,,restaurant
+ITEM,Chicken Club Sandwich,Burger & Sandwich,229,non_veg,5,,Kitchen,,,Chic Club Sand,BUR009,,,,,,,,restaurant
+ITEM,Gourmet Chicken Sandwich,Burger & Sandwich,239,non_veg,5,,Kitchen,,,Gour Chic Sand,BUR010,,,,,,,,restaurant
+ITEM,Budweiser Magnum 650ml,Beer,480,veg,,18,Bar,,,Budw Magn 650m,BEE001,,,,,,,,bar
+ITEM,Kingfisher Ultra 650ml,Beer,430,veg,,18,Bar,,,King Ultr 650m,BEE002,,,,,,,,bar
+ITEM,Kingfisher Strong 650ml,Beer,340,veg,,18,Bar,,,King Stro 650m,BEE003,,,,,,,,bar
+ITEM,Heineken 650Ml,Beer,470,veg,,18,Bar,,,Hein 650M,BEE004,,,,,,,,bar
+ITEM,Corona 330 Ml,Beer,370,veg,,18,Bar,,,Coro 330 Ml,BEE005,,,,,,,,bar
+ITEM,Hunter,Beer,340,veg,,18,Bar,,,Hunter,BEE006,,,,,,,,bar
+ITEM,Water Bottle 1Lt.,Soft Beverage,30,veg,18,,Bar,,,Wate Bott 1Lt.,SOF001,,,,,,,,both
+ITEM,Soda 750Ml,Soft Beverage,40,veg,18,,Bar,,,Soda 750M,SOF002,,,,,,,,both
+ITEM,Red Bull 330 Ml,Soft Beverage,210,veg,18,,Bar,,,Red Bull 330 Ml,SOF003,,,,,,,,both
+ITEM,Tonic Water,Soft Beverage,160,veg,18,,Bar,,,Toni Wate,SOF004,,,,,,,,both
+ITEM,Aerated Drink (By Glass),Soft Beverage,95,veg,18,,Bar,,,Aera Drin (By G,SOF005,,,,,,,,both
+ITEM,Canned Juice (By Glass),Soft Beverage,130,veg,18,,Bar,,,Cann Juic (By G,SOF006,,,,,,,,both
+ITEM,Monkey Shoulder,Whisky,0,veg,,18,Bar,,,Monk Shou,WHI001,,,,,,,,bar
+VARIANT,Small 30 ML,,335,,,,,,,,,no,,,,,,Monkey Shoulder,
+VARIANT,Large 60 ML,,570,,,,,,,,,no,,,,,,Monkey Shoulder,
+ITEM,Amrut Amalgam,Whisky,0,veg,,18,Bar,,,Amru Amal,WHI002,,,,,,,,bar
+VARIANT,Small 30 ML,,335,,,,,,,,,no,,,,,,Amrut Amalgam,
+VARIANT,Large 60 ML,,560,,,,,,,,,no,,,,,,Amrut Amalgam,
+ITEM,Royal Ranthambore,Whisky,0,veg,,18,Bar,,,Roya Rant,WHI003,,,,,,,,bar
+VARIANT,Small 30 ML,,170,,,,,,,,,no,,,,,,Royal Ranthambore,
+VARIANT,Large 60 ML,,345,,,,,,,,,no,,,,,,Royal Ranthambore,
+ITEM,Antiquity Blue,Whisky,0,veg,,18,Bar,,,Anti Blue,WHI004,,,,,,,,bar
+VARIANT,Small 30 ML,,145,,,,,,,,,no,,,,,,Antiquity Blue,
+VARIANT,Large 60 ML,,255,,,,,,,,,no,,,,,,Antiquity Blue,
+ITEM,Blender'S Pride Reserve,Whisky,0,veg,,18,Bar,,,Blen Prid Rese,WHI005,,,,,,,,bar
+VARIANT,Small 30 ML,,145,,,,,,,,,no,,,,,,Blender'S Pride Reserve,
+VARIANT,Large 60 ML,,255,,,,,,,,,no,,,,,,Blender'S Pride Reserve,
+ITEM,Blender'S Pride,Whisky,0,veg,,18,Bar,,,Blen Prid,WHI006,,,,,,,,bar
+VARIANT,Small 30 ML,,120,,,,,,,,,no,,,,,,Blender'S Pride,
+VARIANT,Large 60 ML,,220,,,,,,,,,no,,,,,,Blender'S Pride,
+ITEM,Royal Stag,Whisky,0,veg,,18,Bar,,,Roya Stag,WHI007,,,,,,,,bar
+VARIANT,Small 30 ML,,110,,,,,,,,,no,,,,,,Royal Stag,
+VARIANT,Large 60 ML,,210,,,,,,,,,no,,,,,,Royal Stag,
+ITEM,Bacardi Lemon,Rum,0,veg,,18,Bar,,,Baca Lemo,RUM001,,,,,,,,bar
+VARIANT,Small 30 ML,,125,,,,,,,,,no,,,,,,Bacardi Lemon,
+VARIANT,Large 60 ML,,230,,,,,,,,,no,,,,,,Bacardi Lemon,
+ITEM,Bacardi White,Rum,0,veg,,18,Bar,,,Baca Whit,RUM002,,,,,,,,bar
+VARIANT,Small 30 ML,,110,,,,,,,,,no,,,,,,Bacardi White,
+VARIANT,Large 60 ML,,220,,,,,,,,,no,,,,,,Bacardi White,
+ITEM,Bacardi Black,Rum,0,veg,,18,Bar,,,Baca Blac,RUM003,,,,,,,,bar
+VARIANT,Small 30 ML,,110,,,,,,,,,no,,,,,,Bacardi Black,
+VARIANT,Large 60 ML,,200,,,,,,,,,no,,,,,,Bacardi Black,
+ITEM,Old Monk Legend,Rum,0,veg,,18,Bar,,,Old Monk Lege,RUM004,,,,,,,,bar
+VARIANT,Small 30 ML,,135,,,,,,,,,no,,,,,,Old Monk Legend,
+VARIANT,Large 60 ML,,215,,,,,,,,,no,,,,,,Old Monk Legend,
+ITEM,Old Monk Coffee,Rum,0,veg,,18,Bar,,,Old Monk Coff,RUM005,,,,,,,,bar
+VARIANT,Small 30 ML,,125,,,,,,,,,no,,,,,,Old Monk Coffee,
+VARIANT,Large 60 ML,,245,,,,,,,,,no,,,,,,Old Monk Coffee,
+ITEM,Old Monk,Rum,0,veg,,18,Bar,,,Old Monk,RUM006,,,,,,,,bar
+VARIANT,Small 30 ML,,110,,,,,,,,,no,,,,,,Old Monk,
+VARIANT,Large 60 ML,,190,,,,,,,,,no,,,,,,Old Monk,
+ITEM,Jaislmer,Gin,0,veg,,18,Bar,,,Jaislmer,GIN001,,,,,,,,bar
+VARIANT,Small 30 ML,,325,,,,,,,,,no,,,,,,Jaislmer,
+VARIANT,Large 60 ML,,620,,,,,,,,,no,,,,,,Jaislmer,
+ITEM,Bombay Sapphire,Gin,0,veg,,18,Bar,,,Bomb Sapp,GIN002,,,,,,,,bar
+VARIANT,Small 30 ML,,200,,,,,,,,,no,,,,,,Bombay Sapphire,
+VARIANT,Large 60 ML,,360,,,,,,,,,no,,,,,,Bombay Sapphire,
+ITEM,Geater Than,Gin,0,veg,,18,Bar,,,Geat Than,GIN003,,,,,,,,bar
+VARIANT,Small 30 ML,,180,,,,,,,,,no,,,,,,Geater Than,
+VARIANT,Large 60 ML,,300,,,,,,,,,no,,,,,,Geater Than,
+ITEM,Nicobar,Gin,0,veg,,18,Bar,,,Nicobar,GIN004,,,,,,,,bar
+VARIANT,Small 30 ML,,200,,,,,,,,,no,,,,,,Nicobar,
+VARIANT,Large 60 ML,,350,,,,,,,,,no,,,,,,Nicobar,
+ITEM,Grey Goose,Vodka,0,veg,,18,Bar,,,Grey Goos,VOD001,,,,,,,,bar
+VARIANT,Small 30 ML,,305,,,,,,,,,no,,,,,,Grey Goose,
+VARIANT,Large 60 ML,,525,,,,,,,,,no,,,,,,Grey Goose,
+ITEM,Absolut,Vodka,0,veg,,18,Bar,,,Absolut,VOD002,,,,,,,,bar
+VARIANT,(All Flavours)(Small 30 ML),,195,,,,,,,,,no,,,,,,Absolut,
+VARIANT,(All Flavours)(Large 60 ML),,335,,,,,,,,,no,,,,,,Absolut,
+ITEM,Simrn Off,Vodka,0,veg,,18,Bar,,,Simr Off,VOD003,,,,,,,,bar
+VARIANT,(All Flavours)(Small 30 ML),,135,,,,,,,,,no,,,,,,Simrn Off,
+VARIANT,(All Flavours)(Large 60 ML),,235,,,,,,,,,no,,,,,,Simrn Off,
+ITEM,Magic Moment,Vodka,0,veg,,18,Bar,,,Magi Mome,VOD004,,,,,,,,bar
+VARIANT,(All Flavours)(Small 30 ML),,120,,,,,,,,,no,,,,,,Magic Moment,
+VARIANT,(All Flavours)(Large 60 ML),,200,,,,,,,,,no,,,,,,Magic Moment,
+ITEM,Don Julio,Taquila,950,veg,,18,Bar,,,Don Juli,TAQ001,,,,,,,,bar
+ITEM,Camino,Taquila,380,veg,,18,Bar,,,Camino,TAQ002,,,,,,,,bar
+ITEM,Jagermeister,Liqour,470,veg,,18,Bar,,,Jagermeist,LIQ001,,,,,,,,bar
+ITEM,Morpheus,Liqour,180,veg,,18,Bar,,,Morpheus,LIQ002,,,,,,,,bar
+ITEM,Jacobs Creek Shiraz,Wine,1599,veg,,18,Bar,,,Jaco Cree Shir,WIN001,,,,,,,,bar
+ITEM,Jacobs Creek Chardonnay,Wine,1599,veg,,18,Bar,,,Jaco Cree Char,WIN002,,,,,,,,bar
+ITEM,Open Item,Open Item,0,veg,5,,Kitchen,,,Open Item,OPE001,,,,,,,,restaurant
+ITEM,Budweiser Magnum Cane,Beer,370,veg,,18,Bar,,,Budw Magn Cane,BEE007,,,,,,,,bar
+ITEM,Rampur,Single Malt,0,veg,,18,Bar,,,Rampur,SIN001,,,,,,,,bar
+VARIANT,Small 30 ML,,670,,,,,,,,,no,,,,,,Rampur,
+VARIANT,Large 60 ML,,1200,,,,,,,,,no,,,,,,Rampur,
+ITEM,Macallan,Single Malt,0,veg,,18,Bar,,,Macallan,SIN002,,,,,,,,bar
+VARIANT,Small 30 ML,,570,,,,,,,,,no,,,,,,Macallan,
+VARIANT,Large 60 ML,,1050,,,,,,,,,no,,,,,,Macallan,
+ITEM,Glenlivet 15 Year,Single Malt,0,veg,,18,Bar,,,Glen 15 Year,SIN003,,,,,,,,bar
+VARIANT,Small 30 ML,,480,,,,,,,,,no,,,,,,Glenlivet 15 Year,
+VARIANT,Large 60 ML,,930,,,,,,,,,no,,,,,,Glenlivet 15 Year,
+ITEM,Glenlivet 12 Year,Single Malt,0,veg,,18,Bar,,,Glen 12 Year,SIN004,,,,,,,,bar
+VARIANT,Small 30 ML,,360,,,,,,,,,no,,,,,,Glenlivet 12 Year,
+VARIANT,Large 60 ML,,670,,,,,,,,,no,,,,,,Glenlivet 12 Year,
+ITEM,Talisker,Single Malt,0,veg,,18,Bar,,,Talisker,SIN005,,,,,,,,bar
+VARIANT,Small 30 ML,,380,,,,,,,,,no,,,,,,Talisker,
+VARIANT,Large 60 ML,,715,,,,,,,,,no,,,,,,Talisker,
+ITEM,Singleton,Single Malt,0,veg,,18,Bar,,,Singleton,SIN006,,,,,,,,bar
+VARIANT,Small 30 ML,,360,,,,,,,,,no,,,,,,Singleton,
+VARIANT,Large 60 ML,,670,,,,,,,,,no,,,,,,Singleton,
+ITEM,Glenfiddich,Single Malt,0,veg,,18,Bar,,,Glenfiddic,SIN007,,,,,,,,bar
+VARIANT,Small 30 ML,,380,,,,,,,,,no,,,,,,Glenfiddich,
+VARIANT,Large 60 ML,,715,,,,,,,,,no,,,,,,Glenfiddich,
+ITEM,Amrut Fussion,Single Malt,0,veg,,18,Bar,,,Amru Fuss,SIN008,,,,,,,,bar
+VARIANT,Small 30 ML,,350,,,,,,,,,no,,,,,,Amrut Fussion,
+VARIANT,Large 60 ML,,590,,,,,,,,,no,,,,,,Amrut Fussion,
+ITEM,Jameson,IRISH,0,veg,,18,Bar,,,Jameson,IRI001,,,,,,,,bar
+VARIANT,Small 30 ML,,190,,,,,,,,,no,,,,,,Jameson,
+VARIANT,Large 60 ML,,360,,,,,,,,,no,,,,,,Jameson,
+ITEM,Jimbeam,IRISH,0,veg,,18,Bar,,,Jimbeam,IRI002,,,,,,,,bar
+VARIANT,Small 30 ML,,190,,,,,,,,,no,,,,,,Jimbeam,
+VARIANT,Large 60 ML,,360,,,,,,,,,no,,,,,,Jimbeam,
+ITEM,Royal Salute,Blended Scotch,0,veg,,18,Bar,,,Roya Salu,BLE001,,,,,,,,bar
+VARIANT,Small 30 ML,,1250,,,,,,,,,no,,,,,,Royal Salute,
+VARIANT,Large 60 ML,,2000,,,,,,,,,no,,,,,,Royal Salute,
+ITEM,Blue Label,Blended Scotch,0,veg,,18,Bar,,,Blue Labe,BLE002,,,,,,,,bar
+VARIANT,Small 30 ML,,1250,,,,,,,,,no,,,,,,Blue Label,
+VARIANT,Large 60 ML,,2000,,,,,,,,,no,,,,,,Blue Label,
+ITEM,Chivas Regal 18 Year,Blended Scotch,0,veg,,18,Bar,,,Chiv Rega 18 Ye,BLE003,,,,,,,,bar
+VARIANT,Small 30 ML,,630,,,,,,,,,no,,,,,,Chivas Regal 18 Year,
+VARIANT,Large 60 ML,,1000,,,,,,,,,no,,,,,,Chivas Regal 18 Year,
+ITEM,Gold Label Reserve,Blended Scotch,0,veg,,18,Bar,,,Gold Labe Rese,BLE004,,,,,,,,bar
+VARIANT,Small 30 ML,,390,,,,,,,,,no,,,,,,Gold Label Reserve,
+VARIANT,Large 60 ML,,760,,,,,,,,,no,,,,,,Gold Label Reserve,
+ITEM,Doubla Black,Blended Scotch,0,veg,,18,Bar,,,Doub Blac,BLE005,,,,,,,,bar
+VARIANT,Small 30 ML,,335,,,,,,,,,no,,,,,,Doubla Black,
+VARIANT,Large 60 ML,,620,,,,,,,,,no,,,,,,Doubla Black,
+ITEM,Ballentines 12 Year,Blended Scotch,0,veg,,18,Bar,,,Ball 12 Year,BLE006,,,,,,,,bar
+VARIANT,Small 30 ML,,250,,,,,,,,,no,,,,,,Ballentines 12 Year,
+VARIANT,Large 60 ML,,450,,,,,,,,,no,,,,,,Ballentines 12 Year,
+ITEM,Chivas Regal,Blended Scotch,0,veg,,18,Bar,,,Chiv Rega,BLE007,,,,,,,,bar
+VARIANT,Small 30 ML,,285,,,,,,,,,no,,,,,,Chivas Regal,
+VARIANT,Large 60 ML,,525,,,,,,,,,no,,,,,,Chivas Regal,
+ITEM,Dewars 12 Year,Blended Scotch,0,veg,,18,Bar,,,Dewa 12 Year,BLE008,,,,,,,,bar
+VARIANT,Small 30 ML,,265,,,,,,,,,no,,,,,,Dewars 12 Year,
+VARIANT,Large 60 ML,,515,,,,,,,,,no,,,,,,Dewars 12 Year,
+ITEM,Black Triple Gold,Blended Scotch,0,veg,,18,Bar,,,Blac Trip Gold,BLE009,,,,,,,,bar
+VARIANT,Small 30 ML,,265,,,,,,,,,no,,,,,,Black Triple Gold,
+VARIANT,Large 60 ML,,425,,,,,,,,,no,,,,,,Black Triple Gold,
+ITEM,100 Pipers 12 Year,Blended Scotch,0,veg,,18,Bar,,,100 Pipe 12 Yea,BLE010,,,,,,,,bar
+VARIANT,Small 30 ML,,235,,,,,,,,,no,,,,,,100 Pipers 12 Year,
+VARIANT,Large 60 ML,,430,,,,,,,,,no,,,,,,100 Pipers 12 Year,
+ITEM,Teachers 50,Blended Scotch,0,veg,,18,Bar,,,Teac 50,BLE011,,,,,,,,bar
+VARIANT,Small 30 ML,,235,,,,,,,,,no,,,,,,Teachers 50,
+VARIANT,Large 60 ML,,440,,,,,,,,,no,,,,,,Teachers 50,
+ITEM,Red Label,Blended Scotch,0,veg,,18,Bar,,,Red Labe,BLE012,,,,,,,,bar
+VARIANT,Small 30 ML,,190,,,,,,,,,no,,,,,,Red Label,
+VARIANT,Large 60 ML,,325,,,,,,,,,no,,,,,,Red Label,
+ITEM,J&b,Blended Scotch,0,veg,,18,Bar,,,J&b,BLE013,,,,,,,,bar
+VARIANT,Small 30 ML,,180,,,,,,,,,no,,,,,,J&b,
+VARIANT,Large 60 ML,,315,,,,,,,,,no,,,,,,J&b,
+ITEM,Ballantines,Blended Scotch,0,veg,,18,Bar,,,Ballantine,BLE014,,,,,,,,bar
+VARIANT,Small 30 ML,,210,,,,,,,,,no,,,,,,Ballantines,
+VARIANT,Large 60 ML,,365,,,,,,,,,no,,,,,,Ballantines,
+ITEM,Dewars,Blended Scotch,0,veg,,18,Bar,,,Dewars,BLE015,,,,,,,,bar
+VARIANT,Small 30 ML,,180,,,,,,,,,no,,,,,,Dewars,
+VARIANT,Large 60 ML,,335,,,,,,,,,no,,,,,,Dewars,
+ITEM,100 Pipers,Blended Scotch,0,veg,,18,Bar,,,100 Pipe,BLE016,,,,,,,,bar
+VARIANT,Small 30 ML,,160,,,,,,,,,no,,,,,,100 Pipers,
+VARIANT,Large 60 ML,,315,,,,,,,,,no,,,,,,100 Pipers,
+ITEM,Teachers Highland Cream,Blended Scotch,0,veg,,18,Bar,,,Teac High Crea,BLE017,,,,,,,,bar
+VARIANT,Small 30 ML,,170,,,,,,,,,no,,,,,,Teachers Highland Cream,
+VARIANT,Large 60 ML,,315,,,,,,,,,no,,,,,,Teachers Highland Cream,
+ITEM,Black Dog,Blended Scotch,0,veg,,18,Bar,,,Blac Dog,BLE018,,,,,,,,bar
+VARIANT,Small 30 ML,,160,,,,,,,,,no,,,,,,Black Dog,
+VARIANT,Large 60 ML,,320,,,,,,,,,no,,,,,,Black Dog,
+ITEM,Black & White,Blended Scotch,0,veg,,18,Bar,,,Blac & Whit,BLE019,,,,,,,,bar
+VARIANT,Small 30 ML,,170,,,,,,,,,no,,,,,,Black & White,
+VARIANT,Large 60 ML,,325,,,,,,,,,no,,,,,,Black & White,
+ITEM,Vat 69,Blended Scotch,0,veg,,18,Bar,,,Vat 69,BLE020,,,,,,,,bar
+VARIANT,Small 30 ML,,180,,,,,,,,,no,,,,,,Vat 69,
+VARIANT,Large 60 ML,,335,,,,,,,,,no,,,,,,Vat 69,
+ITEM,Black Label,Blended Scotch,0,veg,,18,Bar,,,Blac Labe,BLE021,,,,,,,,bar
+VARIANT,Small 30 ML,,285,,,,,,,,,no,,,,,,Black Label,
+VARIANT,Large 60 ML,,525,,,,,,,,,no,,,,,,Black Label,
+ITEM,Cigarette Small,Extra,20,veg,18,,Kitchen,,,Ciga Smal,EXT001,,,,,,,,restaurant
+ITEM,Cigarette Big,Extra,30,veg,18,,Kitchen,,,Ciga Big,EXT002,,,,,,,,restaurant
+ITEM,Boiled Egg,Eggs,79,egg,5,,Kitchen,,,Boil Egg,EGG001,,,,,,,,restaurant
+ITEM,Boiled  Egg Fry,Eggs,89,egg,5,,Kitchen,,,Boil  Egg Fry,EGG002,,,,,,,,restaurant
+ITEM,Egg Bhurji,Eggs,149,egg,5,,Kitchen,,,Egg Bhur,EGG003,,,,,,,,restaurant
+ITEM,Egg Pouch,Eggs,129,egg,5,,Kitchen,,,Egg Pouc,EGG004,,,,,,,,restaurant
+ITEM,Omlette,Eggs,149,veg,5,,Kitchen,,,Omlette,EGG005,,,,,,,,restaurant
+ITEM,Signature,Whisky,0,non_veg,,18,Bar,,,Signature,WHI008,,,,,,,,bar
+VARIANT,30 ML,,120,,,,,,,,,no,,,,,,Signature,
+VARIANT,60 ML,,220,,,,,,,,,no,,,,,,Signature,
+
+ADDON_GROUP,Spice Level,,,,,,,,,,,single,1,1,no,,,,
+ADDON,Mild,,0,veg,,,,,,,,,,,,,Spice Level,,
+ADDON,Medium,,0,veg,,,,,,,,,,,,,Spice Level,,
+ADDON,Spicy,,0,veg,,,,,,,,,,,,,Spice Level,,
+ADDON,Extra Spicy,,0,veg,,,,,,,,,,,,,Spice Level,,
+ADDON_GROUP,Extra Toppings,,,,,,,,,,,multiple,0,5,no,,,,
+ADDON,Extra Cheese,,30,veg,,,,,,,,,,,,,Extra Toppings,,
+ADDON,Extra Paneer,,50,veg,,,,,,,,,,,,,Extra Toppings,,
+ADDON,Extra Chicken,,70,nonveg,,,,,,,,,,,,,Extra Toppings,,
+ADDON,Extra Onion,,20,veg,,,,,,,,,,,,,Extra Toppings,,
+ADDON_GROUP,Cooking Style,,,,,,,,,,,single,1,1,no,,,,
+ADDON,Dry,,0,veg,,,,,,,,,,,,,Cooking Style,,
+ADDON,Gravy,,0,veg,,,,,,,,,,,,,Cooking Style,,
+ADDON,Semi Gravy,,0,veg,,,,,,,,,,,,,Cooking Style,,
+ADDON_GROUP,Bread Choice,,,,,,,,,,,single,0,1,no,,,,
+ADDON,With Butter Naan,,50,veg,,,,,,,,,,,,,Bread Choice,,
+ADDON,With Tandoori Roti,,30,veg,,,,,,,,,,,,,Bread Choice,,
+ADDON,With Garlic Naan,,60,veg,,,,,,,,,,,,,Bread Choice,,
+ADDON_GROUP,Rice Choice,,,,,,,,,,,single,0,1,no,,,,
+ADDON,With Jeera Rice,,159,veg,,,,,,,,,,,,,Rice Choice,,
+ADDON,With Plain Rice,,139,veg,,,,,,,,,,,,,Rice Choice,,
+ADDON,With Veg Pulao,,169,veg,,,,,,,,,,,,,Rice Choice,,

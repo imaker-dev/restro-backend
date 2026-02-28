@@ -1,0 +1,337 @@
+Name,Online_Name,Description,Short_Code,Short_Code_2,Sap_Code,HSN_Code,Parent_Category,Category,Category_online_display,Price,Attributes,Goods_Services,"GST% (Allowed only 5,18,40)","Type (F=forwardTax,B=BackwardTax)","(Optional) Other Tax (TaxName+Type+value) (F-forward, B-Backward)",Unit,is_Self_Item_Recipe,minimum_stock_level,at_par_stock_level,Rank,Packing_Charges,Allow_Decimal_Qty,Addon_Group_Name,Addon_Group_Selection,Addon_Group_Min,Addon_Group_Max,Variation_group_name,Variation,Variation_Price,Variation_Sap_Code,Variation_Packing_Charges,Variation,Variation_Price,Variation_Sap_Code,Variation_Packing_Charges
+"Chilli Chicken Dry","Chilli Chicken Dry",,1,,,,,"Chinese Non Veg Starter",,319,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chilli Chicken Gravy","Chilli Chicken Gravy",,2,,,,,"Chinese Non Veg Starter",,319,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chicken 65","Chicken 65",,3,,,,,"Chinese Non Veg Starter",,319,non-veg,services,5,F,,,0,,,1,0,Yes
+"Drums Of Heaven","Drums Of Heaven",,4,,,,,"Chinese Non Veg Starter",,339,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chilli Garlic Chicken","Chilli Garlic Chicken",,5,,,,,"Chinese Non Veg Starter",,329,non-veg,services,5,F,,,0,,,1,0,Yes
+"Egg Chilli Dry","Egg Chilli Dry",,6,,,,,"Chinese Non Veg Starter",,299,egg,services,5,F,,,0,,,1,0,Yes
+"Egg Chilli Gravy","Egg Chilli Gravy",,7,,,,,"Chinese Non Veg Starter",,299,egg,services,5,F,,,0,,,1,0,Yes
+"Crispy Chicken Salt And Pepper","Crispy Chicken Salt And Pepper",,8,,,,,"Chinese Non Veg Starter",,329,non-veg,services,5,F,,,0,,,1,0,Yes
+"Crispy Honey Chicken","Crispy Honey Chicken",,9,,,,,"Chinese Non Veg Starter",,339,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Spring Roll","Chicken Spring Roll",,10,,,,,"Chinese Non Veg Starter",,339,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chilli Fish Dry","Chilli Fish Dry",,11,,,,,"Chinese Non Veg Starter",,359,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chilli Fish Gravy","Chilli Fish Gravy",,12,,,,,"Chinese Non Veg Starter",,359,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Fried Rice","Chicken Fried Rice",,13,,,,,"Chinese Non Veg Starter",,289,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Schezwan Fried Rice","Chicken Schezwan Fried Rice",,14,,,,,"Chinese Non Veg Starter",,299,non-veg,services,5,F,,,0,,,1,0,Yes
+"Singaporean Chicken Fried Rice","Singaporean Chicken Fried Rice",,15,,,,,"Chinese Non Veg Starter",,299,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Manchurian Dry","Chicken Manchurian Dry",,16,,,,,"Chinese Non Veg Starter",,319,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Manchurian Gravy","Chicken Manchurian Gravy",,17,,,,,"Chinese Non Veg Starter",,319,non-veg,services,5,F,,,0,,,1,0,Yes
+"Egg Noodles","Egg Noodles",,18,,,,,"Chinese Non Veg Starter",,269,egg,services,5,F,,,0,,,1,0,Yes
+"Chicken Hakka Noodles","Chicken Hakka Noodles",,19,,,,,"Chinese Non Veg Starter",,299,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chilli Garlic Chicken Noodles","Chilli Garlic Chicken Noodles",,20,,,,,"Chinese Non Veg Starter",,319,non-veg,services,5,F,,,0,,,1,0,Yes
+"Blackpepper Chicken","Blackpepper Chicken",,21,,,,,"Chinese Non Veg Starter",,319,non-veg,services,5,F,,,0,,,1,0,Yes
+"Lemon Fish","Lemon Fish",,22,,,,,"Chinese Non Veg Starter",,339,non-veg,services,5,F,,,0,,,1,0,Yes
+"Fish Garlic Sauce","Fish Garlic Sauce",,23,,,,,"Chinese Non Veg Starter",,359,non-veg,services,5,F,,,0,,,1,0,Yes
+"Lemon Coriander","Lemon Coriander",,24,,,,,"Chinese Non Veg Starter",,359,non-veg,services,5,F,,,0,,,1,0,Yes
+"Egg Kali Mirch","Egg Kali Mirch",,25,,,,,"Chinese Non Veg Starter",,249,egg,services,5,F,,,0,,,1,0,Yes
+"Ginger Chicken","Ginger Chicken",,26,,,,,"Chinese Non Veg Starter",,359,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Kali Mirch","Chicken Kali Mirch",,27,,,,,"Chinese Non Veg Starter",,359,non-veg,services,5,F,,,0,,,1,0,Yes
+"Kung Pao Chicken","Kung Pao Chicken",,28,,,,,"Chinese Non Veg Starter",,359,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chicken China Town","Chicken China Town",,29,,,,,"Chinese Non Veg Starter",,359,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Hunan Sauce","Chicken Hunan Sauce",,30,,,,,"Chinese Non Veg Starter",,359,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Mongolian","Chicken Mongolian",,31,,,,,"Chinese Non Veg Starter",,359,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chilli Paneer Dry","Chilli Paneer Dry",,32,,,,,"Chinese Veg Starter",,289,veg,services,5,F,,,0,,,1,0,Yes
+"Chilli Paneer Gravy","Chilli Paneer Gravy",,33,,,,,"Chinese Veg Starter",,289,veg,services,5,F,,,0,,,1,0,Yes
+"Paneer 65","Paneer 65",,34,,,,,"Chinese Veg Starter",,289,veg,services,5,F,,,0,,,1,0,Yes
+"Paneer Jungali","Paneer Jungali",,35,,,,,"Chinese Veg Starter",,289,veg,services,5,F,,,0,,,1,0,Yes
+"Crispy Corn Salt & Pepper","Crispy Corn Salt & Pepper",,36,,,,,"Chinese Veg Starter",,219,veg,services,5,F,,,0,,,1,0,Yes
+"Veg Kothe","Veg Kothe",,37,,,,,"Chinese Veg Starter",,219,veg,services,5,F,,,0,,,1,0,Yes
+"Veg Lollypop","Veg Lollypop",,38,,,,,"Chinese Veg Starter",,219,veg,services,5,F,,,0,,,1,0,Yes
+"Veg Spring Roll","Veg Spring Roll",,39,,,,,"Chinese Veg Starter",,249,veg,services,5,F,,,0,,,1,0,Yes
+"Chilli Potato","Chilli Potato",,40,,,,,"Chinese Veg Starter",,219,veg,services,5,F,,,0,,,1,0,Yes
+"Crispy Honey Chilli Potato","Crispy Honey Chilli Potato",,41,,,,,"Chinese Veg Starter",,219,veg,services,5,F,,,0,,,1,0,Yes
+"Mushroom Chilli","Mushroom Chilli",,42,,,,,"Chinese Veg Starter",,289,veg,services,5,F,,,0,,,1,0,Yes
+"Paneer Garlic","Paneer Garlic",,43,,,,,"Chinese Veg Starter",,289,veg,services,5,F,,,0,,,1,0,Yes
+"Chana Chilli","Chana Chilli",,44,,,,,"Chinese Veg Starter",,219,veg,services,5,F,,,0,,,1,0,Yes
+"Paneer Kali Mirch","Paneer Kali Mirch",,45,,,,,"Chinese Veg Starter",,289,veg,services,5,F,,,0,,,1,0,Yes
+"Veg Fried Rice","Veg Fried Rice",,46,,,,,"Chinese Veg Starter",,259,veg,services,5,F,,,0,,,1,0,Yes
+"Veg Schezwan Fried Rice","Veg Schezwan Fried Rice",,47,,,,,"Chinese Veg Starter",,269,veg,services,5,F,,,0,,,1,0,Yes
+"Triple Fried Rice","Triple Fried Rice",,48,,,,,"Chinese Veg Starter",,289,veg,services,5,F,,,0,,,1,0,Yes
+"Veg Chilli Garlic Fried Rice","Veg Chilli Garlic Fried Rice",,49,,,,,"Chinese Veg Starter",,269,veg,services,5,F,,,0,,,1,0,Yes
+"Veg Noodles","Veg Noodles",,50,,,,,"Chinese Veg Starter",,219,veg,services,5,F,,,0,,,1,0,Yes
+"Veg Hakka Noodles","Veg Hakka Noodles",,51,,,,,"Chinese Veg Starter",,229,veg,services,5,F,,,0,,,1,0,Yes
+"Veg Schezwan Noodles","Veg Schezwan Noodles",,52,,,,,"Chinese Veg Starter",,249,veg,services,5,F,,,0,,,1,0,Yes
+"Veg Singapori Noodles","Veg Singapori Noodles",,53,,,,,"Chinese Veg Starter",,259,veg,services,5,F,,,0,,,1,0,Yes
+"Veg Manchuriyan Dry","Veg Manchuriyan Dry",,54,,,,,"Chinese Veg Starter",,249,veg,services,5,F,,,0,,,1,0,Yes
+"Veg Manchuriyan Gravy","Veg Manchuriyan Gravy",,55,,,,,"Chinese Veg Starter",,249,veg,services,5,F,,,0,,,1,0,Yes
+"Paneer Manchuriyan Dry","Paneer Manchuriyan Dry",,56,,,,,"Chinese Veg Starter",,269,veg,services,5,F,,,0,,,1,0,Yes
+"Paneer Manchuriyan Gravy","Paneer Manchuriyan Gravy",,57,,,,,"Chinese Veg Starter",,269,veg,services,5,F,,,0,,,1,0,Yes
+"Paneer Noodles","Paneer Noodles",,58,,,,,"Chinese Veg Starter",,259,veg,services,5,F,,,0,,,1,0,Yes
+"Chilly Garlic Noodles","Chilly Garlic Noodles",,59,,,,,"Chinese Veg Starter",,259,veg,services,5,F,,,0,,,1,0,Yes
+"Chana Roast","Chana Roast",,60,,,,,"Chinese Veg Starter",,219,veg,services,5,F,,,0,,,1,0,Yes
+"Paneer China Town","Paneer China Town",,61,,,,,"Chinese Veg Starter",,249,veg,services,5,F,,,0,,,1,0,Yes
+"Paneer Mushroom Golden Fry","Paneer Mushroom Golden Fry",,62,,,,,"Chinese Veg Starter",,269,veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Bagheli","Chicken Bagheli",,63,,,,,"Main Course Non Veg",,0,non-veg,services,5,F,,,0,,,1,0,Yes,,,,,Customisation,Single,299,,0,Family,449,,0
+"Chicken Handi","Chicken Handi",,66,,,,,"Main Course Non Veg",,0,non-veg,services,5,F,,,0,,,1,0,Yes,,,,,Customisation,Single,299,,0,Family,449,,0
+"Chicken Curry","Chicken Curry",,69,,,,,"Main Course Non Veg",,0,non-veg,services,5,F,,,0,,,1,0,Yes,,,,,Customisation,Single,299,,0,Family,449,,0
+"Chicken Do Pyaza","Chicken Do Pyaza",,72,,,,,"Main Course Non Veg",,0,non-veg,services,5,F,,,0,,,1,0,Yes,,,,,Customisation,Single,299,,0,Family,449,,0
+"Butter Chicken","Butter Chicken",,75,,,,,"Main Course Non Veg",,0,non-veg,services,5,F,,,0,,,1,0,Yes,,,,,Customisation,Single,329,,0,Family,499,,0
+"Kadhai Chicken","Kadhai Chicken",,78,,,,,"Main Course Non Veg",,0,non-veg,services,5,F,,,0,,,1,0,Yes,,,,,Customisation,Single,329,,0,Family,499,,0
+"Chicken Masala","Chicken Masala",,81,,,,,"Main Course Non Veg",,0,non-veg,services,5,F,,,0,,,1,0,Yes,,,,,Customisation,Single,329,,0,Family,499,,0
+"Chicken Tikka Masala","Chicken Tikka Masala",,84,,,,,"Main Course Non Veg",,0,non-veg,services,5,F,,,0,,,1,0,Yes,,,,,Customisation,Single,329,,0,Family,499,,0
+"Chicken Methi Malai","Chicken Methi Malai",,87,,,,,"Main Course Non Veg",,0,non-veg,services,5,F,,,0,,,1,0,Yes,,,,,Customisation,Single,329,,0,Family,499,,0
+"Rahra Chicken","Rahra Chicken",,90,,,,,"Main Course Non Veg",,0,non-veg,services,5,F,,,0,,,1,0,Yes,,,,,Customisation,Single,329,,0,Family,499,,0
+"Bhuna Chicken","Bhuna Chicken",,93,,,,,"Main Course Non Veg",,0,non-veg,services,5,F,,,0,,,1,0,Yes,,,,,Customisation,Single,329,,0,Family,499,,0
+"Mutton Bagheli","Mutton Bagheli",,96,,,,,"Main Course Non Veg",,0,non-veg,services,5,F,,,0,,,1,0,Yes,,,,,Customisation,Single,369,,0,Family,569,,0
+"Mutton Masala","Mutton Masala",,99,,,,,"Main Course Non Veg",,0,non-veg,services,5,F,,,0,,,1,0,Yes,,,,,Customisation,Single,379,,0,Family,579,,0
+"Mutton Handi","Mutton Handi",,102,,,,,"Main Course Non Veg",,0,non-veg,services,5,F,,,0,,,1,0,Yes,,,,,Customisation,Single,379,,0,Family,579,,0
+"Dhawa Mutton","Dhawa Mutton",,105,,,,,"Main Course Non Veg",,0,non-veg,services,5,F,,,0,,,1,0,Yes,,,,,Customisation,Single,379,,0,Family,579,,0
+"Rahra Mutton","Rahra Mutton",,108,,,,,"Main Course Non Veg",,0,non-veg,services,5,F,,,0,,,1,0,Yes,,,,,Customisation,Single,379,,0,Family,579,,0
+"Mutton Kadhai","Mutton Kadhai",,111,,,,,"Main Course Non Veg",,0,non-veg,services,5,F,,,0,,,1,0,Yes,,,,,Customisation,Single,379,,0,Family,579,,0
+"Bhuna Mutton","Bhuna Mutton",,114,,,,,"Main Course Non Veg",,0,non-veg,services,5,F,,,0,,,1,0,Yes,,,,,Customisation,Single,379,,0,Family,579,,0
+"Fish Curry","Fish Curry",,117,,,,,"Main Course Non Veg",,0,non-veg,services,5,F,,,0,,,1,0,Yes,,,,,Customisation,Single,299,,0,Family,449,,0
+"Fish Masala","Fish Masala",,120,,,,,"Main Course Non Veg",,0,non-veg,services,5,F,,,0,,,1,0,Yes,,,,,Customisation,Single,329,,0,Family,499,,0
+"Egg Curry","Egg Curry",,123,,,,,"Main Course Non Veg",,199,egg,services,5,F,,,0,,,1,0,Yes
+"Egg Masala","Egg Masala",,124,,,,,"Main Course Non Veg",,229,egg,services,5,F,,,0,,,1,0,Yes
+"Plain Curd","Plain Curd",,125,,,,,Raita,,89,veg,services,5,F,,,0,,,1,0,Yes
+"Mix Veg Raita","Mix Veg Raita",,126,,,,,Raita,,99,veg,services,5,F,,,0,,,1,0,Yes
+"Boondi Raita","Boondi Raita",,127,,,,,Raita,,99,veg,services,5,F,,,0,,,1,0,Yes
+"Fruit Raita","Fruit Raita",,128,,,,,Raita,,119,veg,services,5,F,,,0,,,1,0,Yes
+"Pineapple Raita","Pineapple Raita",,129,,,,,Raita,,119,veg,services,5,F,,,0,,,1,0,Yes
+"Papad Roasted","Papad Roasted",,130,,,,,Accompaniments,,29,veg,services,5,F,,,0,,,1,0,Yes
+"Papad Fried","Papad Fried",,131,,,,,Accompaniments,,29,veg,services,5,F,,,0,,,1,0,Yes
+"Masala Papad","Masala Papad",,132,,,,,Accompaniments,,69,veg,services,5,F,,,0,,,1,0,Yes
+"Masala Peanut","Masala Peanut",,133,,,,,Accompaniments,,119,veg,services,5,F,,,0,,,1,0,Yes
+"Onion Salad","Onion Salad",,134,,,,,Accompaniments,,89,veg,services,5,F,,,0,,,1,0,Yes
+"Green Salad","Green Salad",,135,,,,,Accompaniments,,99,veg,services,5,F,,,0,,,1,0,Yes
+"Russian Salad","Russian Salad",,136,,,,,Accompaniments,,119,veg,services,5,F,,,0,,,1,0,Yes
+"Kimchi Salad","Kimchi Salad",,137,,,,,Accompaniments,,119,veg,services,5,F,,,0,,,1,0,Yes
+"Kuchumber Salad","Kuchumber Salad",,138,,,,,Accompaniments,,99,veg,services,5,F,,,0,,,1,0,Yes
+"Sprout Salad","Sprout Salad",,139,,,,,Accompaniments,,119,veg,services,5,F,,,0,,,1,0,Yes
+"Choice Of Ice Cream (2 Scoops)","Choice Of Ice Cream (2 Scoops)",,140,,,,,Desserts,,95,veg,services,5,F,,,0,,,1,0,Yes
+"Matka Kulfi","Matka Kulfi",,141,,,,,Desserts,,109,veg,services,5,F,,,0,,,1,0,Yes
+"Gulab Jamun","Gulab Jamun",,142,,,,,Desserts,,95,veg,services,5,F,,,0,,,1,0,Yes
+Rasmalai,Rasmalai,,143,,,,,Desserts,,109,veg,services,5,F,,,0,,,1,0,Yes
+"Shahi Thandi Kheer","Shahi Thandi Kheer",,144,,,,,Desserts,,109,veg,services,5,F,,,0,,,1,0,Yes
+"Brownie With Ice Cream","Brownie With Ice Cream",,145,,,,,Desserts,,119,veg,services,5,F,,,0,,,1,0,Yes
+"Gajar Halwa","Gajar Halwa",,146,,,,,Desserts,,119,veg,services,5,F,,,0,,,1,0,Yes
+"Tandoori Roti","Tandoori Roti",,147,,,,,Breads,,30,veg,services,5,F,,,0,,,1,0,Yes
+"Tandoori Roti Butter","Tandoori Roti Butter",,148,,,,,Breads,,35,veg,services,5,F,,,0,,,1,0,Yes
+"Hari Mirch Ki Roti","Hari Mirch Ki Roti",,149,,,,,Breads,,35,veg,services,5,F,,,0,,,1,0,Yes
+"Lal Mirch Ki Roti","Lal Mirch Ki Roti",,150,,,,,Breads,,35,veg,services,5,F,,,0,,,1,0,Yes
+"Missi Roti","Missi Roti",,151,,,,,Breads,,35,veg,services,5,F,,,0,,,1,0,Yes
+Naan,Naan,,152,,,,,Breads,,40,veg,services,5,F,,,0,,,1,0,Yes
+"Butter Naan","Butter Naan",,153,,,,,Breads,,50,veg,services,5,F,,,0,,,1,0,Yes
+"Garlic Naan","Garlic Naan",,154,,,,,Breads,,60,veg,services,5,F,,,0,,,1,0,Yes
+"Laccha Paratha","Laccha Paratha",,155,,,,,Breads,,60,veg,services,5,F,,,0,,,1,0,Yes
+"Ajwaini Paratha","Ajwaini Paratha",,156,,,,,Breads,,55,veg,services,5,F,,,0,,,1,0,Yes
+"Pudina Paratha","Pudina Paratha",,157,,,,,Breads,,55,veg,services,5,F,,,0,,,1,0,Yes
+"Aloo Paratha","Aloo Paratha",,158,,,,,Breads,,89,veg,services,5,F,,,0,,,1,0,Yes
+"Aloo-Pyaaz Paratha","Aloo-Pyaaz Paratha",,159,,,,,Breads,,110,veg,services,5,F,,,0,,,1,0,Yes
+"Gobhi Paratha","Gobhi Paratha",,160,,,,,Breads,,110,veg,services,5,F,,,0,,,1,0,Yes
+"Paneer Paratha","Paneer Paratha",,161,,,,,Breads,,110,veg,services,5,F,,,0,,,1,0,Yes
+"Stuffed Kulcha","Stuffed Kulcha",,162,,,,,Breads,,110,veg,services,5,F,,,0,,,1,0,Yes
+"Kashmiri Naan","Kashmiri Naan",,163,,,,,Breads,,80,veg,services,5,F,,,0,,,1,0,Yes
+"Bread Basket","Bread Basket",,164,,,,,Breads,,210,veg,services,5,F,,,0,,,1,0,Yes
+"Dal Fry","Dal Fry",,165,,,,,Dal,,249,veg,services,5,F,,,0,,,1,0,Yes
+"Dal Tadka","Dal Tadka",,166,,,,,Dal,,249,veg,services,5,F,,,0,,,1,0,Yes
+"Dal Pachrangi","Dal Pachrangi",,167,,,,,Dal,,279,veg,services,5,F,,,0,,,1,0,Yes
+"Dal Makhani","Dal Makhani",,168,,,,,Dal,,289,veg,services,5,F,,,0,,,1,0,Yes
+"Dal Muglai","Dal Muglai",,169,,,,,Dal,,289,veg,services,5,F,,,0,,,1,0,Yes
+"Punjabi Dal Tadka","Punjabi Dal Tadka",,170,,,,,Dal,,289,veg,services,5,F,,,0,,,1,0,Yes
+"Plain Rice","Plain Rice",,171,,,,,"Khushbu & Basmati",,139,veg,services,5,F,,,0,,,1,0,Yes
+"Jeera Rice","Jeera Rice",,172,,,,,"Khushbu & Basmati",,159,veg,services,5,F,,,0,,,1,0,Yes
+"Peas Pulao","Peas Pulao",,173,,,,,"Khushbu & Basmati",,169,veg,services,5,F,,,0,,,1,0,Yes
+"Veg Pulao","Veg Pulao",,174,,,,,"Khushbu & Basmati",,169,veg,services,5,F,,,0,,,1,0,Yes
+"Curd Rice","Curd Rice",,175,,,,,"Khushbu & Basmati",,169,veg,services,5,F,,,0,,,1,0,Yes
+"Kashmiri Pulao","Kashmiri Pulao",,176,,,,,"Khushbu & Basmati",,189,veg,services,5,F,,,0,,,1,0,Yes
+"Veg Biriyani","Veg Biriyani",,177,,,,,"Khushbu & Basmati",,299,veg,services,5,F,,,0,,,1,0,Yes
+"Egg Biriyani","Egg Biriyani",,178,,,,,"Khushbu & Basmati",,299,egg,services,5,F,,,0,,,1,0,Yes
+"Chicken Biriyani","Chicken Biriyani",,179,,,,,"Khushbu & Basmati",,359,non-veg,services,5,F,,,0,,,1,0,Yes
+"Mutton Biriyani","Mutton Biriyani",,180,,,,,"Khushbu & Basmati",,449,non-veg,services,5,F,,,0,,,1,0,Yes
+"Fish Tikka Biriyani","Fish Tikka Biriyani",,181,,,,,"Khushbu & Basmati",,399,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Tikka Biriyani","Chicken Tikka Biriyani",,182,,,,,"Khushbu & Basmati",,399,non-veg,services,5,F,,,0,,,1,0,Yes
+"Aaj Ki Sabzi","Aaj Ki Sabzi",,183,,,,,"Main Course Veg",,279,veg,services,5,F,,,0,,,1,0,Yes
+"Mix Veg","Mix Veg",,184,,,,,"Main Course Veg",,279,veg,services,5,F,,,0,,,1,0,Yes
+"Palak Corn","Palak Corn",,185,,,,,"Main Course Veg",,279,veg,services,5,F,,,0,,,1,0,Yes
+"Pindi Chole","Pindi Chole",,186,,,,,"Main Course Veg",,279,veg,services,5,F,,,0,,,1,0,Yes
+"Heeng Dhaniya Ke Aloo","Heeng Dhaniya Ke Aloo",,187,,,,,"Main Course Veg",,279,veg,services,5,F,,,0,,,1,0,Yes
+"Jeera Aloo","Jeera Aloo",,188,,,,,"Main Course Veg",,269,veg,services,5,F,,,0,,,1,0,Yes
+"Kashmiri Dum Aloo","Kashmiri Dum Aloo",,189,,,,,"Main Course Veg",,289,veg,services,5,F,,,0,,,1,0,Yes
+"Stuff Tomato","Stuff Tomato",,190,,,,,"Main Course Veg",,259,veg,services,5,F,,,0,,,1,0,Yes
+"Stuff Capsicum","Stuff Capsicum",,191,,,,,"Main Course Veg",,259,veg,services,5,F,,,0,,,1,0,Yes
+"Mushroom Masala","Mushroom Masala",,192,,,,,"Main Course Veg",,319,veg,services,5,F,,,0,,,1,0,Yes
+"Matar Mushroom Masala","Matar Mushroom Masala",,193,,,,,"Main Course Veg",,319,veg,services,5,F,,,0,,,1,0,Yes
+"Malai Kofta","Malai Kofta",,194,,,,,"Main Course Veg",,329,veg,services,5,F,,,0,,,1,0,Yes
+"Kaju Curry","Kaju Curry",,195,,,,,"Main Course Veg",,339,veg,services,5,F,,,0,,,1,0,Yes
+"Kaju Masala","Kaju Masala",,196,,,,,"Main Course Veg",,339,veg,services,5,F,,,0,,,1,0,Yes
+"Methi Matar Malai","Methi Matar Malai",,197,,,,,"Main Course Veg",,319,veg,services,5,F,,,0,,,1,0,Yes
+"Soya Chap Masala","Soya Chap Masala",,198,,,,,"Main Course Veg",,329,veg,services,5,F,,,0,,,1,0,Yes
+"Baby Corn Masala","Baby Corn Masala",,199,,,,,"Main Course Veg",,339,veg,services,5,F,,,0,,,1,0,Yes
+"Mushroom Handi","Mushroom Handi",,200,,,,,"Main Course Veg",,329,veg,services,5,F,,,0,,,1,0,Yes
+"Paneer Butter Masala","Paneer Butter Masala",,201,,,,,"Main Course Veg",,329,veg,services,5,F,,,0,,,1,0,Yes
+"Kadhai Paneer","Kadhai Paneer",,202,,,,,"Main Course Veg",,329,veg,services,5,F,,,0,,,1,0,Yes
+"Paneer Punjabi","Paneer Punjabi",,203,,,,,"Main Course Veg",,329,veg,services,5,F,,,0,,,1,0,Yes
+"Paneer Kolhapuri","Paneer Kolhapuri",,204,,,,,"Main Course Veg",,329,veg,services,5,F,,,0,,,1,0,Yes
+"Paneer Tikka Masala","Paneer Tikka Masala",,205,,,,,"Main Course Veg",,339,veg,services,5,F,,,0,,,1,0,Yes
+"Shahi Paneer","Shahi Paneer",,206,,,,,"Main Course Veg",,339,veg,services,5,F,,,0,,,1,0,Yes
+"Mushroom Paneer","Mushroom Paneer",,207,,,,,"Main Course Veg",,329,veg,services,5,F,,,0,,,1,0,Yes
+"Paneer Do Pyaza","Paneer Do Pyaza",,208,,,,,"Main Course Veg",,329,veg,services,5,F,,,0,,,1,0,Yes
+"Paneer Toofani","Paneer Toofani",,209,,,,,"Main Course Veg",,329,veg,services,5,F,,,0,,,1,0,Yes
+"Palak Paneer","Palak Paneer",,210,,,,,"Main Course Veg",,329,veg,services,5,F,,,0,,,1,0,Yes
+"Paneer Pasanda","Paneer Pasanda",,211,,,,,"Main Course Veg",,329,veg,services,5,F,,,0,,,1,0,Yes
+"Paneer Handi","Paneer Handi",,212,,,,,"Main Course Veg",,329,veg,services,5,F,,,0,,,1,0,Yes
+"Hot N Sour Soup","Hot N Sour Soup",,213,,,,,"Chinese Veg Soups",,109,veg,services,5,F,,,0,,,1,0,Yes
+"Manchow Soup","Manchow Soup",,214,,,,,"Chinese Veg Soups",,109,veg,services,5,F,,,0,,,1,0,Yes
+"Sweet Corn Soup","Sweet Corn Soup",,215,,,,,"Chinese Veg Soups",,109,veg,services,5,F,,,0,,,1,0,Yes
+"Veg Clear Soup","Veg Clear Soup",,216,,,,,"Chinese Veg Soups",,109,veg,services,5,F,,,0,,,1,0,Yes
+"Lemon Coriander Soup","Lemon Coriander Soup",,217,,,,,"Chinese Veg Soups",,109,veg,services,5,F,,,0,,,1,0,Yes
+"Tomato Soup","Tomato Soup",,218,,,,,"Chinese Veg Soups",,119,veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Hot N Sour Soup","Chicken Hot N Sour Soup",,219,,,,,"Chinese Non Veg Soups",,129,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Manchow Soup","Chicken Manchow Soup",,220,,,,,"Chinese Non Veg Soups",,129,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Sweet Corn Soup","Chicken Sweet Corn Soup",,221,,,,,"Chinese Non Veg Soups",,129,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Veg Clear Soup","Chicken Veg Clear Soup",,222,,,,,"Chinese Non Veg Soups",,129,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Lemon Coriander Soup","Chicken Lemon Coriander Soup",,223,,,,,"Chinese Non Veg Soups",,129,non-veg,services,5,F,,,0,,,1,0,Yes
+"Paneer Tikka","Paneer Tikka",,224,,,,,"Tandoor Veg Starter",,319,veg,services,5,F,,,0,,,1,0,Yes
+"Paneer Pahadi Tikka","Paneer Pahadi Tikka",,225,,,,,"Tandoor Veg Starter",,319,veg,services,5,F,,,0,,,1,0,Yes
+"Paneer Garlic Tikka","Paneer Garlic Tikka",,226,,,,,"Tandoor Veg Starter",,329,veg,services,5,F,,,0,,,1,0,Yes
+"Paneer Parda","Paneer Parda",,227,,,,,"Tandoor Veg Starter",,349,veg,services,5,F,,,0,,,1,0,Yes
+"Paneer Malai Tikka","Paneer Malai Tikka",,228,,,,,"Tandoor Veg Starter",,329,veg,services,5,F,,,0,,,1,0,Yes
+"Mushroom Stuff Tikka","Mushroom Stuff Tikka",,229,,,,,"Tandoor Veg Starter",,329,veg,services,5,F,,,0,,,1,0,Yes
+"Mushroom Tikka","Mushroom Tikka",,230,,,,,"Tandoor Veg Starter",,319,veg,services,5,F,,,0,,,1,0,Yes
+"Hara Bhara Kebab","Hara Bhara Kebab",,231,,,,,"Tandoor Veg Starter",,279,veg,services,5,F,,,0,,,1,0,Yes
+"Corn Kebab","Corn Kebab",,232,,,,,"Tandoor Veg Starter",,279,veg,services,5,F,,,0,,,1,0,Yes
+"Cheese Chaska Kebab","Cheese Chaska Kebab",,233,,,,,"Tandoor Veg Starter",,279,veg,services,5,F,,,0,,,1,0,Yes
+"Veg 2 In 1","Veg 2 In 1",,234,,,,,"Tandoor Veg Starter",,279,veg,services,5,F,,,0,,,1,0,Yes
+"Veg Sheek Kebab","Veg Sheek Kebab",,235,,,,,"Tandoor Veg Starter",,269,veg,services,5,F,,,0,,,1,0,Yes
+"Aloo Nazakat Tikka","Aloo Nazakat Tikka",,236,,,,,"Tandoor Veg Starter",,319,veg,services,5,F,,,0,,,1,0,Yes
+"Aloo Cheese Corn Tikki","Aloo Cheese Corn Tikki",,237,,,,,"Tandoor Veg Starter",,319,veg,services,5,F,,,0,,,1,0,Yes
+"Chana Tikki","Chana Tikki",,238,,,,,"Tandoor Veg Starter",,269,veg,services,5,F,,,0,,,1,0,Yes
+"Dahi Ke Shole","Dahi Ke Shole",,239,,,,,"Tandoor Veg Starter",,319,veg,services,5,F,,,0,,,1,0,Yes
+"Veg Kebab Platter","Veg Kebab Platter",,240,,,,,"Tandoor Veg Starter",,499,veg,services,5,F,,,0,,,1,0,Yes
+"Tandoori Chicken","Tandoori Chicken",,241,,,,,"Tandoor Non Veg Starter",,0,non-veg,services,5,F,,,0,,,1,0,Yes,,,,,Customisation,Half,379,,0,Full,599,,0
+"Chicken Tikka","Chicken Tikka",,244,,,,,"Tandoor Non Veg Starter",,379,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Malai Tikka","Chicken Malai Tikka",,245,,,,,"Tandoor Non Veg Starter",,379,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Hariyali Tikka","Chicken Hariyali Tikka",,246,,,,,"Tandoor Non Veg Starter",,379,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Pahadi Tikka","Chicken Pahadi Tikka",,247,,,,,"Tandoor Non Veg Starter",,379,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Achari Tikka","Chicken Achari Tikka",,248,,,,,"Tandoor Non Veg Starter",,379,non-veg,services,5,F,,,0,,,1,0,Yes
+"Afghani Chicken","Afghani Chicken",,249,,,,,"Tandoor Non Veg Starter",,0,non-veg,services,5,F,,,0,,,1,0,Yes,,,,,Customisation,Half,389,,0,Full,629,,0
+"Chicken Sheek Kebab","Chicken Sheek Kebab",,252,,,,,"Tandoor Non Veg Starter",,369,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Neyurani","Chicken Neyurani",,253,,,,,"Tandoor Non Veg Starter",,379,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Banjara","Chicken Banjara",,254,,,,,"Tandoor Non Veg Starter",,379,non-veg,services,5,F,,,0,,,1,0,Yes
+"Achari Tagdi Kebab","Achari Tagdi Kebab",,255,,,,,"Tandoor Non Veg Starter",,299,non-veg,services,5,F,,,0,,,1,0,Yes
+"Egg Neyurani Kebab","Egg Neyurani Kebab",,256,,,,,"Tandoor Non Veg Starter",,299,egg,services,5,F,,,0,,,1,0,Yes
+"Garlic Fish Tikka","Garlic Fish Tikka",,257,,,,,"Tandoor Non Veg Starter",,379,non-veg,services,5,F,,,0,,,1,0,Yes
+"Amritsari Fish Fry","Amritsari Fish Fry",,258,,,,,"Tandoor Non Veg Starter",,399,non-veg,services,5,F,,,0,,,1,0,Yes
+"Non Veg Kebab Platter","Non Veg Kebab Platter",,259,,,,,"Tandoor Non Veg Starter",,599,non-veg,services,5,F,,,0,,,1,0,Yes
+"Mineral Water","Mineral Water",,260,,,,,Beverage,,29,veg,services,5,F,,,0,,,1,0,Yes
+Tea,Tea,,261,,,,,Beverage,,39,veg,services,5,F,,,0,,,1,0,Yes
+Coffee,Coffee,,262,,,,,Beverage,,49,veg,services,5,F,,,0,,,1,0,Yes
+"Fresh Lime Soda","Fresh Lime Soda",,263,,,,,Beverage,,99,veg,services,5,F,,,0,,,1,0,Yes
+"Aerated Beverages","Aerated Beverages",,264,,,,,Beverage,,99,veg,services,5,F,,,0,,,1,0,Yes
+Lassi,Lassi,,265,,,,,Beverage,,99,veg,services,5,F,,,0,,,1,0,Yes
+"Jal Jeera","Jal Jeera",,266,,,,,Beverage,,99,veg,services,5,F,,,0,,,1,0,Yes
+"Masala Chhachh","Masala Chhachh",,267,,,,,Beverage,,99,veg,services,5,F,,,0,,,1,0,Yes
+Juices,Juices,,268,,,,,Beverage,,109,veg,services,5,F,,,0,,,1,0,Yes
+"Cold Coffee","Cold Coffee",,269,,,,,Beverage,,119,veg,services,5,F,,,0,,,1,0,Yes
+"Cold Coffee With Ice Cream","Cold Coffee With Ice Cream",,270,,,,,Beverage,,139,veg,services,5,F,,,0,,,1,0,Yes
+"Virgin Mojito","Virgin Mojito",,271,,,,,"Mocktail & Shakes",,149,veg,services,5,F,,,0,,,1,0,Yes
+"Blue Lagoon","Blue Lagoon",,272,,,,,"Mocktail & Shakes",,149,veg,services,5,F,,,0,,,1,0,Yes
+"Red Bull Mojito","Red Bull Mojito",,273,,,,,"Mocktail & Shakes",,219,veg,services,5,F,,,0,,,1,0,Yes
+"Orange Splash","Orange Splash",,274,,,,,"Mocktail & Shakes",,149,veg,services,5,F,,,0,,,1,0,Yes
+"Black Currant","Black Currant",,275,,,,,"Mocktail & Shakes",,149,veg,services,5,F,,,0,,,1,0,Yes
+"Kit Kat Shake","Kit Kat Shake",,276,,,,,"Mocktail & Shakes",,159,veg,services,5,F,,,0,,,1,0,Yes
+"Oreo Shake","Oreo Shake",,277,,,,,"Mocktail & Shakes",,159,veg,services,5,F,,,0,,,1,0,Yes
+"Butter Scotch Shake","Butterscotch Shake",,278,,,,,"Mocktail & Shakes",,159,veg,services,5,F,,,0,,,1,0,Yes
+"Chocolate Shake","Chocolate Shake",,279,,,,,"Mocktail & Shakes",,159,veg,services,5,F,,,0,,,1,0,Yes
+"Vanilla Shake","Vanilla Shake",,280,,,,,"Mocktail & Shakes",,139,veg,services,5,F,,,0,,,1,0,Yes
+"Classic Margherita Pizza","Classic Margherita Pizza",[Regular],281,,,,,"Pizza & Pasta",,199,veg,services,5,F,,,0,,,1,0,Yes
+"Fresh Farm Veggie Pizza","Fresh Farm Veggie Pizza",[Regular],282,,,,,"Pizza & Pasta",,219,veg,services,5,F,,,0,,,1,0,Yes
+"Paneer & Corn Capsicum Pizza","Paneer & Corn Capsicum Pizza",[Regular],283,,,,,"Pizza & Pasta",,239,veg,services,5,F,,,0,,,1,0,Yes
+"Peri Peri Paneer Tikka Pizza","Peri Peri Paneer Tikka Pizza",[Regular],284,,,,,"Pizza & Pasta",,249,veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Feast Onion Mozzarella Pizza","Chicken Feast Onion Mozzarella Pizza",[Regular],285,,,,,"Pizza & Pasta",,269,non-veg,services,5,F,,,0,,,1,0,Yes
+"Peri Peri Chicken Tikka Pizza","Peri Peri Chicken Tikka Pizza",[Regular],286,,,,,"Pizza & Pasta",,279,non-veg,services,5,F,,,0,,,1,0,Yes
+"Pepperoni Chicken Pizza","Pepperoni Chicken Pizza",[Regular],287,,,,,"Pizza & Pasta",,299,non-veg,services,5,F,,,0,,,1,0,Yes
+"Cheese Pasta","Cheese Pasta",,288,,,,,"Pizza & Pasta",,249,veg,services,5,F,,,0,,,1,0,Yes
+"Penne Alfredo (Wsp)","Penne Alfredo (Wsp)",,289,,,,,"Pizza & Pasta",,299,veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Cheese Pasta","Chicken Cheese Pasta",,290,,,,,"Pizza & Pasta",,329,non-veg,services,5,F,,,0,,,1,0,Yes
+"Classic Veg Burger","Classic Veg Burger",,291,,,,,"Burger & Sandwich",,119,veg,services,5,F,,,0,,,1,0,Yes
+"Classic Cheese Burger","Classic Cheese Burger",,292,,,,,"Burger & Sandwich",,139,veg,services,5,F,,,0,,,1,0,Yes
+"Paneer Tikka Burger","Paneer Tikka Burger",,293,,,,,"Burger & Sandwich",,149,veg,services,5,F,,,0,,,1,0,Yes
+"Double Cheese Paneer Burger","Double Cheese Paneer Burger",,294,,,,,"Burger & Sandwich",,169,veg,services,5,F,,,0,,,1,0,Yes
+"Classic Chicken Burger","Classic Chicken Burger",,295,,,,,"Burger & Sandwich",,159,non-veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Tikka Burger","Chicken Tikka Burger",,296,,,,,"Burger & Sandwich",,179,non-veg,services,5,F,,,0,,,1,0,Yes
+"Peri Peri Chicken Burger","Peri Peri Chicken Burger",,297,,,,,"Burger & Sandwich",,189,non-veg,services,5,F,,,0,,,1,0,Yes
+"Veg Club Sandwich","Veg Club Sandwich",,298,,,,,"Burger & Sandwich",,159,veg,services,5,F,,,0,,,1,0,Yes
+"Chicken Club Sandwich","Chicken Club Sandwich",,299,,,,,"Burger & Sandwich",,229,non-veg,services,5,F,,,0,,,1,0,Yes
+"Gourmet Chicken Sandwich","Gourmet Chicken Sandwich",,300,,,,,"Burger & Sandwich",,239,non-veg,services,5,F,,,0,,,1,0,Yes
+"Budweiser Magnum 650ml","Budweiser Magnum 650ml",,[p]-01,,,,,Beer,Beer,480,veg,services,18,F,,,0,,,1,0,Yes
+"Kingfisher Ultra 650ml","Kingfisher Ultra 650ml",,[p]-02,,,,,Beer,Beer,430,veg,services,18,F,,,0,,,1,0,Yes
+"Kingfisher Strong 650ml","Kingfisher Strong 650ml",,[p]-03,,,,,Beer,Beer,340,veg,services,18,F,,,0,,,1,0,Yes
+"Heineken 650Ml","Heineken 650ml",,[p]-04,,,,,Beer,Beer,470,veg,services,18,F,,,0,,,1,0,Yes
+"Corona 330 Ml","Corona 330 Ml",,[p]-05,,,,,Beer,Beer,370,veg,services,18,F,,,0,,,1,0,Yes
+Hunter,Hunter,,[p]-06,,,,,Beer,Beer,340,veg,services,18,F,,,0,,,1,0,Yes
+"Water Bottle 1Lt.","Water Bottle 1lt.",,[p]-07,,,,,"Soft Beverage","Soft Beverage",30,veg,services,18,F,,,0,,,1,0,Yes
+"Soda 750Ml","Soda 750ml",,[p]-08,,,,,"Soft Beverage","Soft Beverage",40,veg,services,18,F,,,0,,,1,0,Yes
+"Red Bull 330 Ml","Red Bull 330 Ml",,[p]-09,,,,,"Soft Beverage","Soft Beverage",210,veg,services,18,F,,,0,,,1,0,Yes
+"Tonic Water","Tonic Water",,[p]-10,,,,,"Soft Beverage","Soft Beverage",160,veg,services,18,F,,,0,,,1,0,Yes
+"Aerated Drink (By Glass)","Aerated Drink (By Glass)",,[p]-11,,,,,"Soft Beverage","Soft Beverage",95,veg,services,18,F,,,0,,,1,0,Yes
+"Canned Juice (By Glass)","Canned Juice (By Glass)",,[p]-12,,,,,"Soft Beverage","Soft Beverage",130,veg,services,18,F,,,0,,,1,0,Yes
+"Monkey Shoulder","Monkey Shoulder",,[p]-13,,,,,Whisky,Whisky,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",335,,0,"Large 60 ML",570,,0
+"Amrut Amalgam","Amrut Amalgam",,[p]-16,,,,,Whisky,Whisky,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",335,,0,"Large 60 ML",560,,0
+"Royal Ranthambore","Royal Ranthambore",,[p]-19,,,,,Whisky,Whisky,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",170,,0,"Large 60 ML",345,,0
+"Antiquity Blue","Antiquity Blue",,[p]-22,,,,,Whisky,Whisky,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",145,,0,"Large 60 ML",255,,0
+"Blender'S Pride Reserve","Blender'S Pride Reserve",,[p]-25,,,,,Whisky,Whisky,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",145,,0,"Large 60 ML",255,,0
+"Blender'S Pride","Blender'S Pride",,[p]-28,,,,,Whisky,Whisky,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",120,,0,"Large 60 ML",220,,0
+"Royal Stag","Royal Stag",,[p]-31,,,,,Whisky,Whisky,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",110,,0,"Large 60 ML",210,,0
+"Bacardi Lemon","Bacardi Lemon",,[p]-34,,,,,Rum,Rum,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",125,,0,"Large 60 ML",230,,0
+"Bacardi White","Bacardi White",,[p]-37,,,,,Rum,Rum,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",110,,0,"Large 60 ML",220,,0
+"Bacardi Black","Bacardi Black",,[p]-40,,,,,Rum,Rum,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",110,,0,"Large 60 ML",200,,0
+"Old Monk Legend","Old Monk Legend",,[p]-43,,,,,Rum,Rum,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",135,,0,"Large 60 ML",215,,0
+"Old Monk Coffee","Old Monk Coffee",,[p]-46,,,,,Rum,Rum,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",125,,0,"Large 60 ML",245,,0
+"Old Monk","Old Monk",,[p]-49,,,,,Rum,Rum,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",110,,0,"Large 60 ML",190,,0
+Jaislmer,Jaislmer,,[p]-52,,,,,Gin,Gin,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",325,,0,"Large 60 ML",620,,0
+"Bombay Sapphire","Bombay Sapphire",,[p]-55,,,,,Gin,Gin,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",200,,0,"Large 60 ML",360,,0
+"Geater Than","Geater Than",,[p]-58,,,,,Gin,Gin,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",180,,0,"Large 60 ML",300,,0
+Nicobar,Nicobar,,[p]-61,,,,,Gin,Gin,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",200,,0,"Large 60 ML",350,,0
+"Grey Goose","Grey Goose",,[p]-64,,,,,Vodka,Vodka,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",305,,0,"Large 60 ML",525,,0
+Absolut,Absolut,,[p]-67,,,,,Vodka,Vodka,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"(All Flavours)(Small 30 ML)",195,,0,"(All Flavours)(Large 60 ML)",335,,0
+"Simrn Off","Simrn Off",,[p]-70,,,,,Vodka,Vodka,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"(All Flavours)(Small 30 ML)",135,,0,"(All Flavours)(Large 60 ML)",235,,0
+"Magic Moment","Magic Moment",,[p]-73,,,,,Vodka,Vodka,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"(All Flavours)(Small 30 ML)",120,,0,"(All Flavours)(Large 60 ML)",200,,0
+"Don Julio","Don Julio",,[p]-76,,,,,Taquila,Taquila,950,veg,services,18,F,,,0,,,1,0,Yes
+Camino,Camino,,[p]-77,,,,,Taquila,Taquila,380,veg,services,18,F,,,0,,,1,0,Yes
+Jagermeister,Jagermeister,,[p]-78,,,,,Liqour,Liqour,470,veg,services,18,F,,,0,,,1,0,Yes
+Morpheus,Morpheus,,[p]-79,,,,,Liqour,Liqour,180,veg,services,18,F,,,0,,,1,0,Yes
+"Jacobs Creek Shiraz","Jacobs Creek Shiraz",,[p]-80,,,,,Wine,Wine,1599,veg,services,18,F,,,0,,,1,0,Yes
+"Jacobs Creek Chardonnay","Jacobs Creek Chardonnay",,[p]-81,,,,,Wine,Wine,1599,veg,services,18,F,,,0,,,1,0,Yes
+"Open Item","open item",,"open item",,,,,"Open Item",,0,veg,services,5,F,,,0,,,1,0,Yes
+"Budweiser Magnum Cane","Budweiser Magnum Cane",,BMC,,,,,Beer,Beer,370,veg,,18,F,,,0,,,1,0,Yes
+Rampur,rampur,,rampur,,,,,"Single Malt",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",670,,0,"Large 60 ML",1200,,0
+Macallan,macallan,,macallan,,,,,"Single Malt",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",570,,0,"Large 60 ML",1050,,0
+"Glenlivet 15 Year","glenlivet 15 year",,"glenlivet 15 year",,,,,"Single Malt",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",480,,0,"Large 60 ML",930,,0
+"Glenlivet 12 Year","glenlivet 12 year",,"glenlivet 12 year",,,,,"Single Malt",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",360,,0,"Large 60 ML",670,,0
+Talisker,talisker,,talisker,,,,,"Single Malt",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",380,,0,"Large 60 ML",715,,0
+Singleton,singleton,,singleton,,,,,"Single Malt",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",360,,0,"Large 60 ML",670,,0
+Glenfiddich,glenfiddich,,glenfiddich,,,,,"Single Malt",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",380,,0,"Large 60 ML",715,,0
+"Amrut Fussion","amrut fussion",,"amrut fussion",,,,,"Single Malt",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",350,,0,"Large 60 ML",590,,0
+Jameson,jameson,,jameson,,,,,IRISH,,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",190,,0,"Large 60 ML",360,,0
+Jimbeam,jimbeam,,jimbeam,,,,,IRISH,,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",190,,0,"Large 60 ML",360,,0
+"Royal Salute","royal salute",,"royal salute",,,,,"Blended Scotch",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",1250,,0,"Large 60 ML",2000,,0
+"Blue Label","blue label",,"blue label",,,,,"Blended Scotch",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",1250,,0,"Large 60 ML",2000,,0
+"Chivas Regal 18 Year","chivas regal 18 year",,"chivas regal 18 year",,,,,"Blended Scotch",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",630,,0,"Large 60 ML",1000,,0
+"Gold Label Reserve","gold label reserve",,"gold label reserve",,,,,"Blended Scotch",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",390,,0,"Large 60 ML",760,,0
+"Doubla Black","doubla black",,"doubla black",,,,,"Blended Scotch",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",335,,0,"Large 60 ML",620,,0
+"Ballentines 12 Year","ballentines 12 year",,"ballentines 12 year",,,,,"Blended Scotch",,0,veg,goods,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",250,,0,"Large 60 ML",450,,0
+"Chivas Regal","chivas regal",,"chivas regal",,,,,"Blended Scotch",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",285,,0,"Large 60 ML",525,,0
+"Dewars 12 Year","dewars 12 year",,"dewars 12 year",,,,,"Blended Scotch",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",265,,0,"Large 60 ML",515,,0
+"Black Triple Gold","black triple gold",,"black triple gold",,,,,"Blended Scotch",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",265,,0,"Large 60 ML",425,,0
+"100 Pipers 12 Year","100 pipers 12 year",,"100 pipers 12 year",,,,,"Blended Scotch",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",235,,0,"Large 60 ML",430,,0
+"Teachers 50","teachers 50",,"teachers 50",,,,,"Blended Scotch",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",235,,0,"Large 60 ML",440,,0
+"Red Label","red label",,"red label",,,,,"Blended Scotch",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",190,,0,"Large 60 ML",325,,0
+J&b,j&b,,j&b,,,,,"Blended Scotch",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",180,,0,"Large 60 ML",315,,0
+Ballantines,ballantines,,ballantines,,,,,"Blended Scotch",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",210,,0,"Large 60 ML",365,,0
+Dewars,dewars,,dewars,,,,,"Blended Scotch",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",180,,0,"Large 60 ML",335,,0
+"100 Pipers","100 pipers",,"100 pipers",,,,,"Blended Scotch",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",160,,0,"Large 60 ML",315,,0
+"Teachers Highland Cream","teachers highland cream",,"teachers highland cr",,,,,"Blended Scotch",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",170,,0,"Large 60 ML",315,,0
+"Black Dog","Black Dog",,"Black Dog",,,,,"Blended Scotch",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",160,,0,"Large 60 ML",320,,0
+"Black & White","black & white",,"black & white",,,,,"Blended Scotch",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",170,,0,"Large 60 ML",325,,0
+"Vat 69","vat 69",,"vat 69",,,,,"Blended Scotch",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",180,,0,"Large 60 ML",335,,0
+"Black Label","black label",,"black label",,,,,"Blended Scotch",,0,veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"Small 30 ML",285,,0,"Large 60 ML",525,,0
+"Cigarette Small","cigarette small",,"cigarette small",,,,,Extra,,20,veg,services,18,F,,,0,,,1,0,Yes
+"Cigarette Big","cigarette big",,"cigarette big",,,,,Extra,,30,veg,services,18,F,,,0,,,1,0,Yes
+"Boiled Egg","boiled egg",,"boiled egg",,,,,Eggs,,79,egg,services,5,F,,,0,,,1,0,Yes
+"Boiled  Egg Fry","boiled  egg fry",,"boiled  egg fry",,,,,Eggs,,89,egg,services,5,F,,,0,,,1,0,Yes
+"Egg Bhurji","egg bhurji",,"egg bhurji",,,,,Eggs,,149,egg,services,,,,,0,,,1,0,Yes
+"Egg Pouch","egg pouch",,"egg pouch",,,,,Eggs,,129,egg,services,5,F,,,0,,,1,0,Yes
+Omlette,omlette,,omlette,,,,,Eggs,,149,veg,services,5,F,,,0,,,1,0,Yes
+Signature,signature,,signature,,,,,Whisky,Whisky,0,non-veg,services,18,F,,,0,,,1,0,Yes,,,,,Customisation,"30 ML",120,,0,"60 ML",220,,0

@@ -73,8 +73,15 @@ const tableController = {
           }
         }
       }
-      const tables = await tableService.getByFloor(floorId);
-      res.json({ success: true, data: tables });
+      const result = await tableService.getByFloor(floorId);
+      // Return full response with floor, shift, sections, and tables
+      res.json({ 
+        success: true, 
+        data: result.tables,
+        floor: result.floor,
+        shift: result.shift,
+        sections: result.sections
+      });
     } catch (error) {
       next(error);
     }

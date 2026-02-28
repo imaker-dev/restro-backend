@@ -49,5 +49,6 @@ temp/
  
 # Docker
 .docker/
-docker-data/
+combined.log
+error.log
  
