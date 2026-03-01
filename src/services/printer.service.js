@@ -270,7 +270,10 @@ const printerService = {
       `SELECT * FROM printers WHERE outlet_id = ? AND station = ? AND is_active = 1 LIMIT 1`,
       [outletId, station]
     );
-    if (printers[0]) return printers[0];
+    if (printers[0]) {
+      logger.debug(`Printer lookup [${station}]: Found by exact station match (id: ${printers[0].id})`);
+      return printers[0];
+    }
 
     // Priority 2: Find printer via kitchen_stations with matching station_type
     [printers] = await pool.query(
@@ -280,7 +283,10 @@ const printerService = {
        LIMIT 1`,
       [outletId, station]
     );
-    if (printers[0]) return printers[0];
+    if (printers[0]) {
+      logger.debug(`Printer lookup [${station}]: Found via kitchen_station (id: ${printers[0].id})`);
+      return printers[0];
+    }
 
     // Priority 3: Find printer via counters with matching counter_type
     [printers] = await pool.query(
@@ -290,7 +296,10 @@ const printerService = {
        LIMIT 1`,
       [outletId, station]
     );
-    if (printers[0]) return printers[0];
+    if (printers[0]) {
+      logger.debug(`Printer lookup [${station}]: Found via counter (id: ${printers[0].id})`);
+      return printers[0];
+    }
 
     // Priority 4: For bill station, find any bill printer
     if (station === 'bill' || station === 'cashier') {
@@ -298,15 +307,65 @@ const printerService = {
         `SELECT * FROM printers WHERE outlet_id = ? AND (station = 'bill' OR station = 'cashier') AND is_active = 1 LIMIT 1`,
         [outletId]
       );
-      if (printers[0]) return printers[0];
+      if (printers[0]) {
+        logger.debug(`Printer lookup [${station}]: Found bill printer (id: ${printers[0].id})`);
+        return printers[0];
+      }
     }
 
-    // Priority 5: Any active KOT printer as fallback
-    [printers] = await pool.query(
-      `SELECT * FROM printers WHERE outlet_id = ? AND is_active = 1 AND ip_address IS NOT NULL LIMIT 1`,
-      [outletId]
-    );
-    return printers[0] || null;
+    // NO FALLBACK - Server-side app requires proper configuration
+    logger.error(`Printer lookup [${station}]: No printer configured for outlet ${outletId}. Configure station-to-printer mapping.`);
+    return null;
+  },
+
+  /**
+   * Get printer for a station with optional stationId for precise lookup
+   * This is used by createPrintJob for KOT printing where we have the exact station ID
+   * @param {number} outletId
+   * @param {string} station - Station type name (e.g., 'main_kitchen', 'bar')
+   * @param {number} stationId - Optional specific kitchen_station or counter ID
+   * @param {boolean} isCounter - Whether stationId refers to a counter (vs kitchen station)
+   */
+  async getPrinterByStationWithId(outletId, station, stationId = null, isCounter = false) {
+    const pool = getPool();
+    
+    // Priority 1a: If stationId provided and it's a counter, get printer from counters table
+    if (stationId && isCounter) {
+      const [counterPrinters] = await pool.query(
+        `SELECT p.* FROM printers p
+         JOIN counters c ON c.printer_id = p.id
+         WHERE c.id = ? AND c.outlet_id = ? AND p.is_active = 1
+         LIMIT 1`,
+        [stationId, outletId]
+      );
+      if (counterPrinters[0]) {
+        logger.info(`Printer lookup [${station}]: Found via counter id=${stationId} (printer: ${counterPrinters[0].id})`);
+        return counterPrinters[0];
+      }
+    }
+    
+    // Priority 1b: If stationId provided (kitchen station), get printer from kitchen_stations table
+    if (stationId && !isCounter) {
+      const [stationPrinters] = await pool.query(
+        `SELECT p.* FROM printers p
+         JOIN kitchen_stations ks ON ks.printer_id = p.id
+         WHERE ks.id = ? AND ks.outlet_id = ? AND p.is_active = 1
+         LIMIT 1`,
+        [stationId, outletId]
+      );
+      if (stationPrinters[0]) {
+        logger.info(`Printer lookup [${station}]: Found via kitchen_station id=${stationId} (printer: ${stationPrinters[0].id})`);
+        return stationPrinters[0];
+      }
+      // Station exists but no printer assigned
+      logger.error(`Printer lookup [${station}]: Kitchen station id=${stationId} has NO printer_id assigned!`);
+    }
+
+    // If stationId was provided but lookup failed, try station name as last resort
+    if (stationId) {
+      logger.warn(`Printer lookup [${station}]: stationId=${stationId} lookup failed, trying station_type match`);
+    }
+    return this.getPrinterByStation(outletId, station);
   },
 
   async updatePrinter(id, data) {
@@ -359,8 +418,14 @@ const printerService = {
     // Find appropriate printer for this station
     let printerId = data.printerId;
     if (!printerId && data.station) {
-      const printer = await this.getPrinterByStation(data.outletId, data.station);
+      // Use stationId for precise lookup if available
+      const printer = await this.getPrinterByStationWithId(data.outletId, data.station, data.stationId, data.isCounter);
       printerId = printer?.id;
+      if (!printerId) {
+        logger.warn(`Print job for station "${data.station}" (id: ${data.stationId}, outlet ${data.outletId}): No printer found, job will have NULL printer_id`);
+      } else {
+        logger.info(`Print job printer assigned: station="${data.station}", stationId=${data.stationId}, printer_id=${printerId}`);
+      }
     }
 
     const [result] = await pool.query(
@@ -1091,7 +1156,18 @@ const printerService = {
 
     // Payment mode
     if (billData.paymentMode) {
-      lines.push(cmd.ALIGN_CENTER + 'Paid: ' + billData.paymentMode.toUpperCase());
+      if (billData.paymentMode === 'split' && billData.splitBreakdown && billData.splitBreakdown.length > 0) {
+        lines.push(cmd.ALIGN_CENTER + 'Paid: SPLIT PAYMENT');
+        lines.push(cmd.ALIGN_LEFT + dash);
+        for (const sp of billData.splitBreakdown) {
+          const modeName = (sp.paymentMode || 'Unknown').toUpperCase();
+          const amount = parseFloat(sp.amount || 0).toFixed(2);
+          lines.push(this.padBetween('  ' + modeName + ':', 'Rs.' + amount, w));
+        }
+        lines.push(dash);
+      } else {
+        lines.push(cmd.ALIGN_CENTER + 'Paid: ' + billData.paymentMode.toUpperCase());
+      }
     }
 
     // Footer
@@ -1199,6 +1275,8 @@ const printerService = {
       outletId: kotData.outletId,
       jobType: station === 'bar' || station === 'main_bar' ? 'bot' : 'kot',
       station,
+      stationId: kotData.stationId || null,
+      isCounter: kotData.isCounter || false,
       kotId: kotData.kotId,
       orderId: kotData.orderId,
       content: this.wrapWithEscPos(content, { beep: true }),

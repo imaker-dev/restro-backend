@@ -298,11 +298,25 @@ async function generateInvoicePDF(invoice, outlet = {}) {
 
     doc.font('Helvetica').fontSize(8).fillColor('#555555');
     payments.forEach(p => {
-      doc.text(`${(p.paymentMode || '').toUpperCase()}`, leftMargin, y, { width: 80 });
-      doc.text(currency(p.totalAmount), leftMargin + 90, y, { width: 80 });
-      if (p.transactionId) doc.text(`Txn: ${p.transactionId}`, leftMargin + 180, y);
-      if (p.referenceNumber) doc.text(`Ref: ${p.referenceNumber}`, leftMargin + 180, y);
-      y += 14;
+      // Check if this is a split payment with breakdown
+      if (p.paymentMode === 'split' && p.splitBreakdown && p.splitBreakdown.length > 0) {
+        doc.text('SPLIT PAYMENT', leftMargin, y, { width: 80 });
+        doc.text(currency(p.totalAmount), leftMargin + 90, y, { width: 80 });
+        y += 14;
+        // Show each split payment component
+        p.splitBreakdown.forEach(sp => {
+          doc.text(`  ${(sp.paymentMode || '').toUpperCase()}`, leftMargin, y, { width: 80 });
+          doc.text(currency(sp.amount), leftMargin + 90, y, { width: 80 });
+          if (sp.reference) doc.text(`Ref: ${sp.reference}`, leftMargin + 180, y);
+          y += 12;
+        });
+      } else {
+        doc.text(`${(p.paymentMode || '').toUpperCase()}`, leftMargin, y, { width: 80 });
+        doc.text(currency(p.totalAmount), leftMargin + 90, y, { width: 80 });
+        if (p.transactionId) doc.text(`Txn: ${p.transactionId}`, leftMargin + 180, y);
+        if (p.referenceNumber) doc.text(`Ref: ${p.referenceNumber}`, leftMargin + 180, y);
+        y += 14;
+      }
     });
 
     doc.font('Helvetica-Bold').fontSize(9).fillColor('#333333');

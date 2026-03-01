@@ -71,7 +71,7 @@ function formatDiscount(discount) {
 
 function formatPaymentEntry(payment) {
   if (!payment) return null;
-  return {
+  const entry = {
     id: payment.id,
     paymentMode: payment.payment_mode,
     amount: parseFloat(payment.amount) || 0,
@@ -82,6 +82,11 @@ function formatPaymentEntry(payment) {
     referenceNumber: payment.reference_number || null,
     createdAt: payment.created_at || null,
   };
+  // Include split payment breakdown if present
+  if (payment.splitBreakdown) {
+    entry.splitBreakdown = payment.splitBreakdown;
+  }
+  return entry;
 }
 
 function formatInvoice(invoice) {
@@ -359,6 +364,7 @@ const billingService = {
       roundOff: invoice.roundOff !== undefined ? parseFloat(invoice.roundOff).toFixed(2) : null,
       grandTotal: parseFloat(invoice.grandTotal || 0).toFixed(2),
       paymentMode: invoice.payments?.[0]?.paymentMode || null,
+      splitBreakdown: invoice.payments?.[0]?.splitBreakdown || null,
       isDuplicate: invoice.isDuplicate || false,
       duplicateNumber: invoice.duplicateNumber || null,
       openDrawer: false
@@ -910,6 +916,21 @@ const billingService = {
       'SELECT * FROM payments WHERE invoice_id = ?',
       [id]
     );
+    
+    // For split payments, fetch the breakdown from split_payments table
+    for (const payment of payments) {
+      if (payment.payment_mode === 'split') {
+        const [splitDetails] = await pool.query(
+          'SELECT * FROM split_payments WHERE payment_id = ?', [payment.id]
+        );
+        payment.splitBreakdown = splitDetails.map(sp => ({
+          paymentMode: sp.payment_mode,
+          amount: parseFloat(sp.amount) || 0,
+          reference: sp.reference_number
+        }));
+      }
+    }
+    
     invoice.payments = payments;
 
     return formatInvoice(invoice);
@@ -1247,6 +1268,21 @@ const billingService = {
       const [payments] = await pool.query(
         'SELECT * FROM payments WHERE invoice_id = ?', [row.id]
       );
+      
+      // For split payments, fetch the breakdown from split_payments table
+      for (const payment of payments) {
+        if (payment.payment_mode === 'split') {
+          const [splitDetails] = await pool.query(
+            'SELECT * FROM split_payments WHERE payment_id = ?', [payment.id]
+          );
+          payment.splitBreakdown = splitDetails.map(sp => ({
+            paymentMode: sp.payment_mode,
+            amount: parseFloat(sp.amount) || 0,
+            reference: sp.reference_number
+          }));
+        }
+      }
+      
       row.payments = payments;
       invoices.push(formatInvoice(row));
     }
@@ -1341,6 +1377,21 @@ const billingService = {
       const [payments] = await pool.query(
         'SELECT * FROM payments WHERE invoice_id = ?', [row.id]
       );
+      
+      // For split payments, fetch the breakdown from split_payments table
+      for (const payment of payments) {
+        if (payment.payment_mode === 'split') {
+          const [splitDetails] = await pool.query(
+            'SELECT * FROM split_payments WHERE payment_id = ?', [payment.id]
+          );
+          payment.splitBreakdown = splitDetails.map(sp => ({
+            paymentMode: sp.payment_mode,
+            amount: parseFloat(sp.amount) || 0,
+            reference: sp.reference_number
+          }));
+        }
+      }
+      
       row.payments = payments;
       invoices.push(formatInvoice(row));
     }

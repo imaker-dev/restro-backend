@@ -1798,6 +1798,21 @@ const orderService = {
       'SELECT * FROM payments WHERE order_id = ? ORDER BY created_at',
       [orderId]
     );
+    
+    // For split payments, fetch the breakdown from split_payments table
+    for (const payment of payments) {
+      if (payment.payment_mode === 'split') {
+        const [splitDetails] = await pool.query(
+          'SELECT * FROM split_payments WHERE payment_id = ?', [payment.id]
+        );
+        payment.splitBreakdown = splitDetails.map(sp => ({
+          paymentMode: sp.payment_mode,
+          amount: parseFloat(sp.amount) || 0,
+          reference: sp.reference_number
+        }));
+      }
+    }
+    
     order.payments = payments;
 
     return order;

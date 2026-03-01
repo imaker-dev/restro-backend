@@ -333,7 +333,7 @@ const reportsService = {
       [outletId, start, end, ...ff.params]
     );
 
-    // Attach payment breakdown per day
+    // Attach payment breakdown per day (regular payments, non-split)
     const [payRows] = await pool.query(
       `SELECT 
         DATE(p.created_at) as report_date,
@@ -346,12 +346,60 @@ const reportsService = {
         SUM(p.tip_amount) as tip_amount
        FROM payments p
        JOIN orders o ON p.order_id = o.id
-       WHERE p.outlet_id = ? AND DATE(p.created_at) BETWEEN ? AND ? AND p.status = 'completed'${ff.sql}
+       WHERE p.outlet_id = ? AND DATE(p.created_at) BETWEEN ? AND ? AND p.status = 'completed' AND p.payment_mode != 'split'${ff.sql}
        GROUP BY DATE(p.created_at)`,
       [outletId, start, end, ...ff.params]
     );
+    
+    // Get split payment breakdown per day
+    const [splitPayRows] = await pool.query(
+      `SELECT 
+        DATE(p.created_at) as report_date,
+        SUM(sp.amount) as total_collection,
+        SUM(CASE WHEN sp.payment_mode = 'cash' THEN sp.amount ELSE 0 END) as cash_collection,
+        SUM(CASE WHEN sp.payment_mode = 'card' THEN sp.amount ELSE 0 END) as card_collection,
+        SUM(CASE WHEN sp.payment_mode = 'upi' THEN sp.amount ELSE 0 END) as upi_collection,
+        SUM(CASE WHEN sp.payment_mode = 'wallet' THEN sp.amount ELSE 0 END) as wallet_collection,
+        SUM(CASE WHEN sp.payment_mode = 'credit' THEN sp.amount ELSE 0 END) as credit_collection
+       FROM split_payments sp
+       JOIN payments p ON sp.payment_id = p.id
+       JOIN orders o ON p.order_id = o.id
+       WHERE p.outlet_id = ? AND DATE(p.created_at) BETWEEN ? AND ? AND p.status = 'completed' AND p.payment_mode = 'split'${ff.sql}
+       GROUP BY DATE(p.created_at)`,
+      [outletId, start, end, ...ff.params]
+    );
+    const splitPayMap = {};
+    splitPayRows.forEach(r => { splitPayMap[r.report_date instanceof Date ? r.report_date.toISOString().slice(0, 10) : r.report_date] = r; });
+    
     const payMap = {};
-    payRows.forEach(r => { payMap[r.report_date instanceof Date ? r.report_date.toISOString().slice(0, 10) : r.report_date] = r; });
+    payRows.forEach(r => { 
+      const dateKey = r.report_date instanceof Date ? r.report_date.toISOString().slice(0, 10) : r.report_date;
+      const splitPay = splitPayMap[dateKey] || {};
+      payMap[dateKey] = {
+        ...r,
+        total_collection: (parseFloat(r.total_collection) || 0) + (parseFloat(splitPay.total_collection) || 0),
+        cash_collection: (parseFloat(r.cash_collection) || 0) + (parseFloat(splitPay.cash_collection) || 0),
+        card_collection: (parseFloat(r.card_collection) || 0) + (parseFloat(splitPay.card_collection) || 0),
+        upi_collection: (parseFloat(r.upi_collection) || 0) + (parseFloat(splitPay.upi_collection) || 0),
+        wallet_collection: (parseFloat(r.wallet_collection) || 0) + (parseFloat(splitPay.wallet_collection) || 0),
+        credit_collection: (parseFloat(r.credit_collection) || 0) + (parseFloat(splitPay.credit_collection) || 0)
+      };
+    });
+    // Handle days that only have split payments
+    splitPayRows.forEach(r => {
+      const dateKey = r.report_date instanceof Date ? r.report_date.toISOString().slice(0, 10) : r.report_date;
+      if (!payMap[dateKey]) {
+        payMap[dateKey] = {
+          total_collection: parseFloat(r.total_collection) || 0,
+          cash_collection: parseFloat(r.cash_collection) || 0,
+          card_collection: parseFloat(r.card_collection) || 0,
+          upi_collection: parseFloat(r.upi_collection) || 0,
+          wallet_collection: parseFloat(r.wallet_collection) || 0,
+          credit_collection: parseFloat(r.credit_collection) || 0,
+          tip_amount: 0
+        };
+      }
+    });
 
     const daily = rows.map(r => {
       const dateKey = r.report_date instanceof Date ? r.report_date.toISOString().slice(0, 10) : r.report_date;
@@ -535,14 +583,15 @@ const reportsService = {
   },
 
   /**
-   * 8.4 Payment Modes Report — live from payments
+   * 8.4 Payment Modes Report — live from payments (includes split payment breakdown)
    */
   async getPaymentModeReport(outletId, startDate, endDate, floorIds = []) {
     const pool = getPool();
     const { start, end } = this._dateRange(startDate, endDate);
     const ff = floorFilter(floorIds);
 
-    const [rows] = await pool.query(
+    // Get regular payments (non-split)
+    const [regularRows] = await pool.query(
       `SELECT 
         p.payment_mode,
         COUNT(*) as transaction_count,
@@ -551,22 +600,67 @@ const reportsService = {
         SUM(p.tip_amount) as tip_amount
        FROM payments p
        JOIN orders o ON p.order_id = o.id
-       WHERE p.outlet_id = ? AND DATE(p.created_at) BETWEEN ? AND ? AND p.status = 'completed'${ff.sql}
+       WHERE p.outlet_id = ? AND DATE(p.created_at) BETWEEN ? AND ? AND p.status = 'completed' AND p.payment_mode != 'split'${ff.sql}
        GROUP BY p.payment_mode
        ORDER BY total_amount DESC`,
       [outletId, start, end, ...ff.params]
     );
 
-    const totalAmount = rows.reduce((sum, r) => sum + parseFloat(r.total_amount || 0), 0);
-    const totalBase = rows.reduce((sum, r) => sum + parseFloat(r.base_amount || 0), 0);
-    const totalTips = rows.reduce((sum, r) => sum + parseFloat(r.tip_amount || 0), 0);
+    // Get split payment breakdown from split_payments table
+    const [splitRows] = await pool.query(
+      `SELECT 
+        sp.payment_mode,
+        COUNT(*) as transaction_count,
+        SUM(sp.amount) as total_amount,
+        SUM(sp.amount) as base_amount,
+        0 as tip_amount
+       FROM split_payments sp
+       JOIN payments p ON sp.payment_id = p.id
+       JOIN orders o ON p.order_id = o.id
+       WHERE p.outlet_id = ? AND DATE(p.created_at) BETWEEN ? AND ? AND p.status = 'completed' AND p.payment_mode = 'split'${ff.sql}
+       GROUP BY sp.payment_mode
+       ORDER BY total_amount DESC`,
+      [outletId, start, end, ...ff.params]
+    );
+
+    // Merge regular and split payments by payment_mode
+    const modeMap = {};
+    for (const r of regularRows) {
+      modeMap[r.payment_mode] = {
+        payment_mode: r.payment_mode,
+        transaction_count: r.transaction_count,
+        total_amount: parseFloat(r.total_amount) || 0,
+        base_amount: parseFloat(r.base_amount) || 0,
+        tip_amount: parseFloat(r.tip_amount) || 0
+      };
+    }
+    for (const r of splitRows) {
+      if (modeMap[r.payment_mode]) {
+        modeMap[r.payment_mode].transaction_count += r.transaction_count;
+        modeMap[r.payment_mode].total_amount += parseFloat(r.total_amount) || 0;
+        modeMap[r.payment_mode].base_amount += parseFloat(r.base_amount) || 0;
+      } else {
+        modeMap[r.payment_mode] = {
+          payment_mode: r.payment_mode,
+          transaction_count: r.transaction_count,
+          total_amount: parseFloat(r.total_amount) || 0,
+          base_amount: parseFloat(r.base_amount) || 0,
+          tip_amount: 0
+        };
+      }
+    }
+
+    const rows = Object.values(modeMap).sort((a, b) => b.total_amount - a.total_amount);
+    const totalAmount = rows.reduce((sum, r) => sum + r.total_amount, 0);
+    const totalBase = rows.reduce((sum, r) => sum + r.base_amount, 0);
+    const totalTips = rows.reduce((sum, r) => sum + r.tip_amount, 0);
     const totalTransactions = rows.reduce((sum, r) => sum + r.transaction_count, 0);
 
     return {
       dateRange: { start, end },
       modes: rows.map(r => ({
         ...r,
-        percentage_share: totalAmount > 0 ? ((parseFloat(r.total_amount) / totalAmount) * 100).toFixed(2) : '0.00'
+        percentage_share: totalAmount > 0 ? ((r.total_amount / totalAmount) * 100).toFixed(2) : '0.00'
       })),
       summary: {
         total_transactions: totalTransactions,

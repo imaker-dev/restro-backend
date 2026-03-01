@@ -929,45 +929,32 @@ const paymentService = {
       }
     }
 
-    // Check if a session exists for today for this floor
-    const [existing] = await pool.query(
+    // Check if there's already an OPEN session for today for this floor
+    const [existingOpen] = await pool.query(
       `SELECT * FROM day_sessions WHERE outlet_id = ? AND session_date = ? 
-       AND (floor_id = ? OR (floor_id IS NULL AND ? IS NULL))`,
+       AND (floor_id = ? OR (floor_id IS NULL AND ? IS NULL)) AND status = 'open'`,
       [outletId, today, floorId, floorId]
     );
 
-    if (existing[0] && existing[0].status === 'open') {
+    if (existingOpen[0]) {
       throw new Error('Shift already open for this floor');
     }
 
-    let sessionId;
-    if (existing[0] && existing[0].status === 'closed') {
-      // Reopen: update existing closed session back to open
-      await pool.query(
-        `UPDATE day_sessions SET 
-          opening_time = NOW(), opening_cash = ?, closing_time = NULL, closing_cash = 0,
-          expected_cash = 0, cash_variance = 0, total_sales = 0, total_orders = 0,
-          status = 'open', opened_by = ?, cashier_id = ?, closed_by = NULL, variance_notes = NULL
-         WHERE id = ?`,
-        [openingCash, userId, userId, existing[0].id]
-      );
-      sessionId = existing[0].id;
-    } else {
-      // First open of the day — insert new row
-      const [result] = await pool.query(
-        `INSERT INTO day_sessions (
-          outlet_id, floor_id, session_date, opening_time, opening_cash, status, opened_by, cashier_id
-        ) VALUES (?, ?, ?, NOW(), ?, 'open', ?, ?)`,
-        [outletId, floorId, today, openingCash, userId, userId]
-      );
-      sessionId = result.insertId;
-    }
+    // Always create a NEW shift - never reopen a closed one
+    // Multiple shifts per day per floor are allowed (e.g., morning shift, evening shift)
+    const [result] = await pool.query(
+      `INSERT INTO day_sessions (
+        outlet_id, floor_id, session_date, opening_time, opening_cash, status, opened_by, cashier_id
+      ) VALUES (?, ?, ?, NOW(), ?, 'open', ?, ?)`,
+      [outletId, floorId, today, openingCash, userId, userId]
+    );
+    const sessionId = result.insertId;
 
     await pool.query(
       `INSERT INTO cash_drawer (
         outlet_id, floor_id, user_id, transaction_type, amount,
         balance_before, balance_after, description
-      ) VALUES (?, ?, ?, 'opening', ?, 0, ?, 'Day opening')`,
+      ) VALUES (?, ?, ?, 'opening', ?, 0, ?, 'Shift opening')`,
       [outletId, floorId, userId, openingCash, openingCash]
     );
 
@@ -1036,31 +1023,72 @@ const paymentService = {
         }
       }
 
-      // Calculate expected cash for this floor
-      const [cashTotals] = await connection.query(
-        `SELECT 
-          SUM(CASE WHEN transaction_type IN ('opening', 'cash_in', 'sale') THEN amount ELSE 0 END) as cash_in,
-          SUM(CASE WHEN transaction_type IN ('cash_out', 'refund', 'expense') THEN ABS(amount) ELSE 0 END) as cash_out
-         FROM cash_drawer 
-         WHERE outlet_id = ? AND DATE(created_at) = ?
-         AND (floor_id = ? OR (floor_id IS NULL AND ? IS NULL))`,
-        [outletId, today, floorId, floorId]
-      );
+      // Build shift time range for filtering (shift-specific, not day-wise)
+      const sessionDateStr = session.session_date instanceof Date 
+        ? session.session_date.toISOString().slice(0, 10)
+        : String(session.session_date).slice(0, 10);
+      
+      const extractTime = (timeVal) => {
+        if (!timeVal) return null;
+        const str = String(timeVal);
+        if (str.includes(' ')) return str.split(' ')[1] || str;
+        if (str.includes('T')) return str.split('T')[1]?.slice(0, 8) || str;
+        return str;
+      };
+      
+      const openingTimeStr = extractTime(session.opening_time) || '00:00:00';
+      const shiftStartTime = `${sessionDateStr} ${openingTimeStr}`;
+      const now = new Date();
+      const shiftEndTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
 
-      const expectedCash = (cashTotals[0].cash_in || 0) - (cashTotals[0].cash_out || 0);
+      logger.info(`Closing shift ${session.id} - Time range: ${shiftStartTime} to ${shiftEndTime}`);
+
+      // Calculate expected cash for THIS SHIFT only (not cumulative across all shifts)
+      // Expected cash = opening cash + cash sales during this shift
+      const openingCash = parseFloat(session.opening_cash) || 0;
+      
+      // Get cash payments for this shift time range
+      const [cashPayments] = await connection.query(
+        `SELECT SUM(p.total_amount) as total_cash
+         FROM payments p
+         JOIN orders o ON p.order_id = o.id
+         LEFT JOIN tables t ON o.table_id = t.id
+         WHERE p.outlet_id = ? AND p.created_at >= ? AND p.created_at <= ?
+           AND p.status = 'completed' AND p.payment_mode = 'cash'
+           AND (t.floor_id = ? OR (t.floor_id IS NULL AND ? IS NULL) OR o.table_id IS NULL)`,
+        [outletId, shiftStartTime, shiftEndTime, floorId, floorId]
+      );
+      
+      // Get cash from split payments for this shift
+      const [splitCashPayments] = await connection.query(
+        `SELECT SUM(sp.amount) as total_cash
+         FROM split_payments sp
+         JOIN payments p ON sp.payment_id = p.id
+         JOIN orders o ON p.order_id = o.id
+         LEFT JOIN tables t ON o.table_id = t.id
+         WHERE p.outlet_id = ? AND p.created_at >= ? AND p.created_at <= ?
+           AND p.status = 'completed' AND p.payment_mode = 'split' AND sp.payment_mode = 'cash'
+           AND (t.floor_id = ? OR (t.floor_id IS NULL AND ? IS NULL) OR o.table_id IS NULL)`,
+        [outletId, shiftStartTime, shiftEndTime, floorId, floorId]
+      );
+      
+      const totalCashSales = (parseFloat(cashPayments[0]?.total_cash) || 0) + (parseFloat(splitCashPayments[0]?.total_cash) || 0);
+      const expectedCash = openingCash + totalCashSales;
       const variance = actualCash - expectedCash;
 
-      // Get day totals for this floor
-      const [dayTotals] = await connection.query(
+      logger.info(`Shift ${session.id} closing calc - Opening: ${openingCash}, CashSales: ${totalCashSales}, ExpectedCash: ${expectedCash}, ActualCash: ${actualCash}, Variance: ${variance}`);
+
+      // Get shift totals (not day totals)
+      const [shiftTotals] = await connection.query(
         `SELECT 
           COUNT(*) as total_orders,
           SUM(o.total_amount) as total_sales,
           SUM(CASE WHEN o.payment_status = 'completed' THEN o.paid_amount ELSE 0 END) as total_collected
          FROM orders o
          LEFT JOIN tables t ON o.table_id = t.id
-         WHERE o.outlet_id = ? AND DATE(o.created_at) = ? AND o.status != 'cancelled'
+         WHERE o.outlet_id = ? AND o.created_at >= ? AND o.created_at <= ? AND o.status != 'cancelled'
          AND (t.floor_id = ? OR (t.floor_id IS NULL AND ? IS NULL) OR o.table_id IS NULL)`,
-        [outletId, today, floorId, floorId]
+        [outletId, shiftStartTime, shiftEndTime, floorId, floorId]
       );
 
       // Update session
@@ -1072,7 +1100,7 @@ const paymentService = {
          WHERE id = ?`,
         [
           actualCash, expectedCash, variance,
-          dayTotals[0].total_sales || 0, dayTotals[0].total_orders || 0,
+          shiftTotals[0].total_sales || 0, shiftTotals[0].total_orders || 0,
           userId, notes, session.id
         ]
       );
@@ -1082,7 +1110,7 @@ const paymentService = {
         `INSERT INTO cash_drawer (
           outlet_id, floor_id, user_id, transaction_type, amount,
           balance_before, balance_after, description
-        ) VALUES (?, ?, ?, 'closing', ?, ?, ?, 'Day closing')`,
+        ) VALUES (?, ?, ?, 'closing', ?, ?, ?, 'Shift closing')`,
         [outletId, floorId, userId, -expectedCash, expectedCash, 0]
       );
 
@@ -1096,8 +1124,8 @@ const paymentService = {
         expectedCash,
         actualCash,
         variance,
-        totalSales: dayTotals[0].total_sales || 0,
-        totalOrders: dayTotals[0].total_orders || 0
+        totalSales: shiftTotals[0].total_sales || 0,
+        totalOrders: shiftTotals[0].total_orders || 0
       };
     } catch (error) {
       await connection.rollback();
@@ -1151,8 +1179,8 @@ const paymentService = {
       }
     }
 
-    // Get session for this floor - show ANY session for today (not filtered by cashier)
-    // This ensures we see if shift is already open by another cashier
+    // Get session for this floor - prioritize OPEN session, else get most recent
+    // Since multiple shifts per day are now allowed, we need to find the current open one
     let sessionQuery = `
       SELECT ds.*, f.name as floor_name, u.name as cashier_name
       FROM day_sessions ds
@@ -1165,15 +1193,53 @@ const paymentService = {
       sessionQuery += ` AND ds.floor_id = ?`;
       sessionParams.push(floorId);
     }
+    
+    // Order by status (open first) and then by opening_time DESC to get most recent
+    sessionQuery += ` ORDER BY CASE WHEN ds.status = 'open' THEN 0 ELSE 1 END, ds.opening_time DESC LIMIT 1`;
 
     const [session] = await pool.query(sessionQuery, sessionParams);
+    
+    logger.info(`getCashDrawerStatus - Found session: ${session[0] ? `ID=${session[0].id}, status=${session[0].status}` : 'none'}, floorId=${floorId}, today=${today}`);
     
     // Check if current user is the shift owner
     const isShiftOwner = session[0] && session[0].cashier_id === userId;
     
     // Get shift timing - if session is open, use opening_time; if closed, no data
     const hasOpenShift = session[0] && session[0].status === 'open';
-    const shiftStartTime = hasOpenShift ? session[0].opening_time : null;
+    
+    // Helper to extract time portion from various formats
+    const extractTime = (timeVal) => {
+      if (!timeVal) return null;
+      const str = String(timeVal);
+      if (str.includes(' ')) return str.split(' ')[1] || str;
+      if (str.includes('T')) return str.split('T')[1]?.slice(0, 8) || str;
+      return str;
+    };
+    
+    // Helper to format date in LOCAL timezone (not UTC)
+    const formatLocalDate = (dateVal) => {
+      if (!dateVal) return null;
+      if (dateVal instanceof Date) {
+        return `${dateVal.getFullYear()}-${String(dateVal.getMonth() + 1).padStart(2, '0')}-${String(dateVal.getDate()).padStart(2, '0')}`;
+      }
+      // If string, extract just the date part
+      return String(dateVal).slice(0, 10);
+    };
+
+    // Build proper shift start and end datetime
+    let shiftStartTime = null;
+    let shiftEndTime = null;
+    if (hasOpenShift && session[0].opening_time) {
+      const sessionDate = formatLocalDate(session[0].session_date);
+      const openingTime = extractTime(session[0].opening_time) || '00:00:00';
+      shiftStartTime = `${sessionDate} ${openingTime}`;
+      // For open shifts, use current LOCAL time as end (not UTC)
+      const now = new Date();
+      const localDateTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+      shiftEndTime = localDateTime;
+    }
+
+    logger.info(`Cash drawer status - Shift time range: ${shiftStartTime} to ${shiftEndTime}`);
 
     // If no open shift, return empty data structure
     if (!hasOpenShift) {
@@ -1219,11 +1285,11 @@ const paymentService = {
       };
     }
 
-    // Get current balance for this floor (from shift start onwards)
+    // Get current balance for this floor (within shift time range)
     let balanceQuery = `
       SELECT balance_after FROM cash_drawer 
-      WHERE outlet_id = ? AND created_at >= ?`;
-    const balanceParams = [outletId, shiftStartTime];
+      WHERE outlet_id = ? AND created_at >= ? AND created_at <= ?`;
+    const balanceParams = [outletId, shiftStartTime, shiftEndTime];
     
     if (floorId) {
       balanceQuery += ` AND floor_id = ?`;
@@ -1233,12 +1299,12 @@ const paymentService = {
     
     const [balance] = await pool.query(balanceQuery, balanceParams);
 
-    // Get recent transactions for this shift (from shift start onwards)
+    // Get recent transactions for this shift (within shift time range)
     let transQuery = `
       SELECT cd.*, u.name as user_name FROM cash_drawer cd
       LEFT JOIN users u ON cd.user_id = u.id
-      WHERE cd.outlet_id = ? AND cd.created_at >= ?`;
-    const transParams = [outletId, shiftStartTime];
+      WHERE cd.outlet_id = ? AND cd.created_at >= ? AND cd.created_at <= ?`;
+    const transParams = [outletId, shiftStartTime, shiftEndTime];
     
     if (floorId) {
       transQuery += ` AND cd.floor_id = ?`;
@@ -1250,13 +1316,13 @@ const paymentService = {
 
     // Build floor filter for orders - filter by cashier's assigned floor
     let floorCondition = '';
-    const salesParams = [outletId, shiftStartTime];
+    const salesParams = [outletId, shiftStartTime, shiftEndTime];
     if (floorId) {
       floorCondition = ` AND (t.floor_id = ? OR (o.table_id IS NULL AND o.order_type != 'dine_in'))`;
       salesParams.push(floorId);
     }
 
-    // Get real-time order data for this SHIFT (from shift start time onwards)
+    // Get real-time order data for this SHIFT (within shift time range)
     const [orderData] = await pool.query(
       `SELECT 
         COUNT(DISTINCT o.id) as total_orders,
@@ -1266,12 +1332,12 @@ const paymentService = {
         COUNT(CASE WHEN o.status NOT IN ('cancelled', 'paid', 'completed') THEN 1 END) as active_orders
        FROM orders o
        LEFT JOIN tables t ON o.table_id = t.id
-       WHERE o.outlet_id = ? AND o.created_at >= ? AND o.status != 'cancelled'${floorCondition}`,
+       WHERE o.outlet_id = ? AND o.created_at >= ? AND o.created_at <= ? AND o.status != 'cancelled'${floorCondition}`,
       salesParams
     );
 
-    // Get total collected in this SHIFT from payments (from shift start time onwards)
-    const collectedParams = [outletId, shiftStartTime];
+    // Get total collected in this SHIFT from payments (within shift time range)
+    const collectedParams = [outletId, shiftStartTime, shiftEndTime];
     let collectedFloorCondition = '';
     if (floorId) {
       collectedFloorCondition = ` AND (t.floor_id = ? OR (o.table_id IS NULL AND o.order_type != 'dine_in'))`;
@@ -1279,36 +1345,62 @@ const paymentService = {
     }
     const [collectedData] = await pool.query(
       `SELECT 
-        COALESCE(SUM(p.amount), 0) as total_collected,
+        COALESCE(SUM(p.total_amount), 0) as total_collected,
         COUNT(DISTINCT p.order_id) as orders_paid_in_shift
        FROM payments p
        JOIN orders o ON p.order_id = o.id
        LEFT JOIN tables t ON o.table_id = t.id
-       WHERE p.outlet_id = ? AND p.created_at >= ? AND p.status = 'completed'${collectedFloorCondition}`,
+       WHERE p.outlet_id = ? AND p.created_at >= ? AND p.created_at <= ? AND p.status = 'completed'${collectedFloorCondition}`,
       collectedParams
     );
 
-    // Get payment breakdown by mode for this SHIFT
-    const paymentParams = [outletId, shiftStartTime];
+    // Get payment breakdown by mode for this SHIFT (within shift time range)
+    // Handle both regular payments AND split payments (from split_payments table)
+    const paymentParams = [outletId, shiftStartTime, shiftEndTime];
     let paymentFloorCondition = '';
     if (floorId) {
       paymentFloorCondition = ` AND (t.floor_id = ? OR (o.table_id IS NULL AND o.order_type != 'dine_in'))`;
       paymentParams.push(floorId);
     }
 
-    const [paymentBreakdown] = await pool.query(
+    // Query for regular payments (non-split)
+    const regularPaymentParams = [...paymentParams];
+    const [regularPayments] = await pool.query(
       `SELECT 
         p.payment_mode,
         COUNT(*) as transaction_count,
-        SUM(p.amount) as total_amount
+        SUM(p.total_amount) as total_amount
        FROM payments p
        JOIN orders o ON p.order_id = o.id
        LEFT JOIN tables t ON o.table_id = t.id
-       WHERE p.outlet_id = ? AND p.created_at >= ? AND p.status = 'completed'${paymentFloorCondition}
-       GROUP BY p.payment_mode
-       ORDER BY total_amount DESC`,
-      paymentParams
+       WHERE p.outlet_id = ? AND p.created_at >= ? AND p.created_at <= ? 
+         AND p.status = 'completed' AND p.payment_mode != 'split'${paymentFloorCondition}
+       GROUP BY p.payment_mode`,
+      regularPaymentParams
     );
+
+    // Query for split payments - get individual payment modes from split_payments table
+    const splitPaymentParams = [outletId, shiftStartTime, shiftEndTime];
+    if (floorId) {
+      splitPaymentParams.push(floorId);
+    }
+    const [splitPayments] = await pool.query(
+      `SELECT 
+        sp.payment_mode,
+        COUNT(*) as transaction_count,
+        SUM(sp.amount) as total_amount
+       FROM split_payments sp
+       JOIN payments p ON sp.payment_id = p.id
+       JOIN orders o ON p.order_id = o.id
+       LEFT JOIN tables t ON o.table_id = t.id
+       WHERE p.outlet_id = ? AND p.created_at >= ? AND p.created_at <= ? 
+         AND p.status = 'completed' AND p.payment_mode = 'split'${paymentFloorCondition}
+       GROUP BY sp.payment_mode`,
+      splitPaymentParams
+    );
+
+    // Combine regular and split payments into one breakdown
+    const paymentBreakdown = [...regularPayments, ...splitPayments];
 
     // Calculate payment totals
     const paymentSummary = {
@@ -1347,8 +1439,8 @@ const paymentService = {
       }
     }
 
-    // Get cash drawer movements for this SHIFT (excluding sales - we get those from payments table)
-    const cashMovementParams = [outletId, shiftStartTime];
+    // Get cash drawer movements for this SHIFT (within shift time range)
+    const cashMovementParams = [outletId, shiftStartTime, shiftEndTime];
     let cashFloorCondition = '';
     if (floorId) {
       cashFloorCondition = ` AND floor_id = ?`;
@@ -1363,7 +1455,7 @@ const paymentService = {
         SUM(CASE WHEN transaction_type = 'refund' THEN ABS(amount) ELSE 0 END) as refunds,
         SUM(CASE WHEN transaction_type = 'expense' THEN ABS(amount) ELSE 0 END) as expenses
        FROM cash_drawer 
-       WHERE outlet_id = ? AND created_at >= ?${cashFloorCondition}`,
+       WHERE outlet_id = ? AND created_at >= ? AND created_at <= ?${cashFloorCondition}`,
       cashMovementParams
     );
 
@@ -1371,14 +1463,32 @@ const paymentService = {
     // Cash sales come from payments table (paymentSummary.cash), not cash_drawer
     const cashSalesFromPayments = paymentSummary.cash;
     
-    // Expected cash = opening + cash payments + cash_in - cash_out - refunds - expenses
+    // Get opening cash from session record (more reliable than cash_drawer)
+    const openingCashFromSession = parseFloat(session[0]?.opening_cash) || 0;
+    
+    // Total sales = all payments (cash + card + upi + others)
+    const totalSales = paymentSummary.total;
+    
+    // Expected amount = Opening Cash + ALL payments (cash + card + UPI etc.) + cash_in - cash_out - refunds - expenses
+    const expectedAmount = 
+      openingCashFromSession +
+      totalSales +
+      (parseFloat(cashSummary.cash_in) || 0) -
+      (parseFloat(cashSummary.cash_out) || 0) -
+      (parseFloat(cashSummary.refunds) || 0) -
+      (parseFloat(cashSummary.expenses) || 0);
+    
+    // Expected cash in drawer (only cash) = opening + cash payments + cash_in - cash_out - refunds - expenses
     const expectedCashInDrawer = 
-      (parseFloat(cashSummary.opening_cash) || 0) +
+      openingCashFromSession +
       cashSalesFromPayments +
       (parseFloat(cashSummary.cash_in) || 0) -
       (parseFloat(cashSummary.cash_out) || 0) -
       (parseFloat(cashSummary.refunds) || 0) -
       (parseFloat(cashSummary.expenses) || 0);
+    
+    // Debug logging
+    logger.info(`Cash drawer calculation - Opening: ${openingCashFromSession}, Cash Sales: ${cashSalesFromPayments}, Total Sales: ${totalSales}, Expected Amount: ${expectedAmount}, Expected Cash: ${expectedCashInDrawer}`);
 
     // Get running tables for this floor (occupied tables with active orders created during this shift)
     let runningTablesQuery = `
@@ -1392,10 +1502,10 @@ const paymentService = {
       FROM tables t
       LEFT JOIN orders o ON o.table_id = t.id 
         AND o.status NOT IN ('paid', 'completed', 'cancelled')
-        AND o.created_at >= ?
+        AND o.created_at >= ? AND o.created_at <= ?
       LEFT JOIN users u ON o.created_by = u.id
       WHERE t.outlet_id = ? AND t.status = 'occupied' AND t.is_active = 1`;
-    const runningTablesParams = [shiftStartTime, outletId];
+    const runningTablesParams = [shiftStartTime, shiftEndTime, outletId];
     
     if (floorId) {
       runningTablesQuery += ` AND t.floor_id = ?`;
@@ -1453,19 +1563,23 @@ const paymentService = {
       assignedFloor,
       floorId,
       userId,
-      currentBalance: expectedCashInDrawer,
-      expectedCash: expectedCashInDrawer,
+      // Key summary values for UI
+      openingAmount: openingCashFromSession,
+      expectedAmount: expectedAmount,         // Opening + ALL Sales (cash + card + UPI) + Cash In - Cash Out - Refunds - Expenses
+      totalSales: totalSales,                 // All payments (cash + card + UPI etc.) without opening
+      currentBalance: expectedCashInDrawer,   // Expected cash in drawer only
+      expectedCash: expectedCashInDrawer,     // Expected cash in drawer only
       // Real-time sales data
       sales: {
         totalOrders: parseInt(orderData[0]?.total_orders) || 0,
         completedOrders: parseInt(orderData[0]?.completed_orders) || 0,
         activeOrders: parseInt(orderData[0]?.active_orders) || 0,
         totalGuests: parseInt(orderData[0]?.total_guests) || 0,
-        totalCollected: parseFloat(collectedData[0]?.total_collected) || 0,
+        totalCollected: totalSales,  // Use calculated totalSales
         ordersPaidInShift: parseInt(collectedData[0]?.orders_paid_in_shift) || 0,
         pendingAmount: parseFloat(orderData[0]?.pending_amount) || 0
       },
-      // Payment breakdown
+      // Payment breakdown by mode
       paymentBreakdown: paymentSummary,
       paymentDetails: paymentBreakdown.map(p => ({
         mode: p.payment_mode,
@@ -1474,7 +1588,7 @@ const paymentService = {
       })),
       // Cash drawer movements
       cashMovements: {
-        openingCash: parseFloat(cashSummary.opening_cash) || 0,
+        openingCash: openingCashFromSession,
         cashSales: cashSalesFromPayments,
         cashIn: parseFloat(cashSummary.cash_in) || 0,
         cashOut: parseFloat(cashSummary.cash_out) || 0,
@@ -1679,9 +1793,9 @@ const paymentService = {
 
     const whereClause = conditions.join(' AND ');
 
-    // Validate sort columns
-    const allowedSortColumns = ['session_date', 'opening_time', 'closing_time', 'total_sales', 'total_orders', 'cash_variance'];
-    const safeSort = allowedSortColumns.includes(sortBy) ? sortBy : 'session_date';
+    // Validate sort columns - default to opening_time DESC (newest first)
+    const allowedSortColumns = ['session_date', 'opening_time', 'closing_time', 'total_sales', 'total_orders', 'cash_variance', 'id'];
+    const safeSort = allowedSortColumns.includes(sortBy) ? sortBy : 'opening_time';
     const safeOrder = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
     // Get total count
@@ -1713,39 +1827,127 @@ const paymentService = {
       [...queryParams, parseInt(limit), parseInt(offset)]
     );
 
-    // Format shifts with floor info
-    const formattedShifts = shifts.map(shift => ({
-      id: shift.id,
-      outletId: shift.outlet_id,
-      outletName: shift.outlet_name,
-      floorId: shift.floor_id,
-      floorName: shift.floor_name,
-      floorNumber: shift.floor_number,
-      cashierId: shift.cashier_id,
-      cashierName: shift.cashier_name,
-      sessionDate: shift.session_date,
-      openingTime: shift.opening_time,
-      closingTime: shift.closing_time,
-      openingCash: parseFloat(shift.opening_cash) || 0,
-      closingCash: parseFloat(shift.closing_cash) || 0,
-      expectedCash: parseFloat(shift.expected_cash) || 0,
-      cashVariance: parseFloat(shift.cash_variance) || 0,
-      totalSales: parseFloat(shift.total_sales) || 0,
-      totalOrders: shift.total_orders || 0,
-      totalCashSales: parseFloat(shift.total_cash_sales) || 0,
-      totalCardSales: parseFloat(shift.total_card_sales) || 0,
-      totalUpiSales: parseFloat(shift.total_upi_sales) || 0,
-      totalDiscounts: parseFloat(shift.total_discounts) || 0,
-      totalRefunds: parseFloat(shift.total_refunds) || 0,
-      totalCancellations: parseFloat(shift.total_cancellations) || 0,
-      status: shift.status,
-      openedBy: shift.opened_by,
-      openedByName: shift.opened_by_name,
-      closedBy: shift.closed_by,
-      closedByName: shift.closed_by_name,
-      varianceNotes: shift.variance_notes,
-      createdAt: shift.created_at,
-      updatedAt: shift.updated_at
+    // Helper to format date in LOCAL timezone (not UTC)
+    const formatLocalDate = (dateVal) => {
+      if (!dateVal) return null;
+      if (dateVal instanceof Date) {
+        return `${dateVal.getFullYear()}-${String(dateVal.getMonth() + 1).padStart(2, '0')}-${String(dateVal.getDate()).padStart(2, '0')}`;
+      }
+      return String(dateVal).slice(0, 10);
+    };
+
+    // Helper to extract time portion
+    const extractTime = (timeVal) => {
+      if (!timeVal) return null;
+      const str = String(timeVal);
+      if (str.includes(' ')) return str.split(' ')[1] || str;
+      if (str.includes('T')) return str.split('T')[1]?.slice(0, 8) || str;
+      return str;
+    };
+
+    // Calculate real-time values for each shift based on shift time range
+    const formattedShifts = await Promise.all(shifts.map(async (shift) => {
+      const sessionDateStr = formatLocalDate(shift.session_date);
+      const openingTimeStr = extractTime(shift.opening_time) || '00:00:00';
+      const closingTimeStr = extractTime(shift.closing_time);
+      
+      const shiftStartTime = `${sessionDateStr} ${openingTimeStr}`;
+      let shiftEndTime;
+      if (closingTimeStr) {
+        shiftEndTime = `${sessionDateStr} ${closingTimeStr}`;
+      } else if (shift.status === 'open') {
+        const now = new Date();
+        shiftEndTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+      } else {
+        shiftEndTime = `${sessionDateStr} 23:59:59`;
+      }
+
+      // Calculate payment breakdown from payments + split_payments within shift time range
+      // Must join with orders table for floor filtering (payments table has no floor_id)
+      const floorCondition = shift.floor_id ? ' AND (t.floor_id = ? OR (o.table_id IS NULL AND o.order_type != \'dine_in\'))' : '';
+      const floorParams = shift.floor_id ? [shift.floor_id] : [];
+
+      // Regular payments (non-split) - join orders for floor filtering
+      const [regularPayments] = await pool.query(
+        `SELECT p.payment_mode, SUM(p.total_amount) as total
+         FROM payments p
+         JOIN orders o ON p.order_id = o.id
+         LEFT JOIN tables t ON o.table_id = t.id
+         WHERE p.outlet_id = ? AND p.created_at >= ? AND p.created_at <= ? 
+           AND p.status = 'completed' AND p.payment_mode != 'split'${floorCondition}
+         GROUP BY p.payment_mode`,
+        [shift.outlet_id, shiftStartTime, shiftEndTime, ...floorParams]
+      );
+
+      // Split payments - join orders for floor filtering
+      const [splitPayments] = await pool.query(
+        `SELECT sp.payment_mode, SUM(sp.amount) as total
+         FROM split_payments sp
+         JOIN payments p ON sp.payment_id = p.id
+         JOIN orders o ON p.order_id = o.id
+         LEFT JOIN tables t ON o.table_id = t.id
+         WHERE p.outlet_id = ? AND p.created_at >= ? AND p.created_at <= ? 
+           AND p.status = 'completed' AND p.payment_mode = 'split'${floorCondition}
+         GROUP BY sp.payment_mode`,
+        [shift.outlet_id, shiftStartTime, shiftEndTime, ...floorParams]
+      );
+
+      // Calculate totals
+      let totalCashSales = 0, totalCardSales = 0, totalUpiSales = 0, totalOtherSales = 0;
+      let totalSales = 0;
+      for (const p of [...regularPayments, ...splitPayments]) {
+        const amount = parseFloat(p.total) || 0;
+        totalSales += amount;
+        if (p.payment_mode === 'cash') totalCashSales += amount;
+        else if (p.payment_mode === 'card' || p.payment_mode === 'credit_card' || p.payment_mode === 'debit_card') totalCardSales += amount;
+        else if (p.payment_mode === 'upi') totalUpiSales += amount;
+        else totalOtherSales += amount;
+      }
+
+      const openingCash = parseFloat(shift.opening_cash) || 0;
+      const closingCash = parseFloat(shift.closing_cash) || 0;
+      const expectedAmount = openingCash + totalSales;
+      const expectedCash = openingCash + totalCashSales;
+      // Calculate cash variance: actual closing cash vs expected cash (positive = over, negative = short)
+      const cashVariance = shift.status === 'closed' ? (closingCash - expectedCash) : 0;
+
+      logger.info(`Shift ${shift.id} history calc - Time: ${shiftStartTime} to ${shiftEndTime}, Opening: ${openingCash}, Cash: ${totalCashSales}, UPI: ${totalUpiSales}, Card: ${totalCardSales}, Total: ${totalSales}, Expected: ${expectedAmount}, ExpectedCash: ${expectedCash}, ClosingCash: ${closingCash}, Variance: ${cashVariance}`);
+
+      return {
+        id: shift.id,
+        outletId: shift.outlet_id,
+        outletName: shift.outlet_name,
+        floorId: shift.floor_id,
+        floorName: shift.floor_name,
+        floorNumber: shift.floor_number,
+        cashierId: shift.cashier_id,
+        cashierName: shift.cashier_name,
+        sessionDate: shift.session_date,
+        openingTime: shift.opening_time,
+        closingTime: shift.closing_time,
+        openingCash: openingCash,
+        closingCash: closingCash,
+        expectedAmount: expectedAmount,
+        expectedCash: expectedCash,
+        cashVariance: cashVariance,
+        totalSales: totalSales,
+        totalOrders: shift.total_orders || 0,
+        totalCashSales: totalCashSales,
+        totalCardSales: totalCardSales,
+        totalUpiSales: totalUpiSales,
+        totalOtherSales: totalOtherSales,
+        totalDiscounts: parseFloat(shift.total_discounts) || 0,
+        totalRefunds: parseFloat(shift.total_refunds) || 0,
+        totalCancellations: parseFloat(shift.total_cancellations) || 0,
+        status: shift.status,
+        openedBy: shift.opened_by,
+        openedByName: shift.opened_by_name,
+        closedBy: shift.closed_by,
+        closedByName: shift.closed_by_name,
+        varianceNotes: shift.variance_notes,
+        createdAt: shift.created_at,
+        updatedAt: shift.updated_at
+      };
     }));
 
     return {
@@ -1802,14 +2004,45 @@ const paymentService = {
     const floorId = shift.floor_id;
 
     // Build shift time range for filtering (shift-specific, not day-wise)
-    // Combine session_date with opening_time and closing_time
-    const shiftStartTime = shift.opening_time 
-      ? `${shift.session_date} ${shift.opening_time}` 
-      : `${shift.session_date} 00:00:00`;
-    // For open shifts, use current time as end; for closed shifts use closing_time
-    const shiftEndTime = shift.closing_time 
-      ? `${shift.session_date} ${shift.closing_time}` 
-      : (shift.status === 'open' ? new Date().toISOString().slice(0, 19).replace('T', ' ') : `${shift.session_date} 23:59:59`);
+    // Helper to format date in LOCAL timezone (not UTC)
+    const formatLocalDate = (dateVal) => {
+      if (!dateVal) return null;
+      if (dateVal instanceof Date) {
+        return `${dateVal.getFullYear()}-${String(dateVal.getMonth() + 1).padStart(2, '0')}-${String(dateVal.getDate()).padStart(2, '0')}`;
+      }
+      return String(dateVal).slice(0, 10);
+    };
+    
+    const sessionDateStr = formatLocalDate(shift.session_date);
+    
+    // Helper to extract time portion from various formats
+    const extractTime = (timeVal) => {
+      if (!timeVal) return null;
+      const str = String(timeVal);
+      if (str.includes(' ')) return str.split(' ')[1] || str;
+      if (str.includes('T')) return str.split('T')[1]?.slice(0, 8) || str;
+      return str;
+    };
+    
+    // Format opening_time and closing_time
+    const openingTimeStr = extractTime(shift.opening_time) || '00:00:00';
+    const closingTimeStr = extractTime(shift.closing_time);
+    
+    // Combine date and time for shift range
+    const shiftStartTime = `${sessionDateStr} ${openingTimeStr}`;
+    // For open shifts, use current LOCAL time as end (not UTC); for closed shifts use closing_time
+    let shiftEndTime;
+    if (closingTimeStr) {
+      shiftEndTime = `${sessionDateStr} ${closingTimeStr}`;
+    } else if (shift.status === 'open') {
+      const now = new Date();
+      shiftEndTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+    } else {
+      shiftEndTime = `${sessionDateStr} 23:59:59`;
+    }
+
+    // Debug log for shift time range
+    logger.info(`Shift ${shiftId} time range: ${shiftStartTime} to ${shiftEndTime} (status: ${shift.status})`);
 
     // Get all cash drawer transactions for this shift (filtered by shift time range)
     let transQuery = `
@@ -1832,21 +2065,49 @@ const paymentService = {
     const [transactions] = await pool.query(transQuery, transParams);
 
     // Get payment breakdown for the shift (filtered by shift time range)
-    let paymentQuery = `
-      SELECT payment_mode, COUNT(*) as count, SUM(total_amount) as total
-      FROM payments
-      WHERE outlet_id = ? AND created_at >= ? AND created_at <= ? AND status = 'completed'`;
+    // Handle both regular payments AND split payments (from split_payments table)
+    // Must join with orders table for floor filtering (payments table has no floor_id)
     const paymentParams = [shift.outlet_id, shiftStartTime, shiftEndTime];
-    
+    let paymentFloorCondition = '';
     if (floorId) {
-      paymentQuery += ` AND floor_id = ?`;
+      paymentFloorCondition = ` AND (t.floor_id = ? OR (o.table_id IS NULL AND o.order_type != 'dine_in'))`;
       paymentParams.push(floorId);
     }
-    paymentQuery += ` GROUP BY payment_mode`;
-    
-    const [paymentBreakdown] = await pool.query(paymentQuery, paymentParams);
+
+    // Query for regular payments (non-split) - join orders for floor filtering
+    const [regularPayments] = await pool.query(
+      `SELECT p.payment_mode, COUNT(*) as count, SUM(p.total_amount) as total
+       FROM payments p
+       JOIN orders o ON p.order_id = o.id
+       LEFT JOIN tables t ON o.table_id = t.id
+       WHERE p.outlet_id = ? AND p.created_at >= ? AND p.created_at <= ? 
+         AND p.status = 'completed' AND p.payment_mode != 'split'${paymentFloorCondition}
+       GROUP BY p.payment_mode`,
+      paymentParams
+    );
+
+    // Query for split payments - get individual payment modes from split_payments table
+    const splitParams = [shift.outlet_id, shiftStartTime, shiftEndTime];
+    if (floorId) {
+      splitParams.push(floorId);
+    }
+    const [splitPayments] = await pool.query(
+      `SELECT sp.payment_mode, COUNT(*) as count, SUM(sp.amount) as total
+       FROM split_payments sp
+       JOIN payments p ON sp.payment_id = p.id
+       JOIN orders o ON p.order_id = o.id
+       LEFT JOIN tables t ON o.table_id = t.id
+       WHERE p.outlet_id = ? AND p.created_at >= ? AND p.created_at <= ? 
+         AND p.status = 'completed' AND p.payment_mode = 'split'${paymentFloorCondition}
+       GROUP BY sp.payment_mode`,
+      splitParams
+    );
+
+    // Combine regular and split payments
+    const paymentBreakdown = [...regularPayments, ...splitPayments];
 
     // Get order statistics (filtered by shift time range)
+    // Also calculate real-time total_sales and total_orders for open shifts
     let orderQuery = `
       SELECT 
         COUNT(*) as total_orders,
@@ -1855,6 +2116,7 @@ const paymentService = {
         SUM(CASE WHEN order_type = 'dine_in' AND status != 'cancelled' THEN 1 ELSE 0 END) as dine_in_orders,
         SUM(CASE WHEN order_type = 'takeaway' AND status != 'cancelled' THEN 1 ELSE 0 END) as takeaway_orders,
         SUM(CASE WHEN order_type = 'delivery' AND status != 'cancelled' THEN 1 ELSE 0 END) as delivery_orders,
+        SUM(CASE WHEN status IN ('completed', 'paid') THEN total_amount ELSE 0 END) as real_total_sales,
         AVG(CASE WHEN status != 'cancelled' THEN total_amount ELSE NULL END) as avg_order_value,
         MAX(CASE WHEN status != 'cancelled' THEN total_amount ELSE NULL END) as max_order_value,
         MIN(CASE WHEN status != 'cancelled' AND total_amount > 0 THEN total_amount ELSE NULL END) as min_order_value
@@ -1868,6 +2130,30 @@ const paymentService = {
     }
     
     const [orderStats] = await pool.query(orderQuery, orderParams);
+    
+    // Calculate payment totals from payment breakdown (handles split payments correctly)
+    let totalCashSales = 0, totalCardSales = 0, totalUpiSales = 0, totalOtherSales = 0;
+    let calculatedTotalSales = 0;
+    for (const p of paymentBreakdown) {
+      const amount = parseFloat(p.total) || 0;
+      calculatedTotalSales += amount;
+      if (p.payment_mode === 'cash') totalCashSales += amount;
+      else if (p.payment_mode === 'card' || p.payment_mode === 'credit_card' || p.payment_mode === 'debit_card') totalCardSales += amount;
+      else if (p.payment_mode === 'upi') totalUpiSales += amount;
+      else totalOtherSales += amount;
+    }
+
+    const openingCash = parseFloat(shift.opening_cash) || 0;
+    const closingCash = parseFloat(shift.closing_cash) || 0;
+    const expectedAmount = openingCash + calculatedTotalSales;
+    const expectedCash = openingCash + totalCashSales;
+    // Calculate cash variance: actual closing cash vs expected cash (positive = over, negative = short)
+    const cashVariance = shift.status === 'closed' ? (closingCash - expectedCash) : 0;
+    
+    // Use calculated values for accuracy
+    const realTotalOrders = parseInt(orderStats[0]?.completed_orders) || 0;
+
+    logger.info(`Shift ${shiftId} detail calc - Time: ${shiftStartTime} to ${shiftEndTime}, Opening: ${openingCash}, Cash: ${totalCashSales}, UPI: ${totalUpiSales}, Card: ${totalCardSales}, Total: ${calculatedTotalSales}, Expected: ${expectedAmount}, ExpectedCash: ${expectedCash}, ClosingCash: ${closingCash}, Variance: ${cashVariance}`);
 
     // Get staff who worked during this shift (filtered by shift time range)
     let staffQuery = `
@@ -1912,6 +2198,15 @@ const paymentService = {
       total: parseFloat(p.total) || 0
     }));
 
+    // Create payment breakdown summary object
+    const paymentSummary = {
+      cash: totalCashSales,
+      card: totalCardSales,
+      upi: totalUpiSales,
+      other: totalOtherSales,
+      total: calculatedTotalSales
+    };
+
     return {
       id: shift.id,
       outletId: shift.outlet_id,
@@ -1923,15 +2218,20 @@ const paymentService = {
       sessionDate: shift.session_date,
       openingTime: shift.opening_time,
       closingTime: shift.closing_time,
-      openingCash: parseFloat(shift.opening_cash) || 0,
-      closingCash: parseFloat(shift.closing_cash) || 0,
-      expectedCash: parseFloat(shift.expected_cash) || 0,
-      cashVariance: parseFloat(shift.cash_variance) || 0,
-      totalSales: parseFloat(shift.total_sales) || 0,
-      totalOrders: shift.total_orders || 0,
-      totalCashSales: parseFloat(shift.total_cash_sales) || 0,
-      totalCardSales: parseFloat(shift.total_card_sales) || 0,
-      totalUpiSales: parseFloat(shift.total_upi_sales) || 0,
+      // Key calculated values
+      openingAmount: openingCash,
+      openingCash: openingCash,
+      closingCash: closingCash,
+      expectedAmount: expectedAmount,       // Opening + ALL Sales
+      expectedCash: expectedCash,           // Opening + Cash Sales only
+      cashVariance: cashVariance,           // Calculated: closingCash - expectedCash
+      // Real-time calculated totals
+      totalSales: calculatedTotalSales,
+      totalOrders: realTotalOrders,
+      totalCashSales: totalCashSales,
+      totalCardSales: totalCardSales,
+      totalUpiSales: totalUpiSales,
+      totalOtherSales: totalOtherSales,
       totalDiscounts: parseFloat(shift.total_discounts) || 0,
       totalRefunds: parseFloat(shift.total_refunds) || 0,
       totalCancellations: parseFloat(shift.total_cancellations) || 0,
@@ -1943,6 +2243,7 @@ const paymentService = {
       varianceNotes: shift.variance_notes,
       transactions: formattedTransactions,
       paymentBreakdown: formattedPayments,
+      paymentSummary: paymentSummary,       // Structured payment breakdown
       orderStats: {
         totalOrders: orderStats[0]?.total_orders || 0,
         completedOrders: orderStats[0]?.completed_orders || 0,
@@ -1962,6 +2263,222 @@ const paymentService = {
       })),
       createdAt: shift.created_at,
       updatedAt: shift.updated_at
+    };
+  },
+
+  /**
+   * Get single shift summary by ID with shift-time-based calculations
+   * @param {number} shiftId - Shift (day_session) ID
+   * @param {number} cashierId - If provided, verify shift belongs to this cashier
+   * @returns {Object} - Shift summary with real-time calculations
+   */
+  async getShiftSummaryById(shiftId, cashierId = null) {
+    const pool = getPool();
+
+    // Get shift details
+    const [shifts] = await pool.query(
+      `SELECT 
+        ds.*,
+        o.name as outlet_name,
+        f.name as floor_name,
+        cashier.name as cashier_name
+       FROM day_sessions ds
+       LEFT JOIN outlets o ON ds.outlet_id = o.id
+       LEFT JOIN floors f ON ds.floor_id = f.id
+       LEFT JOIN users cashier ON ds.cashier_id = cashier.id
+       WHERE ds.id = ?`,
+      [shiftId]
+    );
+
+    if (!shifts[0]) {
+      throw new Error('Shift not found');
+    }
+
+    const shift = shifts[0];
+
+    // If cashierId provided, verify this shift belongs to the cashier
+    if (cashierId && shift.cashier_id && shift.cashier_id !== cashierId) {
+      throw new Error('You can only view your own shifts');
+    }
+
+    // Build shift time range for filtering (shift-specific, not day-wise)
+    // Helper to format date in LOCAL timezone (not UTC)
+    const formatLocalDate = (dateVal) => {
+      if (!dateVal) return null;
+      if (dateVal instanceof Date) {
+        return `${dateVal.getFullYear()}-${String(dateVal.getMonth() + 1).padStart(2, '0')}-${String(dateVal.getDate()).padStart(2, '0')}`;
+      }
+      return String(dateVal).slice(0, 10);
+    };
+    
+    const sessionDateStr = formatLocalDate(shift.session_date);
+    
+    // Helper to extract time portion from various formats
+    const extractTime = (timeVal) => {
+      if (!timeVal) return null;
+      const str = String(timeVal);
+      if (str.includes(' ')) return str.split(' ')[1] || str;
+      if (str.includes('T')) return str.split('T')[1]?.slice(0, 8) || str;
+      return str;
+    };
+    
+    const openingTimeStr = extractTime(shift.opening_time) || '00:00:00';
+    const closingTimeStr = extractTime(shift.closing_time);
+    
+    const shiftStartTime = `${sessionDateStr} ${openingTimeStr}`;
+    // For open shifts, use current LOCAL time as end (not UTC); for closed shifts use closing_time
+    let shiftEndTime;
+    if (closingTimeStr) {
+      shiftEndTime = `${sessionDateStr} ${closingTimeStr}`;
+    } else if (shift.status === 'open') {
+      const now = new Date();
+      shiftEndTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+    } else {
+      shiftEndTime = `${sessionDateStr} 23:59:59`;
+    }
+
+    logger.info(`Shift ${shiftId} summary time range: ${shiftStartTime} to ${shiftEndTime} (status: ${shift.status})`);
+
+    const floorId = shift.floor_id;
+
+    // Get order statistics within shift time range
+    let orderQuery = `
+      SELECT 
+        COUNT(*) as total_orders,
+        SUM(CASE WHEN status IN ('completed', 'paid') THEN 1 ELSE 0 END) as completed_orders,
+        SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_orders,
+        SUM(CASE WHEN status IN ('completed', 'paid') THEN total_amount ELSE 0 END) as total_sales,
+        SUM(CASE WHEN order_type = 'dine_in' AND status != 'cancelled' THEN 1 ELSE 0 END) as dine_in_orders,
+        SUM(CASE WHEN order_type = 'takeaway' AND status != 'cancelled' THEN 1 ELSE 0 END) as takeaway_orders,
+        SUM(CASE WHEN order_type = 'delivery' AND status != 'cancelled' THEN 1 ELSE 0 END) as delivery_orders,
+        AVG(CASE WHEN status != 'cancelled' THEN total_amount ELSE NULL END) as avg_order_value,
+        MAX(CASE WHEN status != 'cancelled' THEN total_amount ELSE NULL END) as max_order_value,
+        MIN(CASE WHEN status != 'cancelled' AND total_amount > 0 THEN total_amount ELSE NULL END) as min_order_value
+      FROM orders
+      WHERE outlet_id = ? AND created_at >= ? AND created_at <= ?`;
+    const orderParams = [shift.outlet_id, shiftStartTime, shiftEndTime];
+    
+    if (floorId) {
+      orderQuery += ` AND floor_id = ?`;
+      orderParams.push(floorId);
+    }
+    
+    const [orderStats] = await pool.query(orderQuery, orderParams);
+
+    // Get payment breakdown within shift time range
+    // Handle both regular payments AND split payments (from split_payments table)
+    // Must join with orders table for floor filtering (payments table has no floor_id)
+    const paymentParams = [shift.outlet_id, shiftStartTime, shiftEndTime];
+    let paymentFloorCondition = '';
+    if (floorId) {
+      paymentFloorCondition = ` AND (t.floor_id = ? OR (o.table_id IS NULL AND o.order_type != 'dine_in'))`;
+      paymentParams.push(floorId);
+    }
+
+    // Query for regular payments (non-split) - join orders for floor filtering
+    const [regularPayments] = await pool.query(
+      `SELECT p.payment_mode, COUNT(*) as count, SUM(p.total_amount) as total
+       FROM payments p
+       JOIN orders o ON p.order_id = o.id
+       LEFT JOIN tables t ON o.table_id = t.id
+       WHERE p.outlet_id = ? AND p.created_at >= ? AND p.created_at <= ? 
+         AND p.status = 'completed' AND p.payment_mode != 'split'${paymentFloorCondition}
+       GROUP BY p.payment_mode`,
+      paymentParams
+    );
+
+    // Query for split payments - join orders for floor filtering
+    const splitParams = [shift.outlet_id, shiftStartTime, shiftEndTime];
+    if (floorId) {
+      splitParams.push(floorId);
+    }
+    const [splitPayments] = await pool.query(
+      `SELECT sp.payment_mode, COUNT(*) as count, SUM(sp.amount) as total
+       FROM split_payments sp
+       JOIN payments p ON sp.payment_id = p.id
+       JOIN orders o ON p.order_id = o.id
+       LEFT JOIN tables t ON o.table_id = t.id
+       WHERE p.outlet_id = ? AND p.created_at >= ? AND p.created_at <= ? 
+         AND p.status = 'completed' AND p.payment_mode = 'split'${paymentFloorCondition}
+       GROUP BY sp.payment_mode`,
+      splitParams
+    );
+
+    // Combine regular and split payments
+    const paymentBreakdown = [...regularPayments, ...splitPayments];
+
+    // Calculate payment totals from combined payment breakdown
+    let totalCashSales = 0, totalCardSales = 0, totalUpiSales = 0, totalOtherSales = 0;
+    let totalPayments = 0;
+    for (const p of paymentBreakdown) {
+      const amount = parseFloat(p.total) || 0;
+      totalPayments += amount;
+      if (p.payment_mode === 'cash') totalCashSales += amount;
+      else if (p.payment_mode === 'card' || p.payment_mode === 'credit_card' || p.payment_mode === 'debit_card') totalCardSales += amount;
+      else if (p.payment_mode === 'upi') totalUpiSales += amount;
+      else totalOtherSales += amount;
+    }
+
+    // Calculate values
+    const openingCash = parseFloat(shift.opening_cash) || 0;
+    
+    // Total sales = all payments (cash + card + UPI)
+    const totalSalesAmount = totalPayments;
+    
+    // Expected amount = Opening + ALL payments (cash + card + UPI)
+    const expectedAmount = openingCash + totalPayments;
+    
+    // Expected cash in drawer = Opening + Cash Sales only
+    const expectedCashInDrawer = openingCash + totalCashSales;
+
+    logger.info(`Shift ${shiftId} summary - Opening: ${openingCash}, Cash Sales: ${totalCashSales}, Total Sales: ${totalPayments}, Expected Amount: ${expectedAmount}, Expected Cash: ${expectedCashInDrawer}`);
+
+    return {
+      id: shift.id,
+      outletId: shift.outlet_id,
+      outletName: shift.outlet_name,
+      floorId: shift.floor_id,
+      floorName: shift.floor_name,
+      cashierId: shift.cashier_id,
+      cashierName: shift.cashier_name,
+      sessionDate: shift.session_date,
+      openingTime: shift.opening_time,
+      closingTime: shift.closing_time,
+      status: shift.status,
+      // Key values
+      openingAmount: openingCash,
+      openingCash: openingCash,
+      closingCash: parseFloat(shift.closing_cash) || 0,
+      expectedAmount: expectedAmount,          // Opening + ALL Sales (cash + card + UPI)
+      expectedCash: expectedCashInDrawer,      // Opening + Cash Sales only (expected in drawer)
+      cashVariance: parseFloat(shift.cash_variance) || 0,
+      // Real-time calculated values based on shift time range
+      totalSales: totalSalesAmount,  // All payments (cash + card + UPI etc.)
+      totalOrders: parseInt(orderStats[0]?.completed_orders) || 0,
+      totalCashSales,
+      totalCardSales,
+      totalUpiSales,
+      totalOtherSales,
+      orderStats: {
+        totalOrders: parseInt(orderStats[0]?.total_orders) || 0,
+        completedOrders: parseInt(orderStats[0]?.completed_orders) || 0,
+        cancelledOrders: parseInt(orderStats[0]?.cancelled_orders) || 0,
+        dineInOrders: parseInt(orderStats[0]?.dine_in_orders) || 0,
+        takeawayOrders: parseInt(orderStats[0]?.takeaway_orders) || 0,
+        deliveryOrders: parseInt(orderStats[0]?.delivery_orders) || 0,
+        avgOrderValue: parseFloat(orderStats[0]?.avg_order_value) || 0,
+        maxOrderValue: parseFloat(orderStats[0]?.max_order_value) || 0,
+        minOrderValue: parseFloat(orderStats[0]?.min_order_value) || 0
+      },
+      paymentBreakdown: paymentBreakdown.map(p => ({
+        mode: p.payment_mode,
+        count: parseInt(p.count) || 0,
+        total: parseFloat(p.total) || 0
+      })),
+      shiftTimeRange: {
+        start: shiftStartTime,
+        end: shiftEndTime
+      }
     };
   },
 

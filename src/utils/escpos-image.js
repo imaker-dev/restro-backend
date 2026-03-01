@@ -26,6 +26,9 @@ async function imageToEscPos(imageSource, options = {}) {
     threshold = 128
   } = options;
 
+  // Supported image formats by sharp
+  const SUPPORTED_FORMATS = ['jpeg', 'jpg', 'png', 'webp', 'gif', 'avif', 'tiff', 'svg'];
+  
   try {
     let imageBuffer;
 
@@ -33,6 +36,13 @@ async function imageToEscPos(imageSource, options = {}) {
     if (Buffer.isBuffer(imageSource)) {
       imageBuffer = imageSource;
     } else if (typeof imageSource === 'string') {
+      // Check file extension for unsupported formats before loading
+      const ext = imageSource.split('.').pop()?.toLowerCase();
+      if (ext === 'bmp') {
+        logger.warn(`BMP format not supported for ESC/POS conversion: ${imageSource}. Please use PNG or JPEG.`);
+        return Buffer.alloc(0);
+      }
+      
       if (imageSource.startsWith('http://') || imageSource.startsWith('https://')) {
         // Download from URL using built-in fetch (Node.js 18+)
         const response = await fetch(imageSource);
@@ -48,13 +58,26 @@ async function imageToEscPos(imageSource, options = {}) {
       throw new Error('Invalid image source type');
     }
 
+    // Check image format using sharp metadata
+    let metadata;
+    try {
+      metadata = await sharp(imageBuffer).metadata();
+    } catch (metaErr) {
+      logger.warn(`Cannot read image metadata (unsupported format?): ${metaErr.message}`);
+      return Buffer.alloc(0);
+    }
+    
+    // Verify format is supported
+    if (metadata.format && !SUPPORTED_FORMATS.includes(metadata.format.toLowerCase())) {
+      logger.warn(`Image format "${metadata.format}" not supported for ESC/POS. Use PNG or JPEG.`);
+      return Buffer.alloc(0);
+    }
+
     // Process image with sharp - flatten to white background, enhance contrast
     let image = sharp(imageBuffer)
       .flatten({ background: { r: 255, g: 255, b: 255 } }) // Remove transparency, white bg
       .normalize() // Enhance contrast
       .grayscale();
-
-    const metadata = await sharp(imageBuffer).metadata();
 
     // Calculate resize dimensions maintaining aspect ratio
     let width = metadata.width || maxWidth;

@@ -1265,7 +1265,7 @@ const orderController = {
         status,
         page = 1,
         limit = 20,
-        sortBy = 'session_date',
+        sortBy = 'opening_time',
         sortOrder = 'DESC'
       } = req.query;
 
@@ -1304,12 +1304,9 @@ const orderController = {
     try {
       const { shiftId } = req.params;
       
-      // If cashier role, only allow viewing their own shifts
-      // Note: req.user.roles is array of role strings like ['cashier', 'admin']
-      const isCashier = req.user.roles?.includes('cashier');
-      const cashierId = isCashier ? req.user.userId : null;
-      
-      const shift = await paymentService.getShiftDetail(shiftId, cashierId);
+      // Allow all authorized roles to view shift details
+      // Admin, manager, super_admin, cashier, captain can view any shift
+      const shift = await paymentService.getShiftDetail(shiftId, null);
       res.json({ success: true, data: shift });
     } catch (error) {
       logger.error('Get shift detail error:', error);
@@ -1324,8 +1321,34 @@ const orderController = {
   },
 
   /**
-   * Get shift summary statistics
-   * GET /api/v1/orders/shifts/:outletId/summary
+   * Get single shift summary by ID with shift-time-based calculations
+   * GET /api/v1/orders/shifts/:shiftId/summary
+   * Cashiers can only view their own shifts
+   */
+  async getShiftSummaryById(req, res) {
+    try {
+      const { shiftId } = req.params;
+      
+      // Allow all authorized roles to view shift summaries
+      // Admin, manager, super_admin can view any shift
+      // Cashiers can also view shifts (for their outlet/floor context)
+      const summary = await paymentService.getShiftSummaryById(shiftId, null);
+      res.json({ success: true, data: summary });
+    } catch (error) {
+      logger.error('Get shift summary by ID error:', error);
+      if (error.message === 'Shift not found') {
+        return res.status(404).json({ success: false, message: error.message });
+      }
+      if (error.message === 'You can only view your own shifts') {
+        return res.status(403).json({ success: false, message: error.message });
+      }
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
+   * Get shift summary statistics across date range for an outlet
+   * GET /api/v1/orders/shifts/:outletId/outlet-summary
    * Cashiers see only their own shift summary
    */
   async getShiftSummary(req, res) {

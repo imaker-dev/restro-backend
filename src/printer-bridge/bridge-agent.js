@@ -346,9 +346,24 @@ async function processNextJob() {
     console.log(`\n📄 Processing job #${job.id}: ${job.job_type} for ${job.station}`);
     console.log(`   Reference: ${job.reference_number || 'N/A'}`);
     
-    // Get printer for this station
-    const printer = getPrinterForStation(job.station);
-    console.log(`   Printer: ${printer.ip}:${printer.port}`);
+    // Get printer - prefer job's assigned printer (from DB), fall back to local config
+    let printer;
+    if (job.ip_address) {
+      // Use printer info from the job itself (database lookup)
+      printer = { ip: job.ip_address, port: job.port || 9100 };
+      console.log(`   Printer (from job): ${printer.ip}:${printer.port}`);
+    } else {
+      // Fall back to local config lookup by station
+      printer = getPrinterForStation(job.station);
+      if (printer && printer.ip) {
+        console.log(`   Printer (from config): ${printer.ip}:${printer.port}`);
+      } else {
+        console.log(`   ❌ No printer found for station "${job.station}"`);
+        await acknowledgeJob(job.id, 'failed', `No printer configured for station: ${job.station}`);
+        isProcessing = false;
+        return;
+      }
+    }
     
     try {
       const printableContent = decodeJobContent(job.content);
@@ -382,7 +397,7 @@ async function processNextJob() {
 // STARTUP
 // ========================
 
-function printBanner() {
+function printBanner() {  
   console.log('');
   console.log('╔══════════════════════════════════════════════════════════╗');
   console.log('║           RESTAURANT POS - PRINTER BRIDGE AGENT          ║');

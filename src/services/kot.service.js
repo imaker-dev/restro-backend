@@ -292,6 +292,8 @@ const kotService = {
           orderNumber: order.order_number,
           kotNumber: ticket.kotNumber,
           station: ticket.station,
+          stationId: ticket.stationId,
+          isCounter: ticket.isCounter,
           tableNumber: order.table_number,
           time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
           items: ticket.items.map(i => ({

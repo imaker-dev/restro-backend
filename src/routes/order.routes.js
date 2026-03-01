@@ -616,13 +616,20 @@ router.get('/shifts/:outletId/history', authorize('super_admin', 'admin', 'manag
 router.get('/shifts/:shiftId/detail', authorize('super_admin', 'admin', 'manager', 'cashier', 'captain'), orderController.getShiftDetail);
 
 /**
- * @route   GET /api/v1/orders/shifts/:outletId/summary
- * @desc    Get shift summary statistics across date range
+ * @route   GET /api/v1/orders/shifts/:shiftId/summary
+ * @desc    Get single shift summary with shift-time-based calculations
+ * @access  Private (cashier, manager, admin)
+ */
+router.get('/shifts/:shiftId/summary', authorize('super_admin', 'admin', 'manager', 'cashier', 'captain'), orderController.getShiftSummaryById);
+
+/**
+ * @route   GET /api/v1/orders/shifts/:outletId/outlet-summary
+ * @desc    Get shift summary statistics across date range for an outlet
  * @access  Private (cashier, manager, admin)
  * @query   startDate - Filter from date (YYYY-MM-DD)
  * @query   endDate - Filter to date (YYYY-MM-DD)
  */
-router.get('/shifts/:outletId/summary', authorize('super_admin', 'admin', 'manager', 'cashier', 'captain'), orderController.getShiftSummary);
+router.get('/shifts/:outletId/outlet-summary', authorize('super_admin', 'admin', 'manager', 'cashier', 'captain'), orderController.getShiftSummary);
 
 // ========================
 // ADMIN ORDER MANAGEMENT
