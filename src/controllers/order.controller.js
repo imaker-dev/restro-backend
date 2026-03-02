@@ -702,7 +702,8 @@ const orderController = {
         outletId,
         openingCash,
         req.user.userId,
-        floorId || null
+        floorId || null,
+        req.body.notes
       );
       res.json({ success: true, message: 'Shift opened for floor', data: result });
     } catch (error) {

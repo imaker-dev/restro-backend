@@ -944,9 +944,9 @@ const paymentService = {
     // Multiple shifts per day per floor are allowed (e.g., morning shift, evening shift)
     const [result] = await pool.query(
       `INSERT INTO day_sessions (
-        outlet_id, floor_id, session_date, opening_time, opening_cash, status, opened_by, cashier_id
-      ) VALUES (?, ?, ?, NOW(), ?, 'open', ?, ?)`,
-      [outletId, floorId, today, openingCash, userId, userId]
+        outlet_id, floor_id, session_date, opening_time, opening_cash, status, opened_by, cashier_id, variance_notes
+      ) VALUES (?, ?, ?, NOW(), ?, 'open', ?, ?, ?)`,
+      [outletId, floorId, today, openingCash, userId, userId, notes]
     );
     const sessionId = result.insertId;
 
