@@ -707,7 +707,7 @@ const orderController = {
         floorId || null,
         notes || null
       );
-      console.log(req.body)
+      console.log("Open Shift",req.body)
       res.json({ success: true, message: 'Shift opened for floor', data: result });
     } catch (error) {
       logger.error('Open cash drawer error:', error);
