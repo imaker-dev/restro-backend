@@ -903,7 +903,7 @@ const paymentService = {
   async openCashDrawer(outletId, openingCash, userId, floorId = null, notes = null) {
     const pool = getPool();
     const today = getLocalDate();
-
+    console.log(notes);
     // If floorId not provided, get from user's assigned floor
     if (!floorId) {
       const [userFloors] = await pool.query(
