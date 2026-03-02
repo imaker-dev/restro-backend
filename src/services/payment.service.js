@@ -2175,6 +2175,90 @@ const paymentService = {
     
     const [staffActivity] = await pool.query(staffQuery, staffParams);
 
+    // Get orders with items and payment status during this shift
+    let ordersQuery = `
+      SELECT 
+        o.id, o.uuid, o.order_number, o.order_type, o.status, o.payment_status,
+        o.table_number, o.customer_name, o.customer_phone,
+        o.subtotal, o.tax_amount, o.discount_amount, o.total_amount,
+        o.created_at, o.updated_at,
+        u.name as created_by_name,
+        t.table_number as table_num, t.name as table_name,
+        p.payment_mode, p.total_amount as paid_amount, p.status as payment_record_status
+      FROM orders o
+      LEFT JOIN users u ON o.created_by = u.id
+      LEFT JOIN tables t ON o.table_id = t.id
+      LEFT JOIN payments p ON p.order_id = o.id AND p.status = 'completed'
+      WHERE o.outlet_id = ? AND o.created_at >= ? AND o.created_at <= ?`;
+    const ordersParams = [shift.outlet_id, shiftStartTime, shiftEndTime];
+    
+    if (floorId) {
+      ordersQuery += ` AND o.floor_id = ?`;
+      ordersParams.push(floorId);
+    }
+    ordersQuery += ` ORDER BY o.created_at DESC`;
+    
+    const [ordersRaw] = await pool.query(ordersQuery, ordersParams);
+
+    // Get all order IDs to fetch items
+    const orderIds = [...new Set(ordersRaw.map(o => o.id))];
+    
+    let orderItemsMap = {};
+    if (orderIds.length > 0) {
+      const [allItems] = await pool.query(`
+        SELECT 
+          oi.order_id, oi.item_name, oi.variant_name, oi.quantity, 
+          oi.unit_price, oi.total_price, oi.status as item_status
+        FROM order_items oi
+        WHERE oi.order_id IN (${orderIds.map(() => '?').join(',')})
+        ORDER BY oi.id
+      `, orderIds);
+      
+      for (const item of allItems) {
+        if (!orderItemsMap[item.order_id]) {
+          orderItemsMap[item.order_id] = [];
+        }
+        orderItemsMap[item.order_id].push({
+          itemName: item.item_name,
+          variantName: item.variant_name,
+          quantity: item.quantity,
+          unitPrice: parseFloat(item.unit_price) || 0,
+          totalPrice: parseFloat(item.total_price) || 0,
+          status: item.item_status
+        });
+      }
+    }
+
+    // Format orders with items - deduplicate orders (may have multiple payment rows)
+    const ordersMap = new Map();
+    for (const row of ordersRaw) {
+      if (!ordersMap.has(row.id)) {
+        ordersMap.set(row.id, {
+          id: row.id,
+          uuid: row.uuid,
+          orderNumber: row.order_number,
+          orderType: row.order_type,
+          status: row.status,
+          paymentStatus: row.payment_status,
+          tableNumber: row.table_num || row.table_number,
+          tableName: row.table_name,
+          customerName: row.customer_name,
+          customerPhone: row.customer_phone,
+          subtotal: parseFloat(row.subtotal) || 0,
+          taxAmount: parseFloat(row.tax_amount) || 0,
+          discountAmount: parseFloat(row.discount_amount) || 0,
+          totalAmount: parseFloat(row.total_amount) || 0,
+          createdByName: row.created_by_name,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          paymentMode: row.payment_mode,
+          paidAmount: parseFloat(row.paid_amount) || 0,
+          items: orderItemsMap[row.id] || []
+        });
+      }
+    }
+    const shiftOrders = Array.from(ordersMap.values());
+
     // Format transactions
     const formattedTransactions = transactions.map(tx => ({
       id: tx.id,
@@ -2261,6 +2345,7 @@ const paymentService = {
         ordersHandled: s.orders_handled,
         totalSales: parseFloat(s.total_sales) || 0
       })),
+      orders: shiftOrders,
       createdAt: shift.created_at,
       updatedAt: shift.updated_at
     };

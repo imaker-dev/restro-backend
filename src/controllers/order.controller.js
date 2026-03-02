@@ -73,7 +73,9 @@ const orderController = {
         page: req.query.page,
         limit: req.query.limit,
         status: req.query.status,
-        floorIds: floorIds.length > 0 ? floorIds : undefined
+        floorIds: floorIds.length > 0 ? floorIds : undefined,
+        cashierId: req.user.userId,
+        userRole: req.user.role
       };
       const result = await orderService.getPendingTakeawayOrders(outletId, filters);
       res.json({ success: true, data: result.data, pagination: result.pagination });
