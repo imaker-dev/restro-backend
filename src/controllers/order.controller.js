@@ -699,13 +699,13 @@ const orderController = {
   async openCashDrawer(req, res) {
     try {
       const { outletId } = req.params;
-      const { openingCash, floorId } = req.body;
+      const { openingCash, floorId, notes } = req.body;
       const result = await paymentService.openCashDrawer(
         outletId,
         openingCash,
         req.user.userId,
         floorId || null,
-        req.body.notes
+        notes || null
       );
       res.json({ success: true, message: 'Shift opened for floor', data: result });
     } catch (error) {
