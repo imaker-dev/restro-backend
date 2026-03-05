@@ -1711,13 +1711,20 @@ const billingService = {
 
   /**
    * Apply manual discount to order (percentage or fixed)
+   * Requires security key validation (132564556)
    */
   async applyDiscount(orderId, data, userId) {
     const pool = getPool();
     const {
       discountId, discountCode, discountName, discountType, discountValue,
-      appliedOn = 'subtotal', orderItemId, approvedBy, approvalReason
+      appliedOn = 'subtotal', orderItemId, approvedBy, approvalReason, securityKey
     } = data;
+
+    // Security key validation - must match authorized key
+    const AUTHORIZED_DISCOUNT_KEY = '132564556';
+    if (!securityKey || securityKey !== AUTHORIZED_DISCOUNT_KEY) {
+      throw new Error('Invalid security key. Discount cannot be applied.');
+    }
 
     const order = await orderService.getOrderWithItems(orderId);
     if (!order) throw new Error('Order not found');
