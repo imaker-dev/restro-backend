@@ -413,7 +413,7 @@ class UserService {
       
       // Check if manager is trying to assign admin-level roles
       if (isManager && data.roles && data.roles.length > 0) {
-        const roleIds = data.roles.map(r => r.id);
+        const roleIds = data.roles.map(r => r.roleId);
         const hasAdminRoles = await this.containsAdminRoles(roleIds);
         if (hasAdminRoles) {
           throw new Error('Managers can only assign staff roles (captain, waiter, bartender, kitchen, cashier)');
@@ -531,7 +531,7 @@ class UserService {
             await connection.query(
               `INSERT INTO user_roles (user_id, role_id, outlet_id, assigned_by)
                VALUES (?, ?, ?, ?)`,
-              [id, role.id, role.outletId || null, updatedBy]
+              [id, role.roleId, role.outletId || null, updatedBy]
             );
           }
         }
