@@ -465,6 +465,10 @@ class UserService {
         updates.push('employee_code = ?');
         params.push(data.employeeCode);
       }
+      if (data.role !== undefined) {
+        updates.push('role = ?');
+        params.push(data.role);
+      }
       if (data.avatarUrl !== undefined) {
         updates.push('avatar_url = ?');
         params.push(data.avatarUrl);
