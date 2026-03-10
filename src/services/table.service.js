@@ -449,20 +449,28 @@ const tableService = {
               }
             }
 
-            // Convert to clean array
-            const taxSummary = Object.values(taxGroupMap).map(g => ({
-              taxGroup: g.taxGroup,
-              taxRate: g.taxRate,
-              itemCount: g.itemCount,
-              taxableAmount: parseFloat(g.taxableAmount.toFixed(2)),
-              components: Object.values(g.components).map(c => ({
-                name: c.name,
-                code: c.code,
-                rate: c.rate,
-                amount: parseFloat(c.amount.toFixed(2))
-              })),
-              totalTax: parseFloat(g.totalTax.toFixed(2))
-            }));
+            // Calculate discount ratio to apply to tax amounts
+            const discountAmount = parseFloat(order.discount_amount) || 0;
+            const discountRatio = subtotal > 0 ? ((subtotal - discountAmount) / subtotal) : 1;
+
+            // Convert to clean array with discount-adjusted amounts
+            const taxSummary = Object.values(taxGroupMap).map(g => {
+              const adjustedTaxableAmount = parseFloat((g.taxableAmount * discountRatio).toFixed(2));
+              const adjustedTotalTax = parseFloat((g.totalTax * discountRatio).toFixed(2));
+              return {
+                taxGroup: g.taxGroup,
+                taxRate: g.taxRate,
+                itemCount: g.itemCount,
+                taxableAmount: adjustedTaxableAmount,
+                components: Object.values(g.components).map(c => ({
+                  name: c.name,
+                  code: c.code,
+                  rate: c.rate,
+                  amount: parseFloat((c.amount * discountRatio).toFixed(2))
+                })),
+                totalTax: adjustedTotalTax
+              };
+            });
 
             const totalTax = parseFloat(order.tax_amount) || 0;
             const scAmount = parseFloat(order.service_charge) || 0;

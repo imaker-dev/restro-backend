@@ -11,6 +11,7 @@ const reportsService = require('../services/reports.service');
 const userService = require('../services/user.service');
 const { getUserFloorIds } = require('../utils/helpers');
 const logger = require('../utils/logger');
+const csvExport = require('../utils/csv-export');
 
 const orderController = {
   // ========================
@@ -1474,6 +1475,305 @@ const orderController = {
       res.json({ success: true, data: report });
     } catch (error) {
       logger.error('Get service type sales breakdown error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  // ========================
+  // CSV EXPORT METHODS
+  // ========================
+
+  /**
+   * Export daily sales report as CSV
+   */
+  async exportDailySales(req, res) {
+    try {
+      const { outletId } = req.params;
+      const { startDate, endDate } = req.query;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const report = await reportsService.getDailySalesReport(outletId, startDate, endDate, floorIds);
+      
+      const csv = csvExport.dailySalesCSV(report, { startDate, endDate, outletId });
+      const filename = csvExport.generateFilename('daily_sales', { startDate, endDate });
+      
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (error) {
+      logger.error('Export daily sales error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
+   * Export detailed daily sales as CSV
+   */
+  async exportDailySalesDetail(req, res) {
+    try {
+      const { outletId } = req.params;
+      const { startDate, endDate } = req.query;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      // Get all records without pagination for export
+      const report = await reportsService.getDailySalesDetail(outletId, startDate, endDate, { page: 1, limit: 10000 }, floorIds);
+      
+      const csv = csvExport.dailySalesDetailCSV(report, { startDate, endDate, outletId });
+      const filename = csvExport.generateFilename('daily_sales_detail', { startDate, endDate });
+      
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (error) {
+      logger.error('Export daily sales detail error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
+   * Export item sales report as CSV
+   */
+  async exportItemSales(req, res) {
+    try {
+      const { outletId } = req.params;
+      const { startDate, endDate, serviceType } = req.query;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const report = await reportsService.getItemSalesReport(outletId, startDate, endDate, 10000, floorIds, serviceType || null);
+      
+      const csv = csvExport.itemSalesCSV(report, { startDate, endDate, outletId });
+      const filename = csvExport.generateFilename('item_sales', { startDate, endDate });
+      
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (error) {
+      logger.error('Export item sales error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
+   * Export category sales report as CSV
+   */
+  async exportCategorySales(req, res) {
+    try {
+      const { outletId } = req.params;
+      const { startDate, endDate } = req.query;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const report = await reportsService.getCategorySalesReport(outletId, startDate, endDate, floorIds);
+      
+      const csv = csvExport.categorySalesCSV(report, { startDate, endDate, outletId });
+      const filename = csvExport.generateFilename('category_sales', { startDate, endDate });
+      
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (error) {
+      logger.error('Export category sales error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
+   * Export staff performance report as CSV
+   */
+  async exportStaffReport(req, res) {
+    try {
+      const { outletId } = req.params;
+      const { startDate, endDate } = req.query;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const report = await reportsService.getStaffReport(outletId, startDate, endDate, floorIds);
+      
+      const csv = csvExport.staffReportCSV(report, { startDate, endDate, outletId });
+      const filename = csvExport.generateFilename('staff_report', { startDate, endDate });
+      
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (error) {
+      logger.error('Export staff report error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
+   * Export payment mode report as CSV
+   */
+  async exportPaymentModes(req, res) {
+    try {
+      const { outletId } = req.params;
+      const { startDate, endDate } = req.query;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const report = await reportsService.getPaymentModeReport(outletId, startDate, endDate, floorIds);
+      
+      const csv = csvExport.paymentModeCSV(report, { startDate, endDate, outletId });
+      const filename = csvExport.generateFilename('payment_modes', { startDate, endDate });
+      
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (error) {
+      logger.error('Export payment modes error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
+   * Export tax report as CSV
+   */
+  async exportTaxReport(req, res) {
+    try {
+      const { outletId } = req.params;
+      const { startDate, endDate } = req.query;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const report = await reportsService.getTaxReport(outletId, startDate, endDate, floorIds);
+      
+      const csv = csvExport.taxReportCSV(report, { startDate, endDate, outletId });
+      const filename = csvExport.generateFilename('tax_report', { startDate, endDate });
+      
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (error) {
+      logger.error('Export tax report error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
+   * Export service type breakdown as CSV
+   */
+  async exportServiceTypeBreakdown(req, res) {
+    try {
+      const { outletId } = req.params;
+      const { startDate, endDate } = req.query;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const report = await reportsService.getServiceTypeSalesBreakdown(outletId, startDate, endDate, floorIds);
+      
+      const csv = csvExport.serviceTypeCSV(report, { startDate, endDate, outletId });
+      const filename = csvExport.generateFilename('service_type_breakdown', { startDate, endDate });
+      
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (error) {
+      logger.error('Export service type breakdown error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
+   * Export floor/section sales report as CSV
+   */
+  async exportFloorSection(req, res) {
+    try {
+      const { outletId } = req.params;
+      const { startDate, endDate } = req.query;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const report = await reportsService.getFloorSectionReport(outletId, startDate, endDate, floorIds);
+      
+      const csv = csvExport.floorSectionCSV(report, { startDate, endDate, outletId });
+      const filename = csvExport.generateFilename('floor_section', { startDate, endDate });
+      
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (error) {
+      logger.error('Export floor section error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
+   * Export counter sales report as CSV
+   */
+  async exportCounterSales(req, res) {
+    try {
+      const { outletId } = req.params;
+      const { startDate, endDate } = req.query;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const report = await reportsService.getCounterSalesReport(outletId, startDate, endDate, floorIds);
+      
+      const csv = csvExport.counterSalesCSV(report, { startDate, endDate, outletId });
+      const filename = csvExport.generateFilename('counter_sales', { startDate, endDate });
+      
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (error) {
+      logger.error('Export counter sales error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
+   * Export cancellation report as CSV
+   */
+  async exportCancellations(req, res) {
+    try {
+      const { outletId } = req.params;
+      const { startDate, endDate } = req.query;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const report = await reportsService.getCancellationReport(outletId, startDate, endDate, floorIds);
+      
+      const csv = csvExport.cancellationCSV(report, { startDate, endDate, outletId });
+      const filename = csvExport.generateFilename('cancellations', { startDate, endDate });
+      
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (error) {
+      logger.error('Export cancellations error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
+   * Export shift history as CSV
+   */
+  async exportShiftHistory(req, res) {
+    try {
+      const { outletId } = req.params;
+      const { startDate, endDate } = req.query;
+      
+      const report = await paymentService.getShiftHistory({
+        outletId,
+        startDate,
+        endDate,
+        limit: 10000 // Get all shifts for export
+      });
+      
+      const csv = csvExport.shiftHistoryCSV(report, { startDate, endDate, outletId });
+      const filename = csvExport.generateFilename('shift_history', { startDate, endDate });
+      
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (error) {
+      logger.error('Export shift history error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
+   * Export shift detail as CSV
+   */
+  async exportShiftDetail(req, res) {
+    try {
+      const { shiftId } = req.params;
+      
+      const report = await paymentService.getShiftDetail(shiftId);
+      
+      if (!report) {
+        return res.status(404).json({ success: false, message: 'Shift not found' });
+      }
+      
+      const csv = csvExport.shiftDetailCSV(report, { shiftId });
+      const filename = csvExport.generateFilename('shift_detail', { shiftId });
+      
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (error) {
+      logger.error('Export shift detail error:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   }

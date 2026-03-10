@@ -53,6 +53,25 @@ router.get('/day-end-summary', authorize(...REPORT_ROLES), reportsController.get
 router.get('/day-end-summary/detail', authorize(...REPORT_ROLES), reportsController.getDayEndSummaryDetail);
 
 /**
+ * @route   GET /api/v1/reports/day-end-summary/export
+ * @desc    Export Day End Summary as CSV
+ * @access  Private (admin, manager, cashier)
+ * @query   outletId - Required
+ * @query   startDate - Start date (YYYY-MM-DD)
+ * @query   endDate - End date (YYYY-MM-DD)
+ */
+router.get('/day-end-summary/export', authorize(...REPORT_ROLES), reportsController.exportDayEndSummary);
+
+/**
+ * @route   GET /api/v1/reports/day-end-summary/detail/export
+ * @desc    Export Day End Summary Detail as CSV
+ * @access  Private (admin, manager, cashier)
+ * @query   outletId - Required
+ * @query   date - Target date (YYYY-MM-DD)
+ */
+router.get('/day-end-summary/detail/export', authorize(...REPORT_ROLES), reportsController.exportDayEndSummaryDetail);
+
+/**
  * @route   GET /api/v1/reports/daily-sales
  * @desc    Daily sales aggregated report
  * @access  Private (admin, manager, cashier)
@@ -148,5 +167,25 @@ router.get('/hourly', authorize('super_admin', 'admin', 'manager'), reportsContr
  * @query   outletId, startDate, endDate
  */
 router.get('/counter-sales', authorize('super_admin', 'admin', 'manager'), reportsController.getCounterSalesReport);
+
+// ========================
+// CSV EXPORT ENDPOINTS
+// ========================
+
+/**
+ * @route   GET /api/v1/reports/running-tables/export
+ * @desc    Export running tables as CSV
+ * @access  Private (admin, manager, cashier, captain)
+ * @query   outletId - Required
+ */
+router.get('/running-tables/export', authorize(...REPORT_ROLES), reportsController.exportRunningTables);
+
+/**
+ * @route   GET /api/v1/reports/running-orders/export
+ * @desc    Export running orders as CSV
+ * @access  Private (admin, manager, cashier, captain)
+ * @query   outletId - Required
+ */
+router.get('/running-orders/export', authorize(...REPORT_ROLES), reportsController.exportRunningOrders);
 
 module.exports = router;

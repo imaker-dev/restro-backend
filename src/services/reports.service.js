@@ -48,6 +48,16 @@ function serviceTypeFilter(serviceType, categoryAlias = 'c') {
   };
 }
 
+/**
+ * Convert UTC timestamp to IST date for comparison
+ * Use this for all date filtering to ensure consistent timezone handling
+ * @param {string} column - the timestamp column to convert (e.g., 'o.created_at')
+ * @returns {string} SQL snippet for IST date extraction
+ */
+function toISTDate(column) {
+  return `DATE(CONVERT_TZ(${column}, '+00:00', '+05:30'))`;
+}
+
 const reportsService = {
   // ========================
   // DAILY SALES AGGREGATION
@@ -78,7 +88,7 @@ const reportsService = {
         SUM(delivery_charge) as delivery_charge,
         SUM(round_off) as round_off
        FROM orders 
-       WHERE outlet_id = ? AND DATE(created_at) = ? AND status != 'cancelled'`,
+       WHERE outlet_id = ? AND ${toISTDate('created_at')} = ? AND status != 'cancelled'`,
       [outletId, date]
     );
 
@@ -93,15 +103,15 @@ const reportsService = {
         SUM(CASE WHEN payment_mode = 'credit' THEN total_amount ELSE 0 END) as credit_collection,
         SUM(tip_amount) as tip_amount
        FROM payments 
-       WHERE outlet_id = ? AND DATE(created_at) = ? AND status = 'completed'`,
+       WHERE outlet_id = ? AND ${toISTDate('created_at')} = ? AND status = 'completed'`,
       [outletId, date]
     );
 
     // Get complimentary and refunds
     const [extras] = await pool.query(
       `SELECT 
-        (SELECT SUM(total_amount) FROM orders WHERE outlet_id = ? AND DATE(created_at) = ? AND is_complimentary = 1) as complimentary_amount,
-        (SELECT SUM(refund_amount) FROM refunds WHERE outlet_id = ? AND DATE(created_at) = ? AND status = 'approved') as refund_amount
+        (SELECT SUM(total_amount) FROM orders WHERE outlet_id = ? AND ${toISTDate('created_at')} = ? AND is_complimentary = 1) as complimentary_amount,
+        (SELECT SUM(refund_amount) FROM refunds WHERE outlet_id = ? AND ${toISTDate('created_at')} = ? AND status = 'approved') as refund_amount
       `,
       [outletId, date, outletId, date]
     );
@@ -112,8 +122,8 @@ const reportsService = {
         HOUR(created_at) as hour,
         SUM(total_amount) as sales
        FROM orders 
-       WHERE outlet_id = ? AND DATE(created_at) = ? AND status IN ('paid', 'completed')
-       GROUP BY HOUR(created_at)
+       WHERE outlet_id = ? AND ${toISTDate('created_at')} = ? AND status IN ('paid', 'completed')
+       GROUP BY HOUR(CONVERT_TZ(created_at, '+00:00', '+05:30'))
        ORDER BY sales DESC
        LIMIT 1`,
       [outletId, date]
@@ -191,7 +201,7 @@ const reportsService = {
        JOIN orders o ON oi.order_id = o.id
        JOIN items i ON oi.item_id = i.id
        LEFT JOIN categories c ON i.category_id = c.id
-       WHERE o.outlet_id = ? AND DATE(o.created_at) = ?
+       WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} = ?
        GROUP BY oi.item_id, oi.variant_id, oi.item_name, oi.variant_name, i.category_id, c.name`,
       [outletId, date]
     );
@@ -243,7 +253,7 @@ const reportsService = {
         SUM(CASE WHEN o.status = 'cancelled' THEN o.total_amount ELSE 0 END) as cancelled_amount
        FROM orders o
        JOIN users u ON o.created_by = u.id
-       WHERE o.outlet_id = ? AND DATE(o.created_at) = ?
+       WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} = ?
        GROUP BY o.created_by, u.full_name`,
       [outletId, date]
     );
@@ -252,7 +262,7 @@ const reportsService = {
     const [tips] = await pool.query(
       `SELECT p.received_by as user_id, SUM(p.tip_amount) as tips
        FROM payments p
-       WHERE p.outlet_id = ? AND DATE(p.created_at) = ? AND p.status = 'completed'
+       WHERE p.outlet_id = ? AND ${toISTDate('p.created_at')} = ? AND p.status = 'completed'
        GROUP BY p.received_by`,
       [outletId, date]
     );
@@ -311,7 +321,7 @@ const reportsService = {
 
     const [rows] = await pool.query(
       `SELECT 
-        DATE(o.created_at) as report_date,
+        ${toISTDate('o.created_at')} as report_date,
         COUNT(*) as total_orders,
         COUNT(CASE WHEN o.order_type = 'dine_in' THEN 1 END) as dine_in_orders,
         COUNT(CASE WHEN o.order_type = 'takeaway' THEN 1 END) as takeaway_orders,
@@ -327,8 +337,8 @@ const reportsService = {
         SUM(CASE WHEN o.status != 'cancelled' THEN o.delivery_charge ELSE 0 END) as delivery_charge,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.round_off ELSE 0 END) as round_off
        FROM orders o
-       WHERE o.outlet_id = ? AND DATE(o.created_at) BETWEEN ? AND ?${ff.sql}
-       GROUP BY DATE(o.created_at)
+       WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ?${ff.sql}
+       GROUP BY ${toISTDate('o.created_at')}
        ORDER BY report_date DESC`,
       [outletId, start, end, ...ff.params]
     );
@@ -336,7 +346,7 @@ const reportsService = {
     // Attach payment breakdown per day (regular payments, non-split)
     const [payRows] = await pool.query(
       `SELECT 
-        DATE(p.created_at) as report_date,
+        ${toISTDate('p.created_at')} as report_date,
         SUM(p.total_amount) as total_collection,
         SUM(CASE WHEN p.payment_mode = 'cash' THEN p.total_amount ELSE 0 END) as cash_collection,
         SUM(CASE WHEN p.payment_mode = 'card' THEN p.total_amount ELSE 0 END) as card_collection,
@@ -346,15 +356,15 @@ const reportsService = {
         SUM(p.tip_amount) as tip_amount
        FROM payments p
        JOIN orders o ON p.order_id = o.id
-       WHERE p.outlet_id = ? AND DATE(p.created_at) BETWEEN ? AND ? AND p.status = 'completed' AND p.payment_mode != 'split'${ff.sql}
-       GROUP BY DATE(p.created_at)`,
+       WHERE p.outlet_id = ? AND ${toISTDate('p.created_at')} BETWEEN ? AND ? AND p.status = 'completed' AND p.payment_mode != 'split'${ff.sql}
+       GROUP BY ${toISTDate('p.created_at')}`,
       [outletId, start, end, ...ff.params]
     );
     
     // Get split payment breakdown per day
     const [splitPayRows] = await pool.query(
       `SELECT 
-        DATE(p.created_at) as report_date,
+        ${toISTDate('p.created_at')} as report_date,
         SUM(sp.amount) as total_collection,
         SUM(CASE WHEN sp.payment_mode = 'cash' THEN sp.amount ELSE 0 END) as cash_collection,
         SUM(CASE WHEN sp.payment_mode = 'card' THEN sp.amount ELSE 0 END) as card_collection,
@@ -364,8 +374,8 @@ const reportsService = {
        FROM split_payments sp
        JOIN payments p ON sp.payment_id = p.id
        JOIN orders o ON p.order_id = o.id
-       WHERE p.outlet_id = ? AND DATE(p.created_at) BETWEEN ? AND ? AND p.status = 'completed' AND p.payment_mode = 'split'${ff.sql}
-       GROUP BY DATE(p.created_at)`,
+       WHERE p.outlet_id = ? AND ${toISTDate('p.created_at')} BETWEEN ? AND ? AND p.status = 'completed' AND p.payment_mode = 'split'${ff.sql}
+       GROUP BY ${toISTDate('p.created_at')}`,
       [outletId, start, end, ...ff.params]
     );
     const splitPayMap = {};
@@ -476,6 +486,35 @@ const reportsService = {
     const ff = floorFilter(floorIds);
     const stf = serviceTypeFilter(serviceType);
 
+    // Get item counts from order_items (for total_items count)
+    const [itemCountResult] = await pool.query(
+      `SELECT 
+        COUNT(DISTINCT CONCAT(oi.item_id, '-', COALESCE(oi.variant_name, ''))) as total_items,
+        SUM(CASE WHEN oi.status != 'cancelled' THEN oi.quantity ELSE 0 END) as total_quantity,
+        SUM(CASE WHEN oi.status = 'cancelled' THEN oi.quantity ELSE 0 END) as cancelled_quantity
+       FROM order_items oi
+       JOIN orders o ON oi.order_id = o.id
+       LEFT JOIN items i ON oi.item_id = i.id
+       LEFT JOIN categories c ON i.category_id = c.id
+       WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ?${ff.sql}${stf.sql}`,
+      [outletId, start, end, ...ff.params, ...stf.params]
+    );
+    const itemCount = itemCountResult[0];
+
+    // Get financial summary from ORDERS table for consistency with daily sales report
+    const [orderSummary] = await pool.query(
+      `SELECT 
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.subtotal ELSE 0 END) as gross_revenue,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as discount_amount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.tax_amount ELSE 0 END) as tax_amount,
+        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END) as net_revenue
+       FROM orders o
+       WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ? AND o.status != 'cancelled'${ff.sql}`,
+      [outletId, start, end, ...ff.params]
+    );
+    const summary = { ...itemCount, ...orderSummary[0] };
+
+    // Then get item details with LIMIT for display
     const [rows] = await pool.query(
       `SELECT 
         oi.item_id, oi.item_name, oi.variant_name,
@@ -493,27 +532,27 @@ const reportsService = {
        JOIN orders o ON oi.order_id = o.id
        LEFT JOIN items i ON oi.item_id = i.id
        LEFT JOIN categories c ON i.category_id = c.id
-       WHERE o.outlet_id = ? AND DATE(o.created_at) BETWEEN ? AND ?${ff.sql}${stf.sql}
+       WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ?${ff.sql}${stf.sql}
        GROUP BY oi.item_id, oi.item_name, oi.variant_name, c.name, i.category_id, c.service_type
        ORDER BY total_quantity DESC
        LIMIT ?`,
       [outletId, start, end, ...ff.params, ...stf.params, limit]
     );
 
-    // Calculate summary totals
-    const totalQuantity = rows.reduce((s, r) => s + parseInt(r.total_quantity || 0), 0);
-    const cancelledQuantity = rows.reduce((s, r) => s + parseInt(r.cancelled_quantity || 0), 0);
-    const grossRevenue = rows.reduce((s, r) => s + parseFloat(r.gross_revenue || 0), 0);
-    const discountAmount = rows.reduce((s, r) => s + parseFloat(r.discount_amount || 0), 0);
-    const taxAmount = rows.reduce((s, r) => s + parseFloat(r.tax_amount || 0), 0);
-    const netRevenue = rows.reduce((s, r) => s + parseFloat(r.net_revenue || 0), 0);
-    const uniqueOrders = new Set(rows.map(r => r.order_count)).size;
+    // Use summary totals from the first query (accurate counts without LIMIT)
+    const totalItems = parseInt(summary.total_items || 0);
+    const totalQuantity = parseInt(summary.total_quantity || 0);
+    const cancelledQuantity = parseInt(summary.cancelled_quantity || 0);
+    const grossRevenue = parseFloat(summary.gross_revenue || 0);
+    const discountAmount = parseFloat(summary.discount_amount || 0);
+    const taxAmount = parseFloat(summary.tax_amount || 0);
+    const netRevenue = parseFloat(summary.net_revenue || 0);
 
     return {
       dateRange: { start, end },
       items: rows,
       summary: {
-        total_items: rows.length,
+        total_items: totalItems,
         total_quantity: totalQuantity,
         cancelled_quantity: cancelledQuantity,
         gross_revenue: grossRevenue.toFixed(2),
@@ -537,6 +576,7 @@ const reportsService = {
     const ff = floorFilter(floorIds);
     const stf = serviceTypeFilter(serviceType);
 
+    // Get category breakdown from order_items
     const [rows] = await pool.query(
       `SELECT 
         i.category_id, c.name as category_name,
@@ -551,16 +591,27 @@ const reportsService = {
        JOIN orders o ON oi.order_id = o.id
        LEFT JOIN items i ON oi.item_id = i.id
        LEFT JOIN categories c ON i.category_id = c.id
-       WHERE o.outlet_id = ? AND DATE(o.created_at) BETWEEN ? AND ?${ff.sql}${stf.sql}
+       WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ?${ff.sql}${stf.sql}
        GROUP BY i.category_id, c.name, c.service_type
        ORDER BY net_revenue DESC`,
       [outletId, start, end, ...ff.params, ...stf.params]
     );
 
-    const totalRevenue = rows.reduce((sum, r) => sum + parseFloat(r.net_revenue || 0), 0);
+    // Get financial summary from ORDERS table for consistency with daily sales report
+    const [orderSummary] = await pool.query(
+      `SELECT 
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.subtotal ELSE 0 END) as gross_revenue,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as discount_amount,
+        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END) as net_revenue
+       FROM orders o
+       WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ? AND o.status != 'cancelled'${ff.sql}`,
+      [outletId, start, end, ...ff.params]
+    );
+
     const totalQuantity = rows.reduce((s, r) => s + parseInt(r.total_quantity || 0), 0);
-    const grossRevenue = rows.reduce((s, r) => s + parseFloat(r.gross_revenue || 0), 0);
-    const discountAmount = rows.reduce((s, r) => s + parseFloat(r.discount_amount || 0), 0);
+    const grossRevenue = parseFloat(orderSummary[0].gross_revenue || 0);
+    const discountAmount = parseFloat(orderSummary[0].discount_amount || 0);
+    const totalRevenue = parseFloat(orderSummary[0].net_revenue || 0);
 
     const categories = rows.map(r => ({
       ...r,
@@ -600,7 +651,7 @@ const reportsService = {
         SUM(p.tip_amount) as tip_amount
        FROM payments p
        JOIN orders o ON p.order_id = o.id
-       WHERE p.outlet_id = ? AND DATE(p.created_at) BETWEEN ? AND ? AND p.status = 'completed' AND p.payment_mode != 'split'${ff.sql}
+       WHERE p.outlet_id = ? AND ${toISTDate('p.created_at')} BETWEEN ? AND ? AND p.status = 'completed' AND p.payment_mode != 'split'${ff.sql}
        GROUP BY p.payment_mode
        ORDER BY total_amount DESC`,
       [outletId, start, end, ...ff.params]
@@ -617,7 +668,7 @@ const reportsService = {
        FROM split_payments sp
        JOIN payments p ON sp.payment_id = p.id
        JOIN orders o ON p.order_id = o.id
-       WHERE p.outlet_id = ? AND DATE(p.created_at) BETWEEN ? AND ? AND p.status = 'completed' AND p.payment_mode = 'split'${ff.sql}
+       WHERE p.outlet_id = ? AND ${toISTDate('p.created_at')} BETWEEN ? AND ? AND p.status = 'completed' AND p.payment_mode = 'split'${ff.sql}
        GROUP BY sp.payment_mode
        ORDER BY total_amount DESC`,
       [outletId, start, end, ...ff.params]
@@ -683,7 +734,7 @@ const reportsService = {
     // Daily aggregated from invoice columns
     const [rows] = await pool.query(
       `SELECT 
-        DATE(i.created_at) as report_date,
+        ${toISTDate('i.created_at')} as report_date,
         SUM(i.subtotal) as subtotal,
         SUM(i.discount_amount) as discount_amount,
         SUM(i.taxable_amount) as taxable_amount,
@@ -698,8 +749,8 @@ const reportsService = {
         COUNT(*) as invoice_count
        FROM invoices i
        JOIN orders o ON i.order_id = o.id
-       WHERE i.outlet_id = ? AND DATE(i.created_at) BETWEEN ? AND ? AND i.is_cancelled = 0${ff.sql}
-       GROUP BY DATE(i.created_at)
+       WHERE i.outlet_id = ? AND ${toISTDate('i.created_at')} BETWEEN ? AND ? AND i.is_cancelled = 0${ff.sql}
+       GROUP BY ${toISTDate('i.created_at')}
        ORDER BY report_date DESC`,
       [outletId, start, end, ...ff.params]
     );
@@ -708,7 +759,7 @@ const reportsService = {
     const [invoices] = await pool.query(
       `SELECT i.tax_breakup FROM invoices i
        JOIN orders o ON i.order_id = o.id
-       WHERE i.outlet_id = ? AND DATE(i.created_at) BETWEEN ? AND ? AND i.is_cancelled = 0${ff.sql}`,
+       WHERE i.outlet_id = ? AND ${toISTDate('i.created_at')} BETWEEN ? AND ? AND i.is_cancelled = 0${ff.sql}`,
       [outletId, start, end, ...ff.params]
     );
 
@@ -782,8 +833,8 @@ const reportsService = {
         COUNT(CASE WHEN o.order_type = 'dine_in' THEN 1 END) as dine_in_count,
         COUNT(CASE WHEN o.order_type = 'takeaway' THEN 1 END) as takeaway_count
        FROM orders o
-       WHERE o.outlet_id = ? AND DATE(o.created_at) = ? AND o.status != 'cancelled'${ff.sql}
-       GROUP BY HOUR(o.created_at)
+       WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} = ? AND o.status != 'cancelled'${ff.sql}
+       GROUP BY HOUR(CONVERT_TZ(o.created_at, '+00:00', '+05:30'))
        ORDER BY hour`,
       [outletId, date, ...ff.params]
     );
@@ -833,7 +884,7 @@ const reportsService = {
         SUM(CASE WHEN o.status = 'cancelled' THEN o.total_amount ELSE 0 END) as cancelled_amount
        FROM orders o
        JOIN users u ON o.created_by = u.id
-       WHERE o.outlet_id = ? AND DATE(o.created_at) BETWEEN ? AND ?${ff.sql}
+       WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ?${ff.sql}
        GROUP BY o.created_by, u.name
        ORDER BY total_sales DESC`,
       [outletId, start, end, ...ff.params]
@@ -844,7 +895,7 @@ const reportsService = {
       `SELECT p.received_by as user_id, SUM(p.tip_amount) as tips
        FROM payments p
        JOIN orders o ON p.order_id = o.id
-       WHERE p.outlet_id = ? AND DATE(p.created_at) BETWEEN ? AND ? AND p.status = 'completed' AND p.tip_amount > 0${ff.sql}
+       WHERE p.outlet_id = ? AND ${toISTDate('p.created_at')} BETWEEN ? AND ? AND p.status = 'completed' AND p.tip_amount > 0${ff.sql}
        GROUP BY p.received_by`,
       [outletId, start, end, ...ff.params]
     );
@@ -928,7 +979,7 @@ const reportsService = {
     const validSorts = ['net_sales', 'order_count', 'guest_count', 'floor_name', 'section_name'];
     const orderCol = validSorts.includes(sortBy) ? sortBy : 'net_sales';
 
-    // Get floor-wise breakdown
+    // Get floor-wise breakdown (exclude orders without floor_id - delivery/takeaway/counter)
     const [floorRows] = await pool.query(
       `SELECT 
         o.floor_id, 
@@ -938,20 +989,20 @@ const reportsService = {
         COALESCE(SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END), 0) as net_sales,
         SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_orders
        FROM orders o
-       LEFT JOIN floors f ON o.floor_id = f.id
-       WHERE o.outlet_id = ? AND DATE(o.created_at) BETWEEN ? AND ?${ff.sql}${floorSearchSql}
+       INNER JOIN floors f ON o.floor_id = f.id
+       WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ? AND o.floor_id IS NOT NULL${ff.sql}${floorSearchSql}
        GROUP BY o.floor_id, f.name
        ORDER BY net_sales DESC`,
       [outletId, start, end, ...ff.params, ...floorSearchParams]
     );
 
-    // Get section-wise breakdown with pagination
+    // Get section-wise breakdown with pagination (exclude orders without floor_id)
     const [countResult] = await pool.query(
-      `SELECT COUNT(DISTINCT CONCAT(COALESCE(o.floor_id, 0), '-', COALESCE(o.section_id, 0))) as total
+      `SELECT COUNT(DISTINCT CONCAT(o.floor_id, '-', COALESCE(o.section_id, 0))) as total
        FROM orders o
-       LEFT JOIN floors f ON o.floor_id = f.id
+       INNER JOIN floors f ON o.floor_id = f.id
        LEFT JOIN sections s ON o.section_id = s.id
-       WHERE o.outlet_id = ? AND DATE(o.created_at) BETWEEN ? AND ?${ff.sql}${sectionSearchSql}`,
+       WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ? AND o.floor_id IS NOT NULL${ff.sql}${sectionSearchSql}`,
       [outletId, start, end, ...ff.params, ...sectionSearchParams]
     );
     const total = countResult[0]?.total || 0;
@@ -967,9 +1018,9 @@ const reportsService = {
         COALESCE(SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END), 0) as net_sales,
         SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_orders
        FROM orders o
-       LEFT JOIN floors f ON o.floor_id = f.id
+       INNER JOIN floors f ON o.floor_id = f.id
        LEFT JOIN sections s ON o.section_id = s.id
-       WHERE o.outlet_id = ? AND DATE(o.created_at) BETWEEN ? AND ?${ff.sql}${sectionSearchSql}
+       WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ? AND o.floor_id IS NOT NULL${ff.sql}${sectionSearchSql}
        GROUP BY o.floor_id, f.name, o.section_id, s.name
        ORDER BY ${orderCol} ${sortOrder}
        LIMIT ? OFFSET ?`,
@@ -1082,7 +1133,7 @@ const reportsService = {
        LEFT JOIN counters c ON kt.station_id = c.id AND c.outlet_id = kt.outlet_id 
          AND kt.station IN ('bar', 'main_bar', 'mocktail', 'live_counter')
        JOIN orders o ON kt.order_id = o.id
-       WHERE kt.outlet_id = ? AND DATE(kt.created_at) BETWEEN ? AND ?${ff.sql}
+       WHERE kt.outlet_id = ? AND ${toISTDate('kt.created_at')} BETWEEN ? AND ?${ff.sql}
        GROUP BY kt.station, kt.station_id, ks.name, c.name, ks.station_type, c.counter_type
        ORDER BY ticket_count DESC`,
       [outletId, start, end, ...ff.params]
@@ -1176,7 +1227,7 @@ const reportsService = {
        LEFT JOIN users u_accepted ON kt.accepted_by = u_accepted.id
        LEFT JOIN users u_served ON kt.served_by = u_served.id`;
 
-    let conditions = ['kt.outlet_id = ?', 'DATE(kt.created_at) BETWEEN ? AND ?'];
+    let conditions = ['kt.outlet_id = ?', `${toISTDate('kt.created_at')} BETWEEN ? AND ?`];
     let params = [outletId, start, end];
 
     if (floorIds.length > 0) {
@@ -1482,7 +1533,7 @@ const reportsService = {
        LEFT JOIN floors f ON o.floor_id = f.id
        LEFT JOIN tables t ON o.table_id = t.id
        WHERE o.outlet_id = ? 
-         AND DATE(COALESCE(o.cancelled_at, o.created_at)) BETWEEN ? AND ? 
+         AND ${toISTDate('COALESCE(o.cancelled_at, o.created_at)')} BETWEEN ? AND ? 
          AND o.status = 'cancelled'${ff.sql}
        ORDER BY COALESCE(o.cancelled_at, o.updated_at) DESC`,
       [outletId, start, end, ...ff.params]
@@ -1515,7 +1566,7 @@ const reportsService = {
        LEFT JOIN floors f ON o.floor_id = f.id
        LEFT JOIN tables t ON o.table_id = t.id
        WHERE o.outlet_id = ? 
-         AND DATE(COALESCE(oi.cancelled_at, oi.created_at)) BETWEEN ? AND ? 
+         AND ${toISTDate('COALESCE(oi.cancelled_at, oi.created_at)')} BETWEEN ? AND ? 
          AND oi.status = 'cancelled'${ff.sql}
        ORDER BY COALESCE(oi.cancelled_at, oi.updated_at) DESC`,
       [outletId, start, end, ...ff.params]
@@ -1530,7 +1581,7 @@ const reportsService = {
           o.total_amount as amount
         FROM orders o
         WHERE o.outlet_id = ? 
-          AND DATE(COALESCE(o.cancelled_at, o.created_at)) BETWEEN ? AND ? 
+          AND ${toISTDate('COALESCE(o.cancelled_at, o.created_at)')} BETWEEN ? AND ? 
           AND o.status = 'cancelled'${ff.sql}
         UNION ALL
         SELECT 
@@ -1540,7 +1591,7 @@ const reportsService = {
         FROM order_items oi
         JOIN orders o ON oi.order_id = o.id
         WHERE o.outlet_id = ? 
-          AND DATE(COALESCE(oi.cancelled_at, oi.created_at)) BETWEEN ? AND ? 
+          AND ${toISTDate('COALESCE(oi.cancelled_at, oi.created_at)')} BETWEEN ? AND ? 
           AND oi.status = 'cancelled'${ff.sql}
       ) combined
       GROUP BY reason
@@ -1660,7 +1711,7 @@ const reportsService = {
        LEFT JOIN users u_captain ON o.created_by = u_captain.id
        LEFT JOIN users u_cashier ON o.billed_by = u_cashier.id`;
 
-    let conditions = ['o.outlet_id = ?', 'DATE(ocl.created_at) BETWEEN ? AND ?'];
+    let conditions = ['o.outlet_id = ?', `${toISTDate('ocl.created_at')} BETWEEN ? AND ?`];
     let params = [outletId, start, end];
 
     if (floorIds.length > 0) {
@@ -1776,14 +1827,14 @@ const reportsService = {
     // ─── 6. Daily distribution ───
     const [dailyBreakdown] = await pool.query(
       `SELECT 
-        DATE(ocl.created_at) as date,
+        ${toISTDate('ocl.created_at')} as date,
         COUNT(*) as count,
         SUM(CASE WHEN ocl.cancel_type = 'full_order' THEN 1 ELSE 0 END) as order_cancels,
         SUM(CASE WHEN ocl.cancel_type != 'full_order' THEN 1 ELSE 0 END) as item_cancels,
         SUM(CASE WHEN ocl.cancel_type = 'full_order' THEN o.total_amount
              WHEN oi.id IS NOT NULL THEN oi.total_price ELSE 0 END) as total_amount
        ${baseFrom} ${whereClause}
-       GROUP BY DATE(ocl.created_at)
+       GROUP BY ${toISTDate('ocl.created_at')}
        ORDER BY date`,
       params
     );
@@ -2100,7 +2151,7 @@ const reportsService = {
         SUM(CASE WHEN status IN ('paid', 'completed') THEN COALESCE(paid_amount, total_amount) ELSE 0 END) as net_sales,
         COUNT(CASE WHEN status NOT IN ('paid', 'completed', 'cancelled') THEN 1 END) as active_orders
        FROM orders o
-       WHERE o.outlet_id = ? AND DATE(o.created_at) = ?${ff.sql}`,
+       WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} = ?${ff.sql}`,
       [outletId, today, ...ff.params]
     );
 
@@ -2117,7 +2168,7 @@ const reportsService = {
         COUNT(*) as count
        FROM kot_tickets kt
        JOIN orders o ON kt.order_id = o.id
-       WHERE kt.outlet_id = ? AND kt.status NOT IN ('served', 'cancelled') AND DATE(kt.created_at) = ?${ff.sql}
+       WHERE kt.outlet_id = ? AND kt.status NOT IN ('served', 'cancelled') AND ${toISTDate('kt.created_at')} = ?${ff.sql}
        GROUP BY kt.station`,
       [outletId, today, ...ff.params]
     );
@@ -2129,7 +2180,7 @@ const reportsService = {
         SUM(p.total_amount) as amount
        FROM payments p
        JOIN orders o ON p.order_id = o.id
-       WHERE p.outlet_id = ? AND DATE(p.created_at) = ? AND p.status = 'completed'${ff.sql}
+       WHERE p.outlet_id = ? AND ${toISTDate('p.created_at')} = ? AND p.status = 'completed'${ff.sql}
        GROUP BY p.payment_mode`,
       [outletId, today, ...ff.params]
     );
@@ -2197,7 +2248,7 @@ const reportsService = {
        LEFT JOIN users u_biller ON o.billed_by = u_biller.id
        LEFT JOIN users u_cancel ON o.cancelled_by = u_cancel.id`;
 
-    let conditions = ['o.outlet_id = ?', 'DATE(o.created_at) BETWEEN ? AND ?'];
+    let conditions = ['o.outlet_id = ?', `${toISTDate('o.created_at')} BETWEEN ? AND ?`];
     let params = [outletId, start, end];
 
     // Floor restriction for assigned-floor users
@@ -2698,7 +2749,7 @@ const reportsService = {
        LEFT JOIN kitchen_stations ks ON i.kitchen_station_id = ks.id
        LEFT JOIN tax_groups tg ON oi.tax_group_id = tg.id`;
 
-    let conditions = ['o.outlet_id = ?', 'DATE(o.created_at) BETWEEN ? AND ?'];
+    let conditions = ['o.outlet_id = ?', `${toISTDate('o.created_at')} BETWEEN ? AND ?`];
     let params = [outletId, start, end];
 
     if (floorIds.length > 0) {
@@ -3125,7 +3176,7 @@ const reportsService = {
        LEFT JOIN kitchen_stations ks ON i.kitchen_station_id = ks.id
        LEFT JOIN tax_groups tg ON oi.tax_group_id = tg.id`;
 
-    let conditions = ['o.outlet_id = ?', 'DATE(o.created_at) BETWEEN ? AND ?'];
+    let conditions = ['o.outlet_id = ?', `${toISTDate('o.created_at')} BETWEEN ? AND ?`];
     let params = [outletId, start, end];
 
     if (floorIds.length > 0) {
@@ -3543,7 +3594,7 @@ const reportsService = {
        LEFT JOIN users u_cashier ON o.billed_by = u_cashier.id
        LEFT JOIN invoices inv ON p.invoice_id = inv.id`;
 
-    let conditions = ['p.outlet_id = ?', 'DATE(p.created_at) BETWEEN ? AND ?', "p.status = 'completed'"];
+    let conditions = ['p.outlet_id = ?', `${toISTDate('p.created_at')} BETWEEN ? AND ?`, "p.status = 'completed'"];
     let params = [outletId, start, end];
 
     if (floorIds.length > 0) {
@@ -3614,10 +3665,10 @@ const reportsService = {
 
     // 0d. Daily breakdown over all filtered
     const [dailyAgg] = await pool.query(
-      `SELECT DATE(p.created_at) as date, p.payment_mode,
+      `SELECT ${toISTDate('p.created_at')} as date, p.payment_mode,
         COUNT(*) as count, SUM(p.total_amount) as amount
        ${baseFrom} ${whereClause}
-       GROUP BY DATE(p.created_at), p.payment_mode
+       GROUP BY ${toISTDate('p.created_at')}, p.payment_mode
        ORDER BY date`, params
     );
 
@@ -3911,7 +3962,7 @@ const reportsService = {
        LEFT JOIN users u_cashier ON o.billed_by = u_cashier.id
        LEFT JOIN users u_gen ON inv.generated_by = u_gen.id`;
 
-    let conditions = ['inv.outlet_id = ?', 'DATE(inv.created_at) BETWEEN ? AND ?', 'inv.is_cancelled = 0'];
+    let conditions = ['inv.outlet_id = ?', `${toISTDate('inv.created_at')} BETWEEN ? AND ?`, 'inv.is_cancelled = 0'];
     let params = [outletId, start, end];
 
     if (floorIds.length > 0) {
@@ -3973,14 +4024,14 @@ const reportsService = {
 
     // 0c. Daily tax breakdown over all filtered
     const [dailyTaxAgg] = await pool.query(
-      `SELECT DATE(inv.created_at) as date,
+      `SELECT ${toISTDate('inv.created_at')} as date,
         SUM(inv.taxable_amount) as taxable,
         SUM(inv.cgst_amount) as cgst, SUM(inv.sgst_amount) as sgst,
         SUM(inv.igst_amount) as igst, SUM(inv.vat_amount) as vat,
         SUM(inv.cess_amount) as cess, SUM(inv.total_tax) as total_tax,
         SUM(inv.grand_total) as grand_total, COUNT(*) as invoice_count
        ${baseFrom} ${whereClause}
-       GROUP BY DATE(inv.created_at) ORDER BY date`, params
+       GROUP BY ${toISTDate('inv.created_at')} ORDER BY date`, params
     );
 
     // Sort column mapping
@@ -4406,15 +4457,31 @@ const reportsService = {
        JOIN orders o ON oi.order_id = o.id
        LEFT JOIN items i ON oi.item_id = i.id
        LEFT JOIN categories c ON i.category_id = c.id
-       WHERE o.outlet_id = ? AND DATE(o.created_at) BETWEEN ? AND ?${ff.sql}
+       WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ?${ff.sql}
        GROUP BY COALESCE(c.service_type, 'both')
        ORDER BY net_revenue DESC`,
       [outletId, start, end, ...ff.params]
     );
 
-    // Calculate totals
+    // Get order-level summary for consistency with other reports
+    const [orderSummary] = await pool.query(
+      `SELECT 
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.subtotal ELSE 0 END) as gross_revenue,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as discount_amount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.tax_amount ELSE 0 END) as tax_amount,
+        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END) as net_revenue
+       FROM orders o
+       WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ? AND o.status != 'cancelled'${ff.sql}`,
+      [outletId, start, end, ...ff.params]
+    );
+
+    // Calculate totals from item-level for breakdown, order-level for summary
     const totalRevenue = rows.reduce((sum, r) => sum + parseFloat(r.net_revenue || 0), 0);
     const totalQuantity = rows.reduce((sum, r) => sum + parseInt(r.total_quantity || 0), 0);
+    const orderGross = parseFloat(orderSummary[0].gross_revenue || 0);
+    const orderDiscount = parseFloat(orderSummary[0].discount_amount || 0);
+    const orderTax = parseFloat(orderSummary[0].tax_amount || 0);
+    const orderNet = parseFloat(orderSummary[0].net_revenue || 0);
 
     // Build breakdown with percentages
     const breakdown = {
@@ -4443,7 +4510,10 @@ const reportsService = {
       dateRange: { start, end },
       outletId,
       summary: {
-        total_revenue: totalRevenue.toFixed(2),
+        gross_revenue: orderGross.toFixed(2),
+        discount_amount: orderDiscount.toFixed(2),
+        tax_amount: orderTax.toFixed(2),
+        net_revenue: orderNet.toFixed(2),
         total_quantity: totalQuantity,
         restaurant_revenue: breakdown.restaurant.net_revenue.toFixed(2),
         bar_revenue: breakdown.bar.net_revenue.toFixed(2),
@@ -4466,7 +4536,7 @@ const reportsService = {
     const { start, end } = this._dateRange(startDate, endDate);
     const { floorIds = [], userId = null, isCashier = false } = options;
 
-    let conditions = ['o.outlet_id = ?', 'DATE(o.created_at) BETWEEN ? AND ?'];
+    let conditions = ['o.outlet_id = ?', `${toISTDate('o.created_at')} BETWEEN ? AND ?`];
     let params = [outletId, start, end];
 
     // Floor restriction - include takeaway/delivery orders (they have NULL floor_id)
@@ -4486,14 +4556,14 @@ const reportsService = {
 
     const [rows] = await pool.query(
       `SELECT 
-        DATE(o.created_at) as report_date,
+        ${toISTDate('o.created_at')} as report_date,
         COUNT(*) as total_orders,
         COUNT(CASE WHEN o.status IN ('paid', 'completed') THEN 1 END) as completed_orders,
         COUNT(CASE WHEN o.status = 'cancelled' THEN 1 END) as cancelled_orders,
         COUNT(CASE WHEN o.order_type = 'dine_in' AND o.status != 'cancelled' THEN 1 END) as dine_in_orders,
         COUNT(CASE WHEN o.order_type = 'takeaway' AND o.status != 'cancelled' THEN 1 END) as takeaway_orders,
         COUNT(CASE WHEN o.order_type = 'delivery' AND o.status != 'cancelled' THEN 1 END) as delivery_orders,
-        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN o.total_amount ELSE 0 END) as total_sales,
+        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END) as total_sales,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.subtotal ELSE 0 END) as gross_sales,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as total_discount,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.tax_amount ELSE 0 END) as total_tax,
@@ -4501,7 +4571,7 @@ const reportsService = {
         SUM(CASE WHEN o.status != 'cancelled' THEN o.guest_count ELSE 0 END) as total_guests
        FROM orders o
        ${whereClause}
-       GROUP BY DATE(o.created_at)
+       GROUP BY ${toISTDate('o.created_at')}
        ORDER BY report_date DESC`,
       params
     );
@@ -4509,21 +4579,21 @@ const reportsService = {
     // Get payment breakdown (regular payments)
     const [payRows] = await pool.query(
       `SELECT 
-        DATE(p.created_at) as report_date,
+        ${toISTDate('p.created_at')} as report_date,
         p.payment_mode,
         COUNT(*) as payment_count,
         SUM(p.total_amount) as amount
        FROM payments p
        JOIN orders o ON p.order_id = o.id
        ${whereClause} AND p.status = 'completed'
-       GROUP BY DATE(p.created_at), p.payment_mode`,
+       GROUP BY ${toISTDate('p.created_at')}, p.payment_mode`,
       params
     );
 
     // Get split payment breakdown (actual payment modes from split_payments table)
     const [splitRows] = await pool.query(
       `SELECT 
-        DATE(p.created_at) as report_date,
+        ${toISTDate('p.created_at')} as report_date,
         sp.payment_mode,
         COUNT(*) as payment_count,
         SUM(sp.amount) as amount
@@ -4531,7 +4601,7 @@ const reportsService = {
        JOIN payments p ON sp.payment_id = p.id
        JOIN orders o ON p.order_id = o.id
        ${whereClause} AND p.status = 'completed' AND p.payment_mode = 'split'
-       GROUP BY DATE(p.created_at), sp.payment_mode`,
+       GROUP BY ${toISTDate('p.created_at')}, sp.payment_mode`,
       params
     );
 
@@ -4614,7 +4684,7 @@ const reportsService = {
     const targetDate = date || new Date().toISOString().slice(0, 10);
     const { floorIds = [], userId = null, isCashier = false } = options;
 
-    let conditions = ['o.outlet_id = ?', 'DATE(o.created_at) = ?'];
+    let conditions = ['o.outlet_id = ?', `${toISTDate('o.created_at')} = ?`];
     let params = [outletId, targetDate];
 
     // Floor restriction - include takeaway/delivery orders
@@ -4781,7 +4851,7 @@ const reportsService = {
          FROM refunds rf
          JOIN orders o ON rf.order_id = o.id
          LEFT JOIN users u ON rf.refunded_by = u.id
-         WHERE o.outlet_id = ? AND DATE(rf.created_at) = ? AND rf.status IN ('completed', 'approved')
+         WHERE o.outlet_id = ? AND ${toISTDate('rf.created_at')} = ? AND rf.status IN ('completed', 'approved')
          ORDER BY rf.created_at DESC`,
         [outletId, targetDate]
       );
@@ -5171,7 +5241,7 @@ const reportsService = {
     const { start, end } = this._dateRange(startDate, endDate);
     const { floorIds = [], userId = null } = options;
 
-    let conditions = ['o.outlet_id = ?', 'DATE(o.created_at) BETWEEN ? AND ?', 'o.billed_by IS NOT NULL'];
+    let conditions = ['o.outlet_id = ?', `${toISTDate('o.created_at')} BETWEEN ? AND ?`, 'o.billed_by IS NOT NULL'];
     let params = [outletId, start, end];
 
     if (floorIds.length > 0) {

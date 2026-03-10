@@ -67,6 +67,11 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Dyno Webhook Routes (at root level - Dyno expects /orders, /{resId}/orders/status, etc.)
+// Base URL configured in Dyno: https://restro-backend.imaker.in
+const dynoRoutes = require('./routes/dyno.routes');
+app.use('/', dynoRoutes);
+
 // API Routes
 const routes = require('./routes');
 app.use('/api/v1', routes);

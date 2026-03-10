@@ -631,6 +631,21 @@ router.get('/shifts/:shiftId/summary', authorize('super_admin', 'admin', 'manage
  */
 router.get('/shifts/:outletId/outlet-summary', authorize('super_admin', 'admin', 'manager', 'cashier', 'captain'), orderController.getShiftSummary);
 
+/**
+ * @route   GET /api/v1/orders/shifts/:outletId/history/export
+ * @desc    Export shift history as CSV
+ * @access  Private (cashier, manager, admin)
+ * @query   startDate, endDate - Date range filters
+ */
+router.get('/shifts/:outletId/history/export', authorize('super_admin', 'admin', 'manager', 'cashier', 'captain'), orderController.exportShiftHistory);
+
+/**
+ * @route   GET /api/v1/orders/shifts/:shiftId/detail/export
+ * @desc    Export shift detail as CSV
+ * @access  Private (cashier, manager, admin)
+ */
+router.get('/shifts/:shiftId/detail/export', authorize('super_admin', 'admin', 'manager', 'cashier', 'captain'), orderController.exportShiftDetail);
+
 // ========================
 // ADMIN ORDER MANAGEMENT
 // ========================
@@ -665,5 +680,86 @@ router.get('/admin/list', authorize('super_admin', 'admin', 'manager'), orderCon
  * @access  Private (admin, manager)
  */
 router.get('/admin/detail/:orderId', authorize('super_admin', 'admin', 'manager'), orderController.getAdminOrderDetail);
+
+// ========================
+// CSV EXPORT ENDPOINTS
+// ========================
+
+/**
+ * @route   GET /api/v1/orders/reports/:outletId/daily-sales/export
+ * @desc    Export daily sales report as CSV
+ * @access  Private (manager, admin, cashier)
+ */
+router.get('/reports/:outletId/daily-sales/export', authorize('super_admin', 'admin', 'manager', 'cashier', 'captain'), orderController.exportDailySales);
+
+/**
+ * @route   GET /api/v1/orders/reports/:outletId/daily-sales/detail/export
+ * @desc    Export detailed daily sales as CSV
+ * @access  Private (manager, admin, cashier)
+ */
+router.get('/reports/:outletId/daily-sales/detail/export', authorize('super_admin', 'admin', 'manager', 'cashier', 'captain'), orderController.exportDailySalesDetail);
+
+/**
+ * @route   GET /api/v1/orders/reports/:outletId/item-sales/export
+ * @desc    Export item sales report as CSV
+ * @access  Private (manager, admin, cashier)
+ */
+router.get('/reports/:outletId/item-sales/export', authorize('super_admin', 'admin', 'manager', 'cashier', 'captain'), orderController.exportItemSales);
+
+/**
+ * @route   GET /api/v1/orders/reports/:outletId/category-sales/export
+ * @desc    Export category sales report as CSV
+ * @access  Private (manager, admin, cashier)
+ */
+router.get('/reports/:outletId/category-sales/export', authorize('super_admin', 'admin', 'manager', 'cashier', 'captain'), orderController.exportCategorySales);
+
+/**
+ * @route   GET /api/v1/orders/reports/:outletId/staff/export
+ * @desc    Export staff performance report as CSV
+ * @access  Private (manager, admin, cashier)
+ */
+router.get('/reports/:outletId/staff/export', authorize('super_admin', 'admin', 'manager', 'cashier', 'captain'), orderController.exportStaffReport);
+
+/**
+ * @route   GET /api/v1/orders/reports/:outletId/payment-modes/export
+ * @desc    Export payment mode report as CSV
+ * @access  Private (manager, admin, cashier)
+ */
+router.get('/reports/:outletId/payment-modes/export', authorize('super_admin', 'admin', 'manager', 'cashier', 'captain'), orderController.exportPaymentModes);
+
+/**
+ * @route   GET /api/v1/orders/reports/:outletId/tax/export
+ * @desc    Export tax report as CSV
+ * @access  Private (manager, admin, cashier)
+ */
+router.get('/reports/:outletId/tax/export', authorize('super_admin', 'admin', 'manager', 'cashier', 'captain'), orderController.exportTaxReport);
+
+/**
+ * @route   GET /api/v1/orders/reports/:outletId/service-type-breakdown/export
+ * @desc    Export service type breakdown as CSV
+ * @access  Private (manager, admin, cashier)
+ */
+router.get('/reports/:outletId/service-type-breakdown/export', authorize('super_admin', 'admin', 'manager', 'cashier', 'captain'), orderController.exportServiceTypeBreakdown);
+
+/**
+ * @route   GET /api/v1/orders/reports/:outletId/floor-section/export
+ * @desc    Export floor/section sales report as CSV
+ * @access  Private (manager, admin, cashier)
+ */
+router.get('/reports/:outletId/floor-section/export', authorize('super_admin', 'admin', 'manager', 'cashier', 'captain'), orderController.exportFloorSection);
+
+/**
+ * @route   GET /api/v1/orders/reports/:outletId/counter/export
+ * @desc    Export counter sales report as CSV
+ * @access  Private (manager, admin, cashier)
+ */
+router.get('/reports/:outletId/counter/export', authorize('super_admin', 'admin', 'manager', 'cashier', 'captain'), orderController.exportCounterSales);
+
+/**
+ * @route   GET /api/v1/orders/reports/:outletId/cancellations/export
+ * @desc    Export cancellation report as CSV
+ * @access  Private (manager, admin, cashier)
+ */
+router.get('/reports/:outletId/cancellations/export', authorize('super_admin', 'admin', 'manager', 'cashier', 'captain'), orderController.exportCancellations);
 
 module.exports = router;

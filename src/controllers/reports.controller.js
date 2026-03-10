@@ -1,6 +1,7 @@
 const reportsService = require('../services/reports.service');
 const userService = require('../services/user.service');
 const logger = require('../utils/logger');
+const csvExport = require('../utils/csv-export');
 
 /**
  * Role-based data scoping
@@ -656,6 +657,113 @@ const getCounterSalesReport = async (req, res, next) => {
   }
 };
 
+/**
+ * Export running tables as CSV
+ * GET /api/v1/reports/running-tables/export
+ */
+const exportRunningTables = async (req, res, next) => {
+  try {
+    const { outletId } = req.query;
+    
+    if (!outletId) {
+      return res.status(400).json({ success: false, message: 'outletId is required' });
+    }
+
+    const scope = await getUserDataScope(req.user, parseInt(outletId));
+    const result = await reportsService.getRunningTables(parseInt(outletId), scope.floorIds);
+    
+    const csv = csvExport.runningTablesCSV(result, { outletId });
+    const filename = csvExport.generateFilename('running_tables', {});
+    
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(csv);
+  } catch (error) {
+    logger.error('Export Running Tables failed:', error);
+    next(error);
+  }
+};
+
+/**
+ * Export running orders as CSV
+ * GET /api/v1/reports/running-orders/export
+ */
+const exportRunningOrders = async (req, res, next) => {
+  try {
+    const { outletId } = req.query;
+    
+    if (!outletId) {
+      return res.status(400).json({ success: false, message: 'outletId is required' });
+    }
+
+    const scope = await getUserDataScope(req.user, parseInt(outletId));
+    const result = await reportsService.getRunningOrders(parseInt(outletId), scope.floorIds);
+    
+    const csv = csvExport.runningOrdersCSV(result, { outletId });
+    const filename = csvExport.generateFilename('running_orders', {});
+    
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(csv);
+  } catch (error) {
+    logger.error('Export Running Orders failed:', error);
+    next(error);
+  }
+};
+
+/**
+ * Export Day End Summary as CSV
+ */
+const exportDayEndSummary = async (req, res, next) => {
+  try {
+    const { outletId, startDate, endDate } = req.query;
+    
+    if (!outletId) {
+      return res.status(400).json({ success: false, message: 'outletId is required' });
+    }
+
+    const scope = await getUserDataScope(req.user, parseInt(outletId));
+    const result = await reportsService.getDayEndSummary(parseInt(outletId), startDate, endDate, scope.floorIds);
+    
+    const csv = csvExport.dayEndSummaryCSV(result, { startDate, endDate, outletId });
+    const filename = csvExport.generateFilename('day_end_summary', { startDate, endDate });
+    
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(csv);
+  } catch (error) {
+    logger.error('Export Day End Summary failed:', error);
+    next(error);
+  }
+};
+
+/**
+ * Export Day End Summary Detail as CSV
+ */
+const exportDayEndSummaryDetail = async (req, res, next) => {
+  try {
+    const { outletId, date, startDate, endDate } = req.query;
+    
+    if (!outletId) {
+      return res.status(400).json({ success: false, message: 'outletId is required' });
+    }
+
+    const targetDate = date || startDate || endDate || new Date().toISOString().split('T')[0];
+    const scope = await getUserDataScope(req.user, parseInt(outletId));
+    const result = await reportsService.getDayEndSummaryDetail(parseInt(outletId), targetDate, targetDate, scope.floorIds);
+    
+    const csv = csvExport.dayEndSummaryDetailCSV(result, { startDate: targetDate, endDate: targetDate, outletId });
+    const filename = csvExport.generateFilename('day_end_detail', { startDate: targetDate, endDate: targetDate });
+    
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(csv);
+  } catch (error) {
+    logger.error('Export Day End Summary Detail failed:', error);
+    next(error);
+  }
+};
+
 module.exports = {
   getDayEndSummary,
   getDayEndSummaryDetail,
@@ -673,5 +781,9 @@ module.exports = {
   getFloorSectionReport,
   getHourlySalesReport,
   getLiveDashboard,
-  getCounterSalesReport
+  getCounterSalesReport,
+  exportRunningTables,
+  exportRunningOrders,
+  exportDayEndSummary,
+  exportDayEndSummaryDetail
 };

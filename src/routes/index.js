@@ -26,6 +26,7 @@ router.use('/settings', require('./settings.routes'));
 router.use('/reports', require('./reports.routes'));
 router.use('/bulk-upload', require('./bulkUpload.routes'));
 router.use('/app', require('./appVersion.routes'));
+router.use('/integrations', require('./integration.routes'));
 
 // Future routes (uncomment as modules are developed)
 // router.use('/categories', require('./category.routes'));

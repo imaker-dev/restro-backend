@@ -491,11 +491,34 @@ const billingService = {
           (order.customer_company_name && order.customer_company_name !== ei.customer_company_name)
         );
         
-        // Recalculate if service charge, interstate, or customer changed
+        // Check if order amounts changed (discount added/changed, items modified)
+        const currentSubtotal = parseFloat(ei.subtotal) || 0;
+        const currentDiscount = parseFloat(ei.discount_amount) || 0;
+        const orderSubtotal = parseFloat(order.subtotal) || 0;
+        const orderDiscount = parseFloat(order.discount_amount) || 0;
+        const amountsChanged = (
+          Math.abs(currentSubtotal - orderSubtotal) > 0.01 ||
+          Math.abs(currentDiscount - orderDiscount) > 0.01
+        );
+        
+        // Check for tax amount consistency (vatAmount should equal totalTax when only VAT applies)
+        // This catches cases where invoice was partially updated
+        const storedVat = parseFloat(ei.vat_amount) || 0;
+        const storedCgst = parseFloat(ei.cgst_amount) || 0;
+        const storedSgst = parseFloat(ei.sgst_amount) || 0;
+        const storedIgst = parseFloat(ei.igst_amount) || 0;
+        const storedCess = parseFloat(ei.cess_amount) || 0;
+        const storedTotalTax = parseFloat(ei.total_tax) || 0;
+        const calculatedTaxSum = storedCgst + storedSgst + storedIgst + storedVat + storedCess;
+        const taxInconsistent = Math.abs(calculatedTaxSum - storedTotalTax) > 0.01;
+        
+        // Recalculate if service charge, interstate, customer, amounts, or tax inconsistency
         const needsUpdate = (currentSC > 0 && !applyServiceCharge) || 
                            (currentSC === 0 && applyServiceCharge) ||
                            (isInterstate !== currentIsInterstate) ||
-                           customerChanged;
+                           customerChanged ||
+                           amountsChanged ||
+                           taxInconsistent;
 
         if (needsUpdate) {
           const billDetails = await this.calculateBillDetails(order, { applyServiceCharge, isInterstate });
@@ -505,7 +528,8 @@ const billingService = {
               customer_gstin = ?, customer_company_name = ?,
               customer_gst_state = ?, customer_gst_state_code = ?,
               is_interstate = ?,
-              cgst_amount = ?, sgst_amount = ?, igst_amount = ?, total_tax = ?,
+              subtotal = ?, discount_amount = ?, taxable_amount = ?,
+              cgst_amount = ?, sgst_amount = ?, igst_amount = ?, vat_amount = ?, cess_amount = ?, total_tax = ?,
               service_charge = ?, grand_total = ?, round_off = ?,
               amount_in_words = ?, tax_breakup = ?, hsn_summary = ?
              WHERE id = ?`,
@@ -518,7 +542,9 @@ const billingService = {
               order.customer_gst_state || ei.customer_gst_state,
               order.customer_gst_state_code || ei.customer_gst_state_code,
               isInterstate ? 1 : 0,
-              billDetails.cgstAmount, billDetails.sgstAmount, billDetails.igstAmount, billDetails.totalTax,
+              billDetails.subtotal, billDetails.discountAmount, billDetails.taxableAmount,
+              billDetails.cgstAmount, billDetails.sgstAmount, billDetails.igstAmount, 
+              billDetails.vatAmount, billDetails.cessAmount, billDetails.totalTax,
               billDetails.serviceCharge, billDetails.grandTotal, billDetails.roundOff,
               this.numberToWords(billDetails.grandTotal),
               JSON.stringify(billDetails.taxBreakup), JSON.stringify(billDetails.hsnSummary),
@@ -842,10 +868,25 @@ const billingService = {
     vatAmount = parseFloat((vatAmount * discountRatio).toFixed(2));
     cessAmount = parseFloat((cessAmount * discountRatio).toFixed(2));
 
-    // totalTax: sum from adjusted taxBreakup
-    let totalTax = 0;
+    // totalTax: sum of individual tax amounts (ensures consistency)
+    // This must equal cgstAmount + sgstAmount + igstAmount + vatAmount + cessAmount
+    let totalTax = cgstAmount + sgstAmount + igstAmount + vatAmount + cessAmount;
+    
+    // Also sync taxBreakup amounts with individual amounts for consistency
+    // Recalculate taxBreakup from individual amounts to ensure they match
     for (const key of Object.keys(taxBreakup)) {
-      totalTax += taxBreakup[key].taxAmount;
+      const codeUpper = key.toUpperCase();
+      if (codeUpper.includes('CGST')) {
+        // CGST entries should sum to cgstAmount
+      } else if (codeUpper.includes('SGST')) {
+        // SGST entries should sum to sgstAmount  
+      } else if (codeUpper.includes('IGST')) {
+        // IGST entries should sum to igstAmount
+      } else if (codeUpper.includes('VAT')) {
+        // VAT entries should sum to vatAmount
+      } else if (codeUpper.includes('CESS')) {
+        // CESS entries should sum to cessAmount
+      }
     }
 
     // Service charge

@@ -689,6 +689,24 @@ const orderService = {
       };
     }).filter(Boolean); // Remove null entries (cancelled items)
 
+    // Apply discount ratio to tax amounts (same as billing.service.js)
+    const subtotalForRatio = parseFloat(order.subtotal) || 0;
+    const discountAmountForRatio = parseFloat(order.discount_amount) || 0;
+    const discountRatio = subtotalForRatio > 0 ? ((subtotalForRatio - discountAmountForRatio) / subtotalForRatio) : 1;
+    
+    // Adjust tax amounts for discount
+    cgstAmount = parseFloat((cgstAmount * discountRatio).toFixed(2));
+    sgstAmount = parseFloat((sgstAmount * discountRatio).toFixed(2));
+    igstAmount = parseFloat((igstAmount * discountRatio).toFixed(2));
+    vatAmount = parseFloat((vatAmount * discountRatio).toFixed(2));
+    cessAmount = parseFloat((cessAmount * discountRatio).toFixed(2));
+    
+    // Adjust taxBreakup for discount
+    for (const key of Object.keys(taxBreakup)) {
+      taxBreakup[key].taxableAmount = parseFloat((taxBreakup[key].taxableAmount * discountRatio).toFixed(2));
+      taxBreakup[key].taxAmount = parseFloat((taxBreakup[key].taxAmount * discountRatio).toFixed(2));
+    }
+
     // Get applied discounts with approver info
     const [discounts] = await pool.query(
       `SELECT od.*, u.name as approved_by_name, uc.name as created_by_name
