@@ -1445,6 +1445,73 @@ const orderController = {
   },
 
   /**
+   * Export orders list as CSV for admin/manager
+   * GET /api/v1/orders/admin/list/export
+   */
+  async exportAdminOrderList(req, res) {
+    try {
+      const {
+        outletId,
+        status,
+        orderType,
+        paymentStatus,
+        startDate: rawStartDate,
+        endDate: rawEndDate,
+        search,
+        captainId,
+        cashierId,
+        tableId,
+        floorId,
+        minAmount,
+        maxAmount,
+        sortBy = 'created_at',
+        sortOrder = 'DESC'
+      } = req.query;
+
+      // Handle startDate/endDate - can be flat params or nested in orderType object
+      const startDate = rawStartDate || (typeof orderType === 'object' ? orderType.startDate : null);
+      const endDate = rawEndDate || (typeof orderType === 'object' ? orderType.endDate : null);
+      // orderType filter - only use if it's a string (not object with dates)
+      const orderTypeFilter = typeof orderType === 'string' ? orderType : null;
+
+      // Get floor permissions for manager
+      const userFloorIds = outletId ? await getUserFloorIds(req.user.userId, outletId) : [];
+      
+      // Use floorId filter if provided, otherwise use user's floor permissions
+      const effectiveFloorId = floorId || (userFloorIds.length > 0 ? userFloorIds : null);
+
+      // Get all orders without pagination for export
+      const result = await orderService.getAdminOrderListForExport({
+        outletId: outletId || null,
+        status: status || null,
+        orderType: orderTypeFilter || null,
+        paymentStatus: paymentStatus || null,
+        startDate: startDate || null,
+        endDate: endDate || null,
+        search: search || null,
+        captainId: captainId || null,
+        cashierId: cashierId || null,
+        tableId: tableId || null,
+        floorId: effectiveFloorId,
+        minAmount: minAmount ? parseFloat(minAmount) : null,
+        maxAmount: maxAmount ? parseFloat(maxAmount) : null,
+        sortBy,
+        sortOrder
+      });
+
+      const csv = csvExport.adminOrderListCSV(result, { startDate, endDate, outletId });
+      const filename = csvExport.generateFilename('orders_list', { startDate, endDate });
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (error) {
+      logger.error('Export admin order list error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
    * Get comprehensive order details for admin
    * GET /api/v1/orders/admin/detail/:orderId
    */

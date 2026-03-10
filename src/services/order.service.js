@@ -2654,6 +2654,254 @@ const orderService = {
   },
 
   /**
+   * Get admin order list for CSV export (no pagination, includes all data)
+   * @param {Object} params - Query parameters
+   * @returns {Object} - All orders with summary
+   */
+  async getAdminOrderListForExport(params) {
+    const pool = getPool();
+    const {
+      outletId = null,
+      status = null,
+      orderType = null,
+      paymentStatus = null,
+      startDate = null,
+      endDate = null,
+      search = null,
+      captainId = null,
+      cashierId = null,
+      tableId = null,
+      floorId = null,
+      minAmount = null,
+      maxAmount = null,
+      sortBy = 'created_at',
+      sortOrder = 'DESC'
+    } = params;
+
+    const conditions = [];
+    const queryParams = [];
+
+    if (outletId) {
+      conditions.push('o.outlet_id = ?');
+      queryParams.push(outletId);
+    }
+    if (status && status !== 'all') {
+      conditions.push('o.status = ?');
+      queryParams.push(status);
+    }
+    if (orderType && orderType !== 'all') {
+      conditions.push('o.order_type = ?');
+      queryParams.push(orderType);
+    }
+    if (paymentStatus && paymentStatus !== 'all') {
+      conditions.push('o.payment_status = ?');
+      queryParams.push(paymentStatus);
+    }
+    if (startDate) {
+      conditions.push('DATE(o.created_at) >= ?');
+      queryParams.push(startDate);
+    }
+    if (endDate) {
+      conditions.push('DATE(o.created_at) <= ?');
+      queryParams.push(endDate);
+    }
+    if (captainId) {
+      conditions.push('o.created_by = ?');
+      queryParams.push(captainId);
+    }
+    if (cashierId) {
+      conditions.push('EXISTS (SELECT 1 FROM payments p WHERE p.order_id = o.id AND p.received_by = ?)');
+      queryParams.push(cashierId);
+    }
+    if (tableId) {
+      conditions.push('o.table_id = ?');
+      queryParams.push(tableId);
+    }
+    // Floor filter - can be single ID or array
+    if (floorId) {
+      if (Array.isArray(floorId) && floorId.length > 0) {
+        conditions.push(`t.floor_id IN (${floorId.map(() => '?').join(',')})`);
+        queryParams.push(...floorId);
+      } else if (!Array.isArray(floorId)) {
+        conditions.push('t.floor_id = ?');
+        queryParams.push(floorId);
+      }
+    }
+    if (minAmount) {
+      conditions.push('o.total_amount >= ?');
+      queryParams.push(minAmount);
+    }
+    if (maxAmount) {
+      conditions.push('o.total_amount <= ?');
+      queryParams.push(maxAmount);
+    }
+    if (search) {
+      conditions.push(`(
+        o.order_number LIKE ? OR 
+        t.table_number LIKE ? OR 
+        o.customer_name LIKE ? OR 
+        o.customer_phone LIKE ? OR
+        inv.invoice_number LIKE ?
+      )`);
+      const searchPattern = `%${search}%`;
+      queryParams.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const sortColumnMap = {
+      'created_at': 'o.created_at',
+      'order_number': 'o.order_number',
+      'total_amount': 'o.total_amount',
+      'status': 'o.status',
+      'order_type': 'o.order_type',
+      'table_number': 't.table_number'
+    };
+    const safeSort = sortColumnMap[sortBy] || 'o.created_at';
+    const safeOrder = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    // Get all orders with comprehensive data for export
+    const [orders] = await pool.query(
+      `SELECT 
+        o.id,
+        o.uuid,
+        o.order_number,
+        o.outlet_id,
+        ol.name as outlet_name,
+        o.order_type,
+        o.status,
+        o.payment_status,
+        o.table_id,
+        t.table_number,
+        t.name as table_name,
+        f.name as floor_name,
+        s.name as section_name,
+        o.customer_name,
+        o.customer_phone,
+        o.guest_count,
+        o.subtotal,
+        o.discount_amount,
+        o.discount_details,
+        o.tax_amount,
+        o.service_charge,
+        o.packaging_charge,
+        o.delivery_charge,
+        o.round_off,
+        o.total_amount,
+        o.paid_amount,
+        o.special_instructions,
+        o.source,
+        o.external_order_id,
+        captain.name as captain_name,
+        cashier.name as cashier_name,
+        inv.id as invoice_id,
+        inv.invoice_number,
+        inv.grand_total as invoice_total,
+        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,
+        (SELECT GROUP_CONCAT(CONCAT(item_name, ' x', quantity) SEPARATOR '; ') FROM order_items WHERE order_id = o.id) as items_summary,
+        (SELECT SUM(total_amount) FROM payments WHERE order_id = o.id AND status = 'completed') as total_paid,
+        (SELECT GROUP_CONCAT(DISTINCT payment_mode SEPARATOR ', ') FROM payments WHERE order_id = o.id AND status = 'completed') as payment_modes,
+        (SELECT GROUP_CONCAT(CONCAT(sp.payment_mode, ':', sp.amount) SEPARATOR '; ') 
+         FROM payments p2 
+         JOIN split_payments sp ON p2.id = sp.payment_id 
+         WHERE p2.order_id = o.id AND p2.status = 'completed' AND p2.payment_mode = 'split') as split_breakdown,
+        o.created_at,
+        o.updated_at
+       FROM orders o
+       LEFT JOIN outlets ol ON o.outlet_id = ol.id
+       LEFT JOIN tables t ON o.table_id = t.id
+       LEFT JOIN floors f ON t.floor_id = f.id
+       LEFT JOIN sections s ON t.section_id = s.id
+       LEFT JOIN users captain ON o.created_by = captain.id
+       LEFT JOIN invoices inv ON o.id = inv.order_id
+       LEFT JOIN payments pay ON o.id = pay.order_id AND pay.status = 'completed'
+       LEFT JOIN users cashier ON pay.received_by = cashier.id
+       ${whereClause}
+       GROUP BY o.id
+       ORDER BY ${safeSort} ${safeOrder}`,
+      queryParams
+    );
+
+    // Get summary
+    const [summaryResult] = await pool.query(
+      `SELECT 
+        COUNT(DISTINCT o.id) as total_orders,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.subtotal ELSE 0 END) as total_subtotal,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as total_discount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.tax_amount ELSE 0 END) as total_tax,
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.total_amount ELSE 0 END) as total_amount,
+        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END) as total_paid,
+        SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_count,
+        SUM(CASE WHEN o.order_type = 'dine_in' THEN 1 ELSE 0 END) as dine_in_count,
+        SUM(CASE WHEN o.order_type = 'takeaway' THEN 1 ELSE 0 END) as takeaway_count,
+        SUM(CASE WHEN o.order_type = 'delivery' THEN 1 ELSE 0 END) as delivery_count
+       FROM orders o
+       LEFT JOIN tables t ON o.table_id = t.id
+       LEFT JOIN invoices inv ON o.id = inv.order_id
+       ${whereClause}`,
+      queryParams
+    );
+
+    return {
+      orders: orders.map(o => ({
+        id: o.id,
+        uuid: o.uuid,
+        orderNumber: o.order_number,
+        outletId: o.outlet_id,
+        outletName: o.outlet_name,
+        orderType: o.order_type,
+        status: o.status,
+        paymentStatus: o.payment_status,
+        tableId: o.table_id,
+        tableNumber: o.table_number,
+        tableName: o.table_name,
+        floorName: o.floor_name,
+        sectionName: o.section_name,
+        customerName: o.customer_name,
+        customerPhone: o.customer_phone,
+        guestCount: o.guest_count,
+        subtotal: parseFloat(o.subtotal) || 0,
+        discountAmount: parseFloat(o.discount_amount) || 0,
+        discountDetails: o.discount_details,
+        taxAmount: parseFloat(o.tax_amount) || 0,
+        serviceCharge: parseFloat(o.service_charge) || 0,
+        packagingCharge: parseFloat(o.packaging_charge) || 0,
+        deliveryCharge: parseFloat(o.delivery_charge) || 0,
+        roundOff: parseFloat(o.round_off) || 0,
+        totalAmount: parseFloat(o.total_amount) || 0,
+        paidAmount: parseFloat(o.paid_amount) || 0,
+        totalPaid: parseFloat(o.total_paid) || 0,
+        specialInstructions: o.special_instructions,
+        source: o.source || 'pos',
+        externalOrderId: o.external_order_id,
+        captainName: o.captain_name,
+        cashierName: o.cashier_name,
+        invoiceId: o.invoice_id,
+        invoiceNumber: o.invoice_number,
+        invoiceTotal: parseFloat(o.invoice_total) || 0,
+        itemCount: o.item_count || 0,
+        itemsSummary: o.items_summary,
+        paymentModes: o.payment_modes,
+        splitBreakdown: o.split_breakdown,
+        createdAt: o.created_at,
+        updatedAt: o.updated_at
+      })),
+      summary: {
+        totalOrders: summaryResult[0]?.total_orders || 0,
+        totalSubtotal: parseFloat(summaryResult[0]?.total_subtotal) || 0,
+        totalDiscount: parseFloat(summaryResult[0]?.total_discount) || 0,
+        totalTax: parseFloat(summaryResult[0]?.total_tax) || 0,
+        totalAmount: parseFloat(summaryResult[0]?.total_amount) || 0,
+        totalPaid: parseFloat(summaryResult[0]?.total_paid) || 0,
+        cancelledCount: summaryResult[0]?.cancelled_count || 0,
+        dineInCount: summaryResult[0]?.dine_in_count || 0,
+        takeawayCount: summaryResult[0]?.takeaway_count || 0,
+        deliveryCount: summaryResult[0]?.delivery_count || 0
+      }
+    };
+  },
+
+  /**
    * Get comprehensive order details for admin view
    * @param {number} orderId - Order ID
    * @returns {Object} - Complete order details

@@ -382,7 +382,7 @@ function paymentModeCSV(data, filters) {
     },
     summary: {
       'Total Transactions': summary.total_transactions,
-      'Total Amount': formatCurrency(summary.total_amount)
+      'Total Amount': formatCurrency(summary.total_collected || summary.total_amount)
     }
   });
 }
@@ -1072,6 +1072,121 @@ function dayEndSummaryDetailCSV(data, filters) {
   return lines.join('\n');
 }
 
+/**
+ * Admin Order List CSV Export - Comprehensive order data
+ */
+function adminOrderListCSV(data, filters) {
+  const lines = [];
+  
+  // Header
+  lines.push('Orders List Export');
+  lines.push('');
+  if (filters.startDate) lines.push(`Start Date,${filters.startDate}`);
+  if (filters.endDate) lines.push(`End Date,${filters.endDate}`);
+  if (filters.outletId) lines.push(`Outlet ID,${filters.outletId}`);
+  lines.push(`Generated,${formatDateTime(new Date())}`);
+  lines.push('');
+  
+  // Summary
+  const summary = data.summary || {};
+  lines.push('SUMMARY');
+  lines.push(`Total Orders,${summary.totalOrders || 0}`);
+  lines.push(`Dine-In Orders,${summary.dineInCount || 0}`);
+  lines.push(`Takeaway Orders,${summary.takeawayCount || 0}`);
+  lines.push(`Delivery Orders,${summary.deliveryCount || 0}`);
+  lines.push(`Cancelled Orders,${summary.cancelledCount || 0}`);
+  lines.push(`Total Subtotal,${formatCurrency(summary.totalSubtotal)}`);
+  lines.push(`Total Discount,${formatCurrency(summary.totalDiscount)}`);
+  lines.push(`Total Tax,${formatCurrency(summary.totalTax)}`);
+  lines.push(`Total Amount,${formatCurrency(summary.totalAmount)}`);
+  lines.push(`Total Paid,${formatCurrency(summary.totalPaid)}`);
+  lines.push('');
+  
+  // Orders data with all fields
+  const orders = data.orders || [];
+  if (orders.length > 0) {
+    lines.push('ORDER DETAILS');
+    // Header row with all possible columns
+    lines.push([
+      'Order No',
+      'Date',
+      'Time',
+      'Outlet',
+      'Order Type',
+      'Status',
+      'Payment Status',
+      'Table No',
+      'Floor',
+      'Section',
+      'Customer Name',
+      'Customer Phone',
+      'Guests',
+      'Items',
+      'Items Summary',
+      'Subtotal (₹)',
+      'Discount (₹)',
+      'Discount Details',
+      'Tax (₹)',
+      'Service Charge (₹)',
+      'Packaging (₹)',
+      'Delivery (₹)',
+      'Round Off (₹)',
+      'Total Amount (₹)',
+      'Paid Amount (₹)',
+      'Payment Modes',
+      'Split Breakdown',
+      'Invoice No',
+      'Captain',
+      'Cashier',
+      'Source',
+      'External Order ID',
+      'Special Instructions'
+    ].join(','));
+    
+    // Data rows
+    for (const o of orders) {
+      const orderDate = o.createdAt ? new Date(o.createdAt) : null;
+      lines.push([
+        escapeCSV(o.orderNumber || ''),
+        orderDate ? formatDate(orderDate) : '',
+        orderDate ? orderDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '',
+        escapeCSV(o.outletName || ''),
+        escapeCSV(o.orderType || ''),
+        escapeCSV(o.status || ''),
+        escapeCSV(o.paymentStatus || ''),
+        escapeCSV(o.tableNumber || ''),
+        escapeCSV(o.floorName || ''),
+        escapeCSV(o.sectionName || ''),
+        escapeCSV(o.customerName || ''),
+        escapeCSV(o.customerPhone || ''),
+        o.guestCount || '',
+        o.itemCount || 0,
+        escapeCSV(o.itemsSummary || ''),
+        formatCurrency(o.subtotal),
+        formatCurrency(o.discountAmount),
+        escapeCSV(o.discountDetails || ''),
+        formatCurrency(o.taxAmount),
+        formatCurrency(o.serviceCharge),
+        formatCurrency(o.packagingCharge),
+        formatCurrency(o.deliveryCharge),
+        formatCurrency(o.roundOff),
+        formatCurrency(o.totalAmount),
+        formatCurrency(o.totalPaid || o.paidAmount),
+        escapeCSV(o.paymentModes || ''),
+        escapeCSV(o.splitBreakdown || ''),
+        escapeCSV(o.invoiceNumber || ''),
+        escapeCSV(o.captainName || ''),
+        escapeCSV(o.cashierName || ''),
+        escapeCSV(o.source || 'pos'),
+        escapeCSV(o.externalOrderId || ''),
+        escapeCSV(o.specialInstructions || '')
+      ].join(','));
+    }
+  }
+  
+  return lines.join('\n');
+}
+
 module.exports = {
   toCSV,
   escapeCSV,
@@ -1098,5 +1213,7 @@ module.exports = {
   shiftDetailCSV,
   // Day-end reports
   dayEndSummaryCSV,
-  dayEndSummaryDetailCSV
+  dayEndSummaryDetailCSV,
+  // Admin exports
+  adminOrderListCSV
 };

@@ -342,7 +342,16 @@ const bulkUploadService = {
                 if (taxGroupId) taxMap.set(gst, taxGroupId);
               }
 
-              const stationName = row.Station || row.station;
+              // Normalize station to Kitchen or Bar only
+              let stationName = row.Station || row.station || '';
+              // Bar items (liquor with VAT) go to Bar station, everything else to Kitchen
+              if (serviceType === 'bar' || (vat && !gst)) {
+                stationName = 'Bar';
+              } else if (stationName.toLowerCase() !== 'bar') {
+                // All food items (including Tandoor, Dessert, etc.) go to Kitchen
+                stationName = 'Kitchen';
+              }
+              
               let stationId = null;
               if (stationName) {
                 stationId = stationMap.get(stationName.toLowerCase());
@@ -546,6 +555,19 @@ const bulkUploadService = {
         }
       }
 
+      // Update items with variants to use smallest variant price as base_price
+      // Only for items where base_price is 0 or not set
+      await conn.query(`
+        UPDATE items i
+        SET base_price = (
+          SELECT MIN(v.price) FROM variants v WHERE v.item_id = i.id AND v.is_active = 1
+        )
+        WHERE i.outlet_id = ? 
+          AND i.has_variants = 1 
+          AND (i.base_price IS NULL OR i.base_price = 0)
+          AND EXISTS (SELECT 1 FROM variants v WHERE v.item_id = i.id AND v.is_active = 1)
+      `, [outletId]);
+
       await conn.commit();
       await this._invalidateCaches(outletId);
       logger.info(`Bulk upload completed for outlet ${outletId}:`, result);
@@ -625,28 +647,28 @@ const bulkUploadService = {
     // Fallback to basic template if sample file not found
     const header = 'Type,Name,Category,Price,ItemType,GST,VAT,Station,Description,Parent,ShortName,SKU,Default,SelectionType,Min,Max,Required,Group,Item,ServiceType';
     const examples = [
-      '# MENU CATEGORIES',
+      '# MENU CATEGORIES - ServiceType: restaurant, bar, both',
       'CATEGORY,Starters,,,,,,,Appetizers and snacks,,,,,,,,,,,restaurant',
       'CATEGORY,Veg Starters,,,,,,,Vegetarian starters,Starters,,,,,,,,,,restaurant',
       'CATEGORY,Beverages,,,,,,,Drinks and beverages,,,,,,,,,,,both',
       'CATEGORY,Whisky,,,,,,,Whisky category,,,,,,,,,,,bar',
       '',
-      '# MENU ITEMS - Use GST for food items',
-      'ITEM,Paneer Tikka,Veg Starters,250,veg,5,,Main Kitchen,Grilled cottage cheese,,P.Tikka,PTK001,,,,,,,,restaurant',
-      'ITEM,Chicken Tikka,Veg Starters,320,non_veg,5,,Main Kitchen,Grilled chicken pieces,,C.Tikka,CTK001,,,,,,,,restaurant',
+      '# MENU ITEMS - Station: Kitchen or Bar only',
+      'ITEM,Paneer Tikka,Veg Starters,250,veg,5,,Kitchen,Grilled cottage cheese,,P.Tikka,PTK001,,,,,,,,restaurant',
+      'ITEM,Chicken Tikka,Veg Starters,320,non_veg,5,,Kitchen,Grilled chicken pieces,,C.Tikka,CTK001,,,,,,,,restaurant',
       '',
-      '# LIQUOR ITEMS - Use VAT instead of GST',
-      'ITEM,Royal Stag,Whisky,0,veg,,18,Bar,,,Roya Stag,WHI001,,,,,,,,bar',
+      '# LIQUOR ITEMS - Use VAT instead of GST, Station: Bar',
+      'ITEM,Royal Stag,Whisky,110,veg,,18,Bar,,,Roya Stag,WHI001,,,,,,,,bar',
       '',
       '# VARIANTS (Place after ITEM row, or specify Item column)',
-      'VARIANT,Small 30 ML,,110,,,,,,,,,no,,,,,,Royal Stag,',
-      'VARIANT,Large 60 ML,,210,,,,,,,,,no,,,,,,Royal Stag,',
+      'VARIANT,Small 30 ML,,110,,,,,,,,,no,,,,,Royal Stag,',
+      'VARIANT,Large 60 ML,,210,,,,,,,,,no,,,,,Royal Stag,',
       '',
       '# ADDON GROUPS',
-      'ADDON_GROUP,Extra Toppings,,,,,,,,,,,,multiple,0,3,no,,',
+      'ADDON_GROUP,Extra Toppings,,,,,,,,,,,,multiple,0,3,no,,,',
       '',
-      '# ADDONS',
-      'ADDON,Extra Cheese,,30,veg,,,,,,,,,,,,,Extra Toppings,'
+      '# ADDONS (Group column references the ADDON_GROUP)',
+      'ADDON,Extra Cheese,,30,veg,,,,,,,,,,,,,Extra Toppings,,'
     ];
 
     return header + '\n' + examples.join('\n');
@@ -661,11 +683,11 @@ const bulkUploadService = {
         { name: 'Type', required: true, description: 'CATEGORY, ITEM, VARIANT, ADDON_GROUP, ADDON' },
         { name: 'Name', required: true, description: 'Name of the item/category/addon' },
         { name: 'Category', required: false, description: 'Category name (for items)' },
-        { name: 'Price', required: false, description: 'Price (required for ITEM, VARIANT, ADDON)' },
+        { name: 'Price', required: false, description: 'Price (required for ITEM, VARIANT, ADDON). For items with variants, use smallest variant price or leave 0.' },
         { name: 'ItemType', required: false, description: 'veg, non_veg, egg, vegan (for items)' },
         { name: 'GST', required: false, description: 'GST tax rate: 0, 5, 12, 18, 28 (for food items)' },
         { name: 'VAT', required: false, description: 'VAT tax rate: 0, 5, 12, 18, 20, 25, 28 (for liquor items)' },
-        { name: 'Station', required: false, description: 'Kitchen station name' },
+        { name: 'Station', required: false, description: 'Kitchen or Bar only (for items). Food items use Kitchen, liquor items use Bar.' },
         { name: 'Description', required: false, description: 'Description text' },
         { name: 'Parent', required: false, description: 'Parent category (for subcategories)' },
         { name: 'ShortName', required: false, description: 'Short name for KOT' },
@@ -681,13 +703,14 @@ const bulkUploadService = {
       ],
       types: {
         CATEGORY: { required: ['Name'], optional: ['Description', 'Parent', 'ServiceType'] },
-        ITEM: { required: ['Name', 'Price'], optional: ['Category', 'ItemType', 'GST', 'VAT', 'Station', 'Description', 'ShortName', 'SKU', 'ServiceType'] },
+        ITEM: { required: ['Name'], optional: ['Category', 'Price', 'ItemType', 'GST', 'VAT', 'Station', 'Description', 'ShortName', 'SKU', 'ServiceType'] },
         VARIANT: { required: ['Name', 'Price'], optional: ['Item', 'SKU', 'Default'] },
         ADDON_GROUP: { required: ['Name'], optional: ['SelectionType', 'Min', 'Max', 'Required'] },
-        ADDON: { required: ['Name'], optional: ['Group', 'Price', 'FoodType'] }
+        ADDON: { required: ['Name'], optional: ['Group', 'Price', 'ItemType'] }
       },
       itemTypes: ['veg', 'non_veg', 'egg', 'vegan'],
       serviceTypes: ['restaurant', 'bar', 'both'],
+      stations: ['Kitchen', 'Bar'],
       foodTypes: ['veg', 'nonveg', 'non_veg', 'egg', 'vegan'],
       gstRates: ['0', '5', '12', '18', '28'],
       vatRates: ['0', '5', '12', '18', '20', '25', '28']

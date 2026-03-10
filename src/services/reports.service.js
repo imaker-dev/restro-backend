@@ -79,8 +79,8 @@ const reportsService = {
         COUNT(CASE WHEN order_type = 'delivery' THEN 1 END) as delivery_orders,
         COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled_orders,
         SUM(guest_count) as total_guests,
-        SUM(subtotal) as gross_sales,
-        SUM(CASE WHEN status IN ('paid', 'completed') THEN total_amount ELSE 0 END) as net_sales,
+        SUM(subtotal + tax_amount) as gross_sales,
+        SUM(subtotal - discount_amount) as net_sales,
         SUM(discount_amount) as discount_amount,
         SUM(tax_amount) as tax_amount,
         SUM(service_charge) as service_charge,
@@ -328,8 +328,8 @@ const reportsService = {
         COUNT(CASE WHEN o.order_type = 'delivery' THEN 1 END) as delivery_orders,
         COUNT(CASE WHEN o.status = 'cancelled' THEN 1 END) as cancelled_orders,
         SUM(o.guest_count) as total_guests,
-        SUM(CASE WHEN o.status != 'cancelled' THEN o.subtotal ELSE 0 END) as gross_sales,
-        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END) as net_sales,
+        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal + o.tax_amount) ELSE 0 END) as gross_sales,
+        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) ELSE 0 END) as net_sales,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as discount_amount,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.tax_amount ELSE 0 END) as tax_amount,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.service_charge ELSE 0 END) as service_charge,
@@ -430,21 +430,22 @@ const reportsService = {
       };
     });
 
-    // Calculate summary totals across all days
+    // Calculate summary totals across all days - use merged daily data for collections
     const totalOrders = rows.reduce((s, r) => s + (r.total_orders || 0), 0);
-    const totalGuests = rows.reduce((s, r) => s + (r.total_guests || 0), 0);
+    const totalGuests = rows.reduce((s, r) => s + parseInt(r.total_guests || 0), 0);
     const grossSales = rows.reduce((s, r) => s + parseFloat(r.gross_sales || 0), 0);
     const netSales = rows.reduce((s, r) => s + parseFloat(r.net_sales || 0), 0);
     const totalDiscount = rows.reduce((s, r) => s + parseFloat(r.discount_amount || 0), 0);
     const totalTax = rows.reduce((s, r) => s + parseFloat(r.tax_amount || 0), 0);
     const totalServiceCharge = rows.reduce((s, r) => s + parseFloat(r.service_charge || 0), 0);
-    const totalCollection = payRows.reduce((s, r) => s + parseFloat(r.total_collection || 0), 0);
-    const cashCollection = payRows.reduce((s, r) => s + parseFloat(r.cash_collection || 0), 0);
-    const cardCollection = payRows.reduce((s, r) => s + parseFloat(r.card_collection || 0), 0);
-    const upiCollection = payRows.reduce((s, r) => s + parseFloat(r.upi_collection || 0), 0);
-    const walletCollection = payRows.reduce((s, r) => s + parseFloat(r.wallet_collection || 0), 0);
-    const creditCollection = payRows.reduce((s, r) => s + parseFloat(r.credit_collection || 0), 0);
-    const totalTips = payRows.reduce((s, r) => s + parseFloat(r.tip_amount || 0), 0);
+    // Use daily (merged with split payments) instead of raw payRows
+    const totalCollection = daily.reduce((s, r) => s + parseFloat(r.total_collection || 0), 0);
+    const cashCollection = daily.reduce((s, r) => s + parseFloat(r.cash_collection || 0), 0);
+    const cardCollection = daily.reduce((s, r) => s + parseFloat(r.card_collection || 0), 0);
+    const upiCollection = daily.reduce((s, r) => s + parseFloat(r.upi_collection || 0), 0);
+    const walletCollection = daily.reduce((s, r) => s + parseFloat(r.wallet_collection || 0), 0);
+    const creditCollection = daily.reduce((s, r) => s + parseFloat(r.credit_collection || 0), 0);
+    const totalTips = daily.reduce((s, r) => s + parseFloat(r.tip_amount || 0), 0);
 
     return {
       dateRange: { start, end },
@@ -502,12 +503,13 @@ const reportsService = {
     const itemCount = itemCountResult[0];
 
     // Get financial summary from ORDERS table for consistency with daily sales report
+    // Gross = subtotal + tax (before discounts), Net = subtotal - discount (actual revenue, excludes tax)
     const [orderSummary] = await pool.query(
       `SELECT 
-        SUM(CASE WHEN o.status != 'cancelled' THEN o.subtotal ELSE 0 END) as gross_revenue,
+        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal + o.tax_amount) ELSE 0 END) as gross_revenue,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as discount_amount,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.tax_amount ELSE 0 END) as tax_amount,
-        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END) as net_revenue
+        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) ELSE 0 END) as net_revenue
        FROM orders o
        WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ? AND o.status != 'cancelled'${ff.sql}`,
       [outletId, start, end, ...ff.params]
@@ -598,11 +600,12 @@ const reportsService = {
     );
 
     // Get financial summary from ORDERS table for consistency with daily sales report
+    // Gross = subtotal + tax (before discounts), Net = subtotal - discount (actual revenue, excludes tax)
     const [orderSummary] = await pool.query(
       `SELECT 
-        SUM(CASE WHEN o.status != 'cancelled' THEN o.subtotal ELSE 0 END) as gross_revenue,
+        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal + o.tax_amount) ELSE 0 END) as gross_revenue,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as discount_amount,
-        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END) as net_revenue
+        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) ELSE 0 END) as net_revenue
        FROM orders o
        WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ? AND o.status != 'cancelled'${ff.sql}`,
       [outletId, start, end, ...ff.params]
@@ -2300,10 +2303,10 @@ const reportsService = {
         SUM(CASE WHEN o.order_type = 'dine_in' THEN 1 ELSE 0 END) as dine_in_count,
         SUM(CASE WHEN o.order_type = 'takeaway' THEN 1 ELSE 0 END) as takeaway_count,
         SUM(CASE WHEN o.order_type = 'delivery' THEN 1 ELSE 0 END) as delivery_count,
-        SUM(CASE WHEN o.status != 'cancelled' THEN o.subtotal ELSE 0 END) as gross_sales,
+        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal + o.tax_amount) ELSE 0 END) as gross_sales,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as total_discount,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.tax_amount ELSE 0 END) as total_tax,
-        SUM(CASE WHEN o.status IN ('paid','completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END) as net_sales
+        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) ELSE 0 END) as net_sales
        ${baseFrom} ${whereClause}`,
       params
     );
@@ -4464,12 +4467,13 @@ const reportsService = {
     );
 
     // Get order-level summary for consistency with other reports
+    // Gross = subtotal + tax (before discounts), Net = subtotal - discount (actual revenue, excludes tax)
     const [orderSummary] = await pool.query(
       `SELECT 
-        SUM(CASE WHEN o.status != 'cancelled' THEN o.subtotal ELSE 0 END) as gross_revenue,
+        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal + o.tax_amount) ELSE 0 END) as gross_revenue,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as discount_amount,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.tax_amount ELSE 0 END) as tax_amount,
-        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END) as net_revenue
+        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) ELSE 0 END) as net_revenue
        FROM orders o
        WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ? AND o.status != 'cancelled'${ff.sql}`,
       [outletId, start, end, ...ff.params]
@@ -4563,8 +4567,8 @@ const reportsService = {
         COUNT(CASE WHEN o.order_type = 'dine_in' AND o.status != 'cancelled' THEN 1 END) as dine_in_orders,
         COUNT(CASE WHEN o.order_type = 'takeaway' AND o.status != 'cancelled' THEN 1 END) as takeaway_orders,
         COUNT(CASE WHEN o.order_type = 'delivery' AND o.status != 'cancelled' THEN 1 END) as delivery_orders,
-        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END) as total_sales,
-        SUM(CASE WHEN o.status != 'cancelled' THEN o.subtotal ELSE 0 END) as gross_sales,
+        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) ELSE 0 END) as total_sales,
+        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal + o.tax_amount) ELSE 0 END) as gross_sales,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as total_discount,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.tax_amount ELSE 0 END) as total_tax,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.service_charge ELSE 0 END) as total_sc,
@@ -4711,15 +4715,15 @@ const reportsService = {
         COUNT(CASE WHEN o.order_type = 'dine_in' AND o.status != 'cancelled' THEN 1 END) as dine_in_orders,
         COUNT(CASE WHEN o.order_type = 'takeaway' AND o.status != 'cancelled' THEN 1 END) as takeaway_orders,
         COUNT(CASE WHEN o.order_type = 'delivery' AND o.status != 'cancelled' THEN 1 END) as delivery_orders,
-        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN o.total_amount ELSE 0 END) as total_sales,
-        SUM(CASE WHEN o.status != 'cancelled' THEN o.subtotal ELSE 0 END) as gross_sales,
+        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) ELSE 0 END) as total_sales,
+        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal + o.tax_amount) ELSE 0 END) as gross_sales,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as total_discount,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.tax_amount ELSE 0 END) as total_tax,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.service_charge ELSE 0 END) as total_service_charge,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.guest_count ELSE 0 END) as total_guests,
-        AVG(CASE WHEN o.status IN ('paid', 'completed') THEN o.total_amount END) as avg_order_value,
-        MAX(CASE WHEN o.status IN ('paid', 'completed') THEN o.total_amount END) as max_order_value,
-        MIN(CASE WHEN o.status IN ('paid', 'completed') AND o.total_amount > 0 THEN o.total_amount END) as min_order_value
+        AVG(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) END) as avg_order_value,
+        MAX(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) END) as max_order_value,
+        MIN(CASE WHEN o.status != 'cancelled' AND (o.subtotal - o.discount_amount) > 0 THEN (o.subtotal - o.discount_amount) END) as min_order_value
        FROM orders o
        ${whereClause}`,
       params

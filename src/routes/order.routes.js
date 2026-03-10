@@ -675,6 +675,14 @@ router.get('/shifts/:shiftId/detail/export', authorize('super_admin', 'admin', '
 router.get('/admin/list', authorize('super_admin', 'admin', 'manager'), orderController.getAdminOrderList);
 
 /**
+ * @route   GET /api/v1/orders/admin/list/export
+ * @desc    Export orders list as CSV for admin/manager (respects floor permissions)
+ * @access  Private (admin, manager)
+ * @query   Same filters as /admin/list (outletId, status, orderType, etc.)
+ */
+router.get('/admin/list/export', authorize('super_admin', 'admin', 'manager'), orderController.exportAdminOrderList);
+
+/**
  * @route   GET /api/v1/orders/admin/detail/:orderId
  * @desc    Get comprehensive order details for admin — items, KOTs, payments, discounts, cancellations, timeline
  * @access  Private (admin, manager)
