@@ -410,6 +410,15 @@ class UserService {
           throw new Error('Managers cannot update admin or manager users');
         }
       }
+      
+      // Check if manager is trying to assign admin-level roles
+      if (isManager && data.roles && data.roles.length > 0) {
+        const roleIds = data.roles.map(r => r.roleId);
+        const hasAdminRoles = await this.containsAdminRoles(roleIds);
+        if (hasAdminRoles) {
+          throw new Error('Managers can only assign staff roles (captain, waiter, bartender, kitchen, cashier)');
+        }
+      }
 
       // Check user exists
       const [users] = await connection.query(
@@ -507,6 +516,22 @@ class UserService {
               `INSERT INTO user_floors (user_id, floor_id, outlet_id, is_primary, assigned_by)
                VALUES (?, ?, ?, ?, ?)`,
               [id, floor.floorId, floor.outletId, floor.isPrimary || false, updatedBy]
+            );
+          }
+        }
+      }
+
+      // Update role assignments if provided
+      if (data.roles !== undefined) {
+        // Remove existing role assignments for this user
+        await connection.query('DELETE FROM user_roles WHERE user_id = ?', [id]);
+        // Insert new role assignments
+        if (data.roles && data.roles.length > 0) {
+          for (const role of data.roles) {
+            await connection.query(
+              `INSERT INTO user_roles (user_id, role_id, outlet_id, assigned_by)
+               VALUES (?, ?, ?, ?)`,
+              [id, role.roleId, role.outletId || null, updatedBy]
             );
           }
         }
