@@ -7,10 +7,12 @@ const express = require('express');
 const router = express.Router();
 const printerController = require('../controllers/printer.controller');
 const { authenticate, authorize } = require('../middlewares/auth.middleware');
+const { bridgeLimiter } = require('../middlewares/rateLimiter');
 
 // ========================
 // BRIDGE POLLING API (No auth required - uses API key)
 // These endpoints are called by local bridge agents
+// Rate limited separately to allow higher throughput
 // ========================
 
 /**
@@ -18,7 +20,7 @@ const { authenticate, authorize } = require('../middlewares/auth.middleware');
  * @desc    Poll for next pending print job (local bridge agent)
  * @access  Bridge API Key
  */
-router.get('/bridge/:outletId/:bridgeCode/poll', printerController.bridgePoll);
+router.get('/bridge/:outletId/:bridgeCode/poll', bridgeLimiter, printerController.bridgePoll);
 
 /**
  * @route   POST /api/v1/printers/bridge/:outletId/:bridgeCode/jobs/:jobId/ack

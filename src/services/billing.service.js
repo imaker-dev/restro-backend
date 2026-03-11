@@ -386,16 +386,24 @@ const billingService = {
     const floorId = invoice.floorId || order.floor_id || null;
     const cashierUserId = userId || invoice.generatedBy || order.created_by || null;
     const printer = await this.getBillPrinter(billPrintData.outletId, floorId, cashierUserId);
+    
     if (printer && printer.ip_address) {
+      // Try direct print - do NOT fall back to queue (prevents duplicate prints)
       try {
         await printerService.printBillDirect(billPrintData, printer.ip_address, printer.port || 9100);
         logger.info(`Bill ${invoice.invoiceNumber} printed directly to ${printer.ip_address}:${printer.port || 9100}`);
         return;
       } catch (directErr) {
+        // Only fall back to queue for connection errors, NOT timeouts (timeout might still print)
+        if (directErr.message.includes('timeout')) {
+          logger.warn(`Bill ${invoice.invoiceNumber} direct print timed out - NOT falling back (may have printed)`);
+          return; // Don't fall back - timeout might mean it printed but slow response
+        }
         logger.error(`Direct bill print failed for ${invoice.invoiceNumber}:`, directErr.message);
+        // Fall through to queue only for genuine connection failures
       }
     }
-    // Fallback: create print job for bridge polling
+    // Fallback: create print job for bridge polling (only if no printer OR connection failed)
     await printerService.printBill(billPrintData, userId);
     logger.info(`Bill ${invoice.invoiceNumber} queued for bridge printing`);
   },
@@ -562,11 +570,10 @@ const billingService = {
         }
 
         const existingInv = await this.getInvoiceById(ei.id);
-        try {
-          await this.printBillToThermal(existingInv, order, data.generatedBy);
-        } catch (printErr) {
+        // Non-blocking print for existing invoice
+        this.printBillToThermal(existingInv, order, data.generatedBy).catch(printErr => {
           logger.error(`Reprint existing invoice ${existingInv?.invoiceNumber} failed:`, printErr.message);
-        }
+        });
         return existingInv;
       }
 
@@ -670,20 +677,23 @@ const billingService = {
         }
       }
 
+      // Emit events non-blocking (don't await - fire and forget)
+      const emitPromises = [];
+      
       // Emit table status update to 'billing' for real-time floor view
       if (order.table_id && order.order_type === 'dine_in') {
-        await publishMessage('table:update', {
+        emitPromises.push(publishMessage('table:update', {
           outletId: order.outlet_id,
           tableId: order.table_id,
           floorId: order.floor_id,
           status: 'billing',
           event: 'bill_generated',
           timestamp: new Date().toISOString()
-        });
+        }));
       }
 
       // Emit order update event
-      await publishMessage('order:update', {
+      emitPromises.push(publishMessage('order:update', {
         type: 'order:billed',
         outletId: order.outlet_id,
         orderId,
@@ -691,7 +701,10 @@ const billingService = {
         captainId: order.created_by,
         invoice,
         timestamp: new Date().toISOString()
-      });
+      }));
+      
+      // Fire all events in parallel, don't block response
+      Promise.all(emitPromises).catch(err => logger.error('Bill event emit error:', err.message));
 
       // Get floor cashier for routing bill request to correct cashier
       let floorCashierId = null;
@@ -707,9 +720,9 @@ const billingService = {
         }
       }
 
-      // Emit bill status event for Captain real-time tracking
+      // Emit bill status event for Captain real-time tracking (non-blocking)
       // Include floorId, orderType, and cashierId for proper routing (including takeaway)
-      await publishMessage('bill:status', {
+      publishMessage('bill:status', {
         outletId: order.outlet_id,
         orderId,
         orderType: order.order_type,
@@ -725,14 +738,12 @@ const billingService = {
         customerName: order.customer_name || null,
         customerPhone: order.customer_phone || null,
         timestamp: new Date().toISOString()
-      });
+      }).catch(err => logger.error('Bill status emit error:', err.message));
 
-      // Print bill to thermal printer
-      try {
-        await this.printBillToThermal(invoice, order, generatedBy);
-      } catch (printError) {
+      // Print bill to thermal printer (non-blocking - don't wait for print)
+      this.printBillToThermal(invoice, order, generatedBy).catch(printError => {
         logger.error(`Bill print failed for ${invoiceNumber}:`, printError.message);
-      }
+      });
 
       return invoice;
     } catch (error) {
@@ -1059,7 +1070,10 @@ const billingService = {
   async printInvoice(id, userId) {
     const invoice = await this.resolveInvoice(id);
 
-    await this.printBillToThermal(invoice, { outlet_id: invoice.outletId, floor_id: invoice.floorId }, userId);
+    // Print invoice (non-blocking - don't wait for print)
+    this.printBillToThermal(invoice, { outlet_id: invoice.outletId, floor_id: invoice.floorId }, userId).catch(printError => {
+      logger.error(`Invoice print failed for ${invoice.invoiceNumber}:`, printError.message);
+    });
     return invoice;
   },
 
@@ -1091,12 +1105,10 @@ const billingService = {
     invoice.isDuplicate = true;
     invoice.duplicateNumber = duplicateNumber;
 
-    // Print duplicate bill to thermal printer using shared helper
-    try {
-      await this.printBillToThermal(invoice, { outlet_id: invoice.outletId, floor_id: invoice.floorId }, userId);
-    } catch (printError) {
+    // Print duplicate bill (non-blocking - don't wait for print)
+    this.printBillToThermal(invoice, { outlet_id: invoice.outletId, floor_id: invoice.floorId }, userId).catch(printError => {
       logger.error(`Duplicate bill #${duplicateNumber} print failed for ${invoice.invoiceNumber}:`, printError.message);
-    }
+    });
 
     return invoice;
   },

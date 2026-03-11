@@ -933,23 +933,33 @@ const printerService = {
     const cmd = this.getEscPosCommands();
 
     const station = String(kotData.station || '').trim().toLowerCase();
-    const isBarOrder = station === 'bar' || station === 'main_bar';
+    const stationName = String(kotData.stationName || '').trim();
+    const stationNameLower = stationName.toLowerCase();
+    const isCounter = kotData.isCounter === true;
+    
+    // Determine if this is a bar order (BOT) based on:
+    // 1. isCounter flag (item has counter_id)
+    // 2. station type contains 'bar'
+    // 3. station NAME contains 'bar' (e.g., station named "Bar" but type is "main_kitchen")
+    const isBarOrder = isCounter || 
+      station === 'bar' || station === 'main_bar' || station.includes('bar') ||
+      stationNameLower === 'bar' || stationNameLower.includes('bar');
     const orderType = isBarOrder ? 'BOT' : 'KOT';
-    const stationLabelMap = {
-      kitchen: 'KITCHEN',
-      main_kitchen: 'MAIN KITCHEN',
-      tandoor: 'TANDOOR',
-      wok: 'WOK',
-      grill: 'GRILL',
-      dessert: 'DESSERT',
-      bar: 'BAR',
-      main_bar: 'BAR',
-      mocktail: 'MOCKTAIL'
-    };
-    const stationLabel = stationLabelMap[station] || (station ? station.replace(/_/g, ' ').toUpperCase() : 'KITCHEN');
+    
+    // PRIORITY: Use actual stationName from database FIRST, then fall back to formatted station type
+    // stationName = actual name like "Main Kitchen", "Bar Counter 1" from ks.name or c.name
+    // station = station_type like "main_kitchen", "bar" 
+    let stationLabel;
+    if (stationName && stationName !== station) {
+      // Use actual station name from database (e.g., "Main Kitchen", "Bar Counter")
+      stationLabel = stationName.toUpperCase();
+    } else {
+      // Fall back to formatted station type
+      stationLabel = station ? station.replace(/_/g, ' ').toUpperCase() : 'KITCHEN';
+    }
     const title = `${stationLabel} ORDER (${orderType})`;
     lines.push(cmd.ALIGN_CENTER + cmd.BOLD_ON + title);
-    lines.push(cmd.BOLD_OFF + cmd.ALIGN_LEFT + 'KOT#: ' + kotData.kotNumber);
+    lines.push(cmd.BOLD_OFF + cmd.ALIGN_LEFT + `${orderType}#: ` + kotData.kotNumber);
     lines.push(this.padBetween('Table: ' + (kotData.tableNumber || 'Takeaway'), kotData.time || '', w));
     lines.push(dash);
 
@@ -1439,7 +1449,8 @@ const printerService = {
     const escposData = this.wrapWithEscPos(content, { beep: true });
     
     try {
-      const result = await this.printDirect(printerIp, printerPort, escposData);
+      // Use shorter timeout (2s) for faster response - print usually completes in <1s
+      const result = await this.printDirect(printerIp, printerPort, escposData, 2000);
       logger.info(`KOT ${kotData.kotNumber} printed directly to ${printerIp}:${printerPort}`);
       return result;
     } catch (error) {
@@ -1468,7 +1479,8 @@ const printerService = {
     const escposData = this.wrapWithEscPos(content, { openDrawer: billData.openDrawer, logo });
     
     try {
-      const result = await this.printDirect(printerIp, printerPort, escposData);
+      // Use shorter timeout (2s) for faster response - print usually completes in <1s
+      const result = await this.printDirect(printerIp, printerPort, escposData, 2000);
       logger.info(`Bill ${billData.invoiceNumber} printed directly to ${printerIp}:${printerPort}`);
       return result;
     } catch (error) {

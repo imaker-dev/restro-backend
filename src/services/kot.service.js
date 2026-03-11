@@ -94,12 +94,21 @@ const kotService = {
   // KOT NUMBER GENERATION
   // ========================
 
-  async generateKotNumber(outletId, station) {
+  async generateKotNumber(outletId, station, stationName = '', isCounter = false) {
     const pool = getPool();
     const today = new Date();
     const datePrefix = today.toISOString().slice(5, 10).replace(/-/g, '');
     
-    const prefix = station === 'bar' ? 'BOT' : 'KOT';
+    // Determine BOT vs KOT based on:
+    // 1. isCounter (item has counter_id)
+    // 2. station type is 'bar'
+    // 3. station NAME contains 'bar'
+    const stationLower = (station || '').toLowerCase();
+    const stationNameLower = (stationName || '').toLowerCase();
+    const isBarOrder = isCounter || 
+      stationLower === 'bar' || stationLower.includes('bar') ||
+      stationNameLower === 'bar' || stationNameLower.includes('bar');
+    const prefix = isBarOrder ? 'BOT' : 'KOT';
     
     const [result] = await pool.query(
       `SELECT COUNT(*) + 1 as seq FROM kot_tickets 
@@ -169,8 +178,9 @@ const kotService = {
         const station = firstItem?._station || 'kitchen';
         const stationId = firstItem?._stationId || null;
         const stationName = firstItem?._stationName || station;
+        const isCounter = firstItem?._isCounter || false;
         
-        const kotNumber = await this.generateKotNumber(order.outlet_id, station);
+        const kotNumber = await this.generateKotNumber(order.outlet_id, station, stationName, isCounter);
 
         // Create KOT ticket with station_type and station_id
         const [kotResult] = await connection.query(
@@ -294,6 +304,7 @@ const kotService = {
           orderNumber: order.order_number,
           kotNumber: ticket.kotNumber,
           station: ticket.station,
+          stationName: ticket.stationName,
           stationId: ticket.stationId,
           isCounter: ticket.isCounter,
           tableNumber: order.table_number,
@@ -323,11 +334,15 @@ const kotService = {
           }
         } catch (printError) {
           logger.error(`Failed to print KOT ${ticket.kotNumber}:`, printError.message);
-          // Fallback: create print job for bridge polling
-          try {
-            await printerService.printKot(kotPrintData, createdBy);
-          } catch (fallbackError) {
-            logger.error(`Fallback print job also failed for KOT ${ticket.kotNumber}:`, fallbackError);
+          // Only fall back to queue for connection errors, NOT timeouts (prevents duplicate prints)
+          if (!printError.message.includes('timeout')) {
+            try {
+              await printerService.printKot(kotPrintData, createdBy);
+            } catch (fallbackError) {
+              logger.error(`Fallback print job also failed for KOT ${ticket.kotNumber}:`, fallbackError);
+            }
+          } else {
+            logger.warn(`KOT ${ticket.kotNumber} direct print timed out - NOT falling back (may have printed)`);
           }
         }
       }

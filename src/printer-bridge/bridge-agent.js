@@ -38,14 +38,14 @@ const CONFIG = {
   // API key (optional - bridge works without it now)
   API_KEY: process.env.API_KEY || '',
   
-  // Polling interval in milliseconds
-  POLL_INTERVAL: parseInt(process.env.POLL_INTERVAL) || 2000,
+  // Polling interval in milliseconds (adaptive: starts here, slows to 10s when idle)
+  POLL_INTERVAL: parseInt(process.env.POLL_INTERVAL) || 3000,
 
-  // How often to report local printer status to cloud
-  STATUS_REPORT_INTERVAL: parseInt(process.env.STATUS_REPORT_INTERVAL) || 15000,
+  // How often to report local printer status to cloud (reduced to save requests)
+  STATUS_REPORT_INTERVAL: parseInt(process.env.STATUS_REPORT_INTERVAL) || 60000,
 
   // How often to refresh printer mapping from DB
-  PRINTER_CONFIG_REFRESH_INTERVAL: parseInt(process.env.PRINTER_CONFIG_REFRESH_INTERVAL) || 30000,
+  PRINTER_CONFIG_REFRESH_INTERVAL: parseInt(process.env.PRINTER_CONFIG_REFRESH_INTERVAL) || 60000,
   
   // Printers configuration - map stations to printer IP/port
   // Station names are DYNAMIC and match kitchen_stations.station_type or counter_type
@@ -328,6 +328,11 @@ async function refreshPrinterConfigFromCloud() {
 let isProcessing = false;
 let jobsProcessed = 0;
 let jobsFailed = 0;
+let consecutiveEmpty = 0; // Track consecutive empty polls for adaptive interval
+let currentPollInterval = CONFIG.POLL_INTERVAL;
+const MIN_POLL_INTERVAL = 1000;  // 1 second when busy
+const MAX_POLL_INTERVAL = 10000; // 10 seconds when idle
+const BACKOFF_THRESHOLD = 5;     // Start slowing down after 5 empty polls
 
 async function processNextJob() {
   if (isProcessing) return;
@@ -337,10 +342,18 @@ async function processNextJob() {
     const result = await pollForJob();
     
     if (!result.success || !result.data) {
-      // No pending jobs
+      // No pending jobs - increase interval (adaptive backoff)
+      consecutiveEmpty++;
+      if (consecutiveEmpty > BACKOFF_THRESHOLD) {
+        currentPollInterval = Math.min(currentPollInterval * 1.5, MAX_POLL_INTERVAL);
+      }
       isProcessing = false;
       return;
     }
+    
+    // Job found - reset to fast polling
+    consecutiveEmpty = 0;
+    currentPollInterval = MIN_POLL_INTERVAL;
     
     const job = result.data;
     console.log(`\n📄 Processing job #${job.id}: ${job.job_type} for ${job.station}`);
@@ -385,7 +398,12 @@ async function processNextJob() {
     }
     
   } catch (error) {
-    if (error.code !== 'ECONNREFUSED') {
+    // Handle rate limiting (429)
+    if (error.response?.status === 429) {
+      console.warn('⚠️  Rate limited (429) - backing off...');
+      currentPollInterval = MAX_POLL_INTERVAL;
+      consecutiveEmpty = BACKOFF_THRESHOLD + 1;
+    } else if (error.code !== 'ECONNREFUSED') {
       console.error('Poll error:', error.message);
     }
   }
@@ -471,11 +489,19 @@ async function startAgent() {
   // Start polling loops
   refreshPrinterConfigFromCloud();
   setInterval(refreshPrinterConfigFromCloud, CONFIG.PRINTER_CONFIG_REFRESH_INTERVAL);
-  setInterval(processNextJob, CONFIG.POLL_INTERVAL);
+  
+  // Adaptive polling - uses dynamic interval based on job activity
+  const adaptivePoll = () => {
+    processNextJob();
+    setTimeout(adaptivePoll, currentPollInterval);
+  };
+  adaptivePoll();
+  
+  // Status reporting at longer intervals to reduce requests
   setInterval(reportPrinterStatuses, CONFIG.STATUS_REPORT_INTERVAL);
   reportPrinterStatuses();
   
-  console.log('🟢 Polling started. Waiting for print jobs...\n');
+  console.log('🟢 Polling started (adaptive interval: 1-10 seconds). Waiting for print jobs...\n');
 }
 
 startAgent();
