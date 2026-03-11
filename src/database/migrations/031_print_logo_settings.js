@@ -4,7 +4,7 @@
  * Also adds print_logo_on_bill setting to system_settings
  */
 
-const { getPool } = require('../index');
+const { getPool, initializeDatabase } = require('../index');
 
 async function up() {
   const pool = getPool();
@@ -76,6 +76,10 @@ if (require.main === module) {
   
   const runMigration = async () => {
     try {
+      // Initialize database connection first
+      console.log('Connecting to database...');
+      await initializeDatabase();
+      
       if (action === 'down' || action === 'rollback') {
         await down();
       } else {
