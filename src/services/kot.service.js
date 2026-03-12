@@ -333,16 +333,12 @@ const kotService = {
             await printerService.printKot(kotPrintData, createdBy);
           }
         } catch (printError) {
-          logger.error(`Failed to print KOT ${ticket.kotNumber}:`, printError.message);
-          // Only fall back to queue for connection errors, NOT timeouts (prevents duplicate prints)
-          if (!printError.message.includes('timeout')) {
-            try {
-              await printerService.printKot(kotPrintData, createdBy);
-            } catch (fallbackError) {
-              logger.error(`Fallback print job also failed for KOT ${ticket.kotNumber}:`, fallbackError);
-            }
-          } else {
-            logger.warn(`KOT ${ticket.kotNumber} direct print timed out - NOT falling back (may have printed)`);
+          // Direct print failed - fall back to queue (bridge will handle it)
+          logger.warn(`Direct KOT print failed for ${ticket.kotNumber}: ${printError.message} - falling back to queue`);
+          try {
+            await printerService.printKot(kotPrintData, createdBy);
+          } catch (fallbackError) {
+            logger.error(`Fallback print job also failed for KOT ${ticket.kotNumber}:`, fallbackError);
           }
         }
       }

@@ -388,22 +388,18 @@ const billingService = {
     const printer = await this.getBillPrinter(billPrintData.outletId, floorId, cashierUserId);
     
     if (printer && printer.ip_address) {
-      // Try direct print - do NOT fall back to queue (prevents duplicate prints)
+      // Try direct print first (works when printer is on same network)
       try {
         await printerService.printBillDirect(billPrintData, printer.ip_address, printer.port || 9100);
         logger.info(`Bill ${invoice.invoiceNumber} printed directly to ${printer.ip_address}:${printer.port || 9100}`);
-        return;
+        return; // Direct print succeeded, no need for queue
       } catch (directErr) {
-        // Only fall back to queue for connection errors, NOT timeouts (timeout might still print)
-        if (directErr.message.includes('timeout')) {
-          logger.warn(`Bill ${invoice.invoiceNumber} direct print timed out - NOT falling back (may have printed)`);
-          return; // Don't fall back - timeout might mean it printed but slow response
-        }
-        logger.error(`Direct bill print failed for ${invoice.invoiceNumber}:`, directErr.message);
-        // Fall through to queue only for genuine connection failures
+        // Direct print failed - fall back to queue (bridge will handle it)
+        logger.warn(`Direct bill print failed for ${invoice.invoiceNumber}: ${directErr.message} - falling back to queue`);
+        // Fall through to queue
       }
     }
-    // Fallback: create print job for bridge polling (only if no printer OR connection failed)
+    // Fallback: create print job for bridge polling
     await printerService.printBill(billPrintData, userId);
     logger.info(`Bill ${invoice.invoiceNumber} queued for bridge printing`);
   },

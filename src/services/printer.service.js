@@ -412,6 +412,21 @@ const printerService = {
 
   async createPrintJob(data) {
     const pool = getPool();
+    
+    // Prevent duplicate pending jobs for same reference (invoice/KOT number)
+    if (data.referenceNumber) {
+      const [existing] = await pool.query(
+        `SELECT id FROM print_jobs 
+         WHERE outlet_id = ? AND reference_number = ? AND job_type = ? AND status = 'pending'
+         LIMIT 1`,
+        [data.outletId, data.referenceNumber, data.jobType]
+      );
+      if (existing[0]) {
+        logger.info(`Print job already pending for ${data.referenceNumber} (${data.jobType}), skipping duplicate`);
+        return { id: existing[0].id, duplicate: true };
+      }
+    }
+    
     const uuid = uuidv4();
     const contentForStorage = encodePrintContentForStorage(data.content);
 
