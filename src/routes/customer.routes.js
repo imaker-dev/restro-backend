@@ -88,4 +88,47 @@ router.post('/link-order/:orderId', authorize('super_admin', 'admin', 'manager',
  */
 router.put('/order-gst/:orderId', authorize('super_admin', 'admin', 'manager', 'cashier'), customerController.updateOrderGst);
 
+// ========================
+// DUE PAYMENT MANAGEMENT
+// ========================
+
+/**
+ * @route   GET /api/v1/customers/:outletId/due/:customerId
+ * @desc    Get customer due balance and pending orders
+ * @access  Private (admin, manager, cashier)
+ */
+router.get('/:outletId/due/:customerId', authorize('super_admin', 'admin', 'manager', 'cashier'), customerController.getDueBalance);
+
+/**
+ * @route   GET /api/v1/customers/:outletId/due/:customerId/transactions
+ * @desc    Get customer due transaction history
+ * @access  Private (admin, manager, cashier)
+ * @query   page, limit, type (due_created, due_collected, due_waived)
+ */
+router.get('/:outletId/due/:customerId/transactions', authorize('super_admin', 'admin', 'manager', 'cashier'), customerController.getDueTransactions);
+
+/**
+ * @route   POST /api/v1/customers/:outletId/due/:customerId/collect
+ * @desc    Collect due payment from customer
+ * @access  Private (admin, manager, cashier)
+ * @body    { amount, paymentMode, transactionId?, referenceNumber?, orderId?, invoiceId?, notes? }
+ */
+router.post('/:outletId/due/:customerId/collect', authorize('super_admin', 'admin', 'manager', 'cashier'), customerController.collectDue);
+
+/**
+ * @route   POST /api/v1/customers/:outletId/due/:customerId/waive
+ * @desc    Waive customer due (manager only)
+ * @access  Private (admin, manager)
+ * @body    { amount, reason }
+ */
+router.post('/:outletId/due/:customerId/waive', authorize('super_admin', 'admin', 'manager'), customerController.waiveDue);
+
+/**
+ * @route   GET /api/v1/customers/:outletId/due-list
+ * @desc    List all customers with due balance
+ * @access  Private (admin, manager, cashier)
+ * @query   page, limit, minDue, sortBy, sortOrder
+ */
+router.get('/:outletId/due-list', authorize('super_admin', 'admin', 'manager', 'cashier'), customerController.listWithDue);
+
 module.exports = router;

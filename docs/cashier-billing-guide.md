@@ -103,15 +103,19 @@ Returns invoices for the cashier dashboard. Supports filtering by payment status
 |-------|------|-------------|---------|
 | `floorId` | number | Filter by floor ID | `?floorId=1` |
 | `search` | string | Search by table number, customer name, order number, or invoice number | `?search=T1` |
-| `sortBy` | string | Sort field: `created_at`, `grand_total`, `table_number`, `invoice_number`, `order_number` | `?sortBy=grand_total` |
+| `sortBy` | string | Sort field: `created_at`/`createdAt`, `grand_total`/`grandTotal`, `table_number`/`tableNumber`, `invoice_number`/`invoiceNumber`, `order_number`/`orderNumber` | `?sortBy=grandTotal` |
 | `sortOrder` | string | `asc` or `desc` (default: `desc`) | `?sortOrder=asc` |
 | `page` | number | Page number (default: `1`) | `?page=2` |
 | `limit` | number | Items per page (default: `20`, max: `100`) | `?limit=10` |
-| `status` | string | `pending` (default), `completed`, or `all` | `?status=completed` |
+| `status` | string | `pending` (default), `completed`, `partial`, or `all` | `?status=completed` |
+| `fromDate` | string | Filter bills from date (IST). Date only `2026-03-12` or with time `2026-03-12 00:00:00` | `?fromDate=2026-03-12` |
+| `toDate` | string | Filter bills to date (IST). Date only `2026-03-12` or with time `2026-03-12 23:59:59` | `?toDate=2026-03-12` |
+| `orderType` | string | Filter by order type: `dine_in`, `takeaway`, `delivery` | `?orderType=takeaway` |
 
 All parameters are **combinable**:
 ```
 GET /orders/bills/pending/4?floorId=1&search=John&sortBy=grand_total&sortOrder=asc&page=1&limit=10
+GET /orders/bills/pending/4?fromDate=2026-03-12&toDate=2026-03-12&status=all
 ```
 
 **Examples:**
@@ -119,11 +123,15 @@ GET /orders/bills/pending/4?floorId=1&search=John&sortBy=grand_total&sortOrder=a
 GET /orders/bills/pending/4                                    → All pending (page 1, limit 20)
 GET /orders/bills/pending/4?status=completed                   → Paid/completed bills only
 GET /orders/bills/pending/4?status=all                         → Both pending + completed
+GET /orders/bills/pending/4?status=partial                     → Partial payment bills (has due)
 GET /orders/bills/pending/4?floorId=1                          → Ground Floor only
 GET /orders/bills/pending/4?search=T5                          → Table T5
 GET /orders/bills/pending/4?search=John                        → Customer "John"
 GET /orders/bills/pending/4?sortBy=grand_total&sortOrder=desc  → Highest first
 GET /orders/bills/pending/4?page=2&limit=5                     → Page 2, 5 per page
+GET /orders/bills/pending/4?fromDate=2026-03-12                → Bills from March 12
+GET /orders/bills/pending/4?fromDate=2026-03-01&toDate=2026-03-12  → Bills in date range
+GET /orders/bills/pending/4?orderType=takeaway                 → Takeaway orders only
 GET /orders/bills/pending/4?search=NONEXIST                    → Empty array []
 ```
 

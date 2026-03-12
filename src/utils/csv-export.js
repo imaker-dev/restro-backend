@@ -1100,6 +1100,7 @@ function adminOrderListCSV(data, filters) {
   lines.push(`Total Tax,${formatCurrency(summary.totalTax)}`);
   lines.push(`Total Amount,${formatCurrency(summary.totalAmount)}`);
   lines.push(`Total Paid,${formatCurrency(summary.totalPaid)}`);
+  lines.push(`Total Due,${formatCurrency(summary.totalDue || 0)}`);
   lines.push('');
   
   // Orders data with all fields
@@ -1133,6 +1134,7 @@ function adminOrderListCSV(data, filters) {
       'Round Off (₹)',
       'Total Amount (₹)',
       'Paid Amount (₹)',
+      'Due Amount (₹)',
       'Payment Modes',
       'Split Breakdown',
       'Invoice No',
@@ -1172,6 +1174,7 @@ function adminOrderListCSV(data, filters) {
         formatCurrency(o.roundOff),
         formatCurrency(o.totalAmount),
         formatCurrency(o.totalPaid || o.paidAmount),
+        formatCurrency(o.dueAmount || 0),
         escapeCSV(o.paymentModes || ''),
         escapeCSV(o.splitBreakdown || ''),
         escapeCSV(o.invoiceNumber || ''),
@@ -1180,6 +1183,67 @@ function adminOrderListCSV(data, filters) {
         escapeCSV(o.source || 'pos'),
         escapeCSV(o.externalOrderId || ''),
         escapeCSV(o.specialInstructions || '')
+      ].join(','));
+    }
+  }
+  
+  return lines.join('\n');
+}
+
+/**
+ * Due Report CSV Export
+ */
+function dueReportCSV(data) {
+  const lines = [];
+  
+  // Header
+  lines.push('Due Report Export');
+  lines.push(`Generated,${formatDateTime(new Date())}`);
+  lines.push('');
+  
+  // Summary
+  const summary = data.summary || {};
+  lines.push('SUMMARY');
+  lines.push(`Total Customers with Due,${summary.totalCustomersWithDue || 0}`);
+  lines.push(`Total Outstanding Due,${formatCurrency(summary.totalOutstandingDue)}`);
+  lines.push(`Total Collected,${formatCurrency(summary.totalCollected)}`);
+  lines.push('');
+  
+  // Customer data
+  const customers = data.customers || [];
+  if (customers.length > 0) {
+    lines.push('CUSTOMER DUE DETAILS');
+    lines.push([
+      'Customer ID',
+      'Name',
+      'Phone',
+      'Email',
+      'Due Balance (₹)',
+      'Total Due Collected (₹)',
+      'Total Orders',
+      'Total Spent (₹)',
+      'Pending Due Orders',
+      'Last Due Date',
+      'Pending Orders Summary',
+      'Customer Since'
+    ].join(','));
+    
+    for (const c of customers) {
+      const lastDueDate = c.lastDueDate ? formatDate(new Date(c.lastDueDate)) : '';
+      const createdAt = c.createdAt ? formatDate(new Date(c.createdAt)) : '';
+      lines.push([
+        c.id,
+        escapeCSV(c.name || ''),
+        escapeCSV(c.phone || ''),
+        escapeCSV(c.email || ''),
+        formatCurrency(c.dueBalance),
+        formatCurrency(c.totalDueCollected),
+        c.totalOrders || 0,
+        formatCurrency(c.totalSpent),
+        c.totalDueOrders || 0,
+        lastDueDate,
+        escapeCSV(c.pendingOrdersSummary || ''),
+        createdAt
       ].join(','));
     }
   }
@@ -1215,5 +1279,7 @@ module.exports = {
   dayEndSummaryCSV,
   dayEndSummaryDetailCSV,
   // Admin exports
-  adminOrderListCSV
+  adminOrderListCSV,
+  // Due report
+  dueReportCSV
 };

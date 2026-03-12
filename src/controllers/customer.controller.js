@@ -4,6 +4,7 @@
  */
 
 const customerService = require('../services/customer.service');
+const paymentService = require('../services/payment.service');
 const logger = require('../utils/logger');
 
 function parseBooleanQuery(value) {
@@ -244,6 +245,129 @@ const customerController = {
       res.json({ success: true, data: result });
     } catch (error) {
       logger.error('Update order customer GST error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  // ========================
+  // DUE PAYMENT MANAGEMENT
+  // ========================
+
+  async getDueBalance(req, res) {
+    try {
+      const { customerId } = req.params;
+      const result = await paymentService.getCustomerDueBalance(customerId);
+      if (!result) {
+        return res.status(404).json({ success: false, message: 'No outstanding dues found for this customer' });
+      }
+      res.json({ success: true, data: result });
+    } catch (error) {
+      logger.error('Get customer due balance error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  async getDueTransactions(req, res) {
+    try {
+      const { customerId } = req.params;
+      const { page, limit, type } = req.query;
+      const result = await paymentService.getCustomerDueTransactions(customerId, {
+        page: parseIntegerQuery(page, 1),
+        limit: parseIntegerQuery(limit, 50),
+        type
+      });
+      res.json({ success: true, ...result });
+    } catch (error) {
+      logger.error('Get customer due transactions error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  async collectDue(req, res) {
+    try {
+      const { outletId, customerId } = req.params;
+      const { amount, paymentMode, transactionId, referenceNumber, orderId, invoiceId, notes } = req.body;
+
+      if (!amount || amount <= 0) {
+        return res.status(400).json({ success: false, message: 'Valid amount is required' });
+      }
+      if (!paymentMode) {
+        return res.status(400).json({ success: false, message: 'Payment mode is required' });
+      }
+
+      const result = await paymentService.collectDuePayment({
+        outletId: parseInt(outletId),
+        customerId: parseInt(customerId),
+        amount: parseFloat(amount),
+        paymentMode,
+        transactionId,
+        referenceNumber,
+        orderId: orderId ? parseInt(orderId) : null,
+        invoiceId: invoiceId ? parseInt(invoiceId) : null,
+        notes,
+        receivedBy: req.user.userId
+      });
+
+      res.json({ success: true, message: 'Due payment collected successfully', data: result });
+    } catch (error) {
+      logger.error('Collect due payment error:', error);
+      const status = error.message.includes('not found') ? 404
+        : error.message.includes('no pending') || error.message.includes('exceeds') ? 400
+        : 500;
+      res.status(status).json({ success: false, message: error.message });
+    }
+  },
+
+  async waiveDue(req, res) {
+    try {
+      const { outletId, customerId } = req.params;
+      const { amount, reason } = req.body;
+
+      if (!amount || amount <= 0) {
+        return res.status(400).json({ success: false, message: 'Valid amount is required' });
+      }
+      if (!reason) {
+        return res.status(400).json({ success: false, message: 'Reason is required for waiving due' });
+      }
+
+      const result = await paymentService.waiveDue({
+        outletId: parseInt(outletId),
+        customerId: parseInt(customerId),
+        amount: parseFloat(amount),
+        reason,
+        userId: req.user.userId
+      });
+
+      res.json({ success: true, message: 'Due waived successfully', data: result });
+    } catch (error) {
+      logger.error('Waive due error:', error);
+      const status = error.message.includes('not found') ? 404
+        : error.message.includes('exceeds') ? 400
+        : 500;
+      res.status(status).json({ success: false, message: error.message });
+    }
+  },
+
+  async listWithDue(req, res) {
+    try {
+      const { outletId } = req.params;
+      const { page, limit, search, minDue, maxDue, fromDate, toDate, sortBy, sortOrder } = req.query;
+
+      const result = await customerService.listWithDue(outletId, {
+        page: parseIntegerQuery(page, 1),
+        limit: parseIntegerQuery(limit, 50),
+        search: search || null,
+        minDue: parseNumberQuery(minDue),
+        maxDue: parseNumberQuery(maxDue),
+        fromDate: fromDate || null,
+        toDate: toDate || null,
+        sortBy: sortBy || 'dueBalance',
+        sortOrder: sortOrder || 'DESC'
+      });
+
+      res.json({ success: true, ...result });
+    } catch (error) {
+      logger.error('List customers with due error:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   }

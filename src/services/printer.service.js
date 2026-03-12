@@ -1194,6 +1194,15 @@ const printerService = {
     lines.push(cmd.ALIGN_CENTER + cmd.BOLD_ON + cmd.DOUBLE_HEIGHT + 'Grand Total Rs.' + billData.grandTotal);
     lines.push(cmd.NORMAL + cmd.BOLD_OFF + cmd.ALIGN_LEFT + dash);
 
+    // Due amount display (if partial payment with due)
+    if (billData.dueAmount && parseFloat(billData.dueAmount) > 0) {
+      const paidAmt = parseFloat(billData.paidAmount || 0).toFixed(2);
+      const dueAmt = parseFloat(billData.dueAmount).toFixed(2);
+      lines.push(cmd.BOLD_ON + this.padBetween('Paid Amount:', 'Rs.' + paidAmt, w) + cmd.BOLD_OFF);
+      lines.push(cmd.BOLD_ON + this.padBetween('DUE AMOUNT:', 'Rs.' + dueAmt, w) + cmd.BOLD_OFF);
+      lines.push(dash);
+    }
+
     // Payment mode
     if (billData.paymentMode) {
       if (billData.paymentMode === 'split' && billData.splitBreakdown && billData.splitBreakdown.length > 0) {

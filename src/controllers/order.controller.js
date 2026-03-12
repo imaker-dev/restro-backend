@@ -573,7 +573,10 @@ const orderController = {
         sortOrder: req.query.sortOrder,
         page: req.query.page,
         limit: req.query.limit,
-        status: req.query.status
+        status: req.query.status,
+        fromDate: req.query.fromDate,
+        toDate: req.query.toDate,
+        orderType: req.query.orderType
       };
       const result = await billingService.getPendingBills(outletId, filters, {
         userId: req.user.userId,
@@ -1542,6 +1545,63 @@ const orderController = {
       res.json({ success: true, data: report });
     } catch (error) {
       logger.error('Get service type sales breakdown error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
+   * Get due report for admin/manager
+   * GET /api/v1/orders/reports/:outletId/due
+   */
+  async getDueReport(req, res) {
+    try {
+      const { outletId } = req.params;
+      const { page, limit, search, customerId, minDue, maxDue, sortBy, sortOrder } = req.query;
+
+      const result = await paymentService.getDueReport(outletId, {
+        page: parseInt(page) || 1,
+        limit: parseInt(limit) || 20,
+        search: search || null,
+        customerId: customerId ? parseInt(customerId) : null,
+        minDue: minDue ? parseFloat(minDue) : null,
+        maxDue: maxDue ? parseFloat(maxDue) : null,
+        sortBy: sortBy || 'due_balance',
+        sortOrder: sortOrder || 'DESC'
+      });
+
+      res.json({ success: true, ...result });
+    } catch (error) {
+      logger.error('Get due report error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
+   * Export due report as CSV
+   * GET /api/v1/orders/reports/:outletId/due/export
+   */
+  async exportDueReport(req, res) {
+    try {
+      const { outletId } = req.params;
+      const { search, customerId, minDue, maxDue, sortBy, sortOrder } = req.query;
+
+      const result = await paymentService.getDueReportForExport(outletId, {
+        search: search || null,
+        customerId: customerId ? parseInt(customerId) : null,
+        minDue: minDue ? parseFloat(minDue) : null,
+        maxDue: maxDue ? parseFloat(maxDue) : null,
+        sortBy: sortBy || 'due_balance',
+        sortOrder: sortOrder || 'DESC'
+      });
+
+      const csv = csvExport.dueReportCSV(result);
+      const filename = csvExport.generateFilename('due_report', {});
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (error) {
+      logger.error('Export due report error:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   },

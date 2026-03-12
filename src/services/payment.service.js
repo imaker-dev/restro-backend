@@ -168,7 +168,10 @@ const paymentService = {
       tableId = order.table_id;
       tableSessionId = order.table_session_id;
 
-      if (order.status === 'paid' || order.status === 'completed') {
+      // Allow payments on completed orders that still have due amount (partial payment)
+      const isFullyPaid = order.status === 'paid' || 
+        (order.status === 'completed' && order.payment_status === 'completed');
+      if (isFullyPaid) {
         throw new Error('Order already paid');
       }
 
@@ -209,7 +212,7 @@ const paymentService = {
       let orderTotal = parseFloat(order.total_amount) || 0;
       if (invoiceId) {
         const [invRow] = await connection.query(
-          'SELECT grand_total FROM invoices WHERE id = ? AND is_cancelled = 0',
+          'SELECT grand_total, customer_id FROM invoices WHERE id = ? AND is_cancelled = 0',
           [invoiceId]
         );
         if (invRow[0]) {
@@ -218,6 +221,11 @@ const paymentService = {
       }
       const dueAmount = orderTotal - paidAmount;
 
+      // Check if customer info exists for due payment support
+      const customerId = order.customer_id;
+      const hasCustomerInfo = customerId && order.customer_phone;
+      const isDuePayment = dueAmount > 0 && hasCustomerInfo;
+
       paymentStatus = 'pending';
       orderStatus = order.status;
 
@@ -225,7 +233,13 @@ const paymentService = {
         paymentStatus = 'completed';
         orderStatus = 'completed';
       } else if (paidAmount > 0) {
-        paymentStatus = 'partial';
+        // If customer has info, allow completing order with due
+        if (isDuePayment) {
+          paymentStatus = 'partial';
+          orderStatus = 'completed'; // Order can complete with due if customer identified
+        } else {
+          paymentStatus = 'partial';
+        }
       }
 
       await connection.query(
@@ -238,9 +252,41 @@ const paymentService = {
       // Update invoice if exists
       if (invoiceId) {
         await connection.query(
-          `UPDATE invoices SET payment_status = ? WHERE id = ?`,
-          [paymentStatus === 'completed' ? 'paid' : paymentStatus, invoiceId]
+          `UPDATE invoices SET payment_status = ?, paid_amount = ?, due_amount = ?, is_due_payment = ? WHERE id = ?`,
+          [paymentStatus === 'completed' ? 'paid' : paymentStatus, paidAmount, Math.max(0, dueAmount), isDuePayment ? 1 : 0, invoiceId]
         );
+      }
+
+      // Create due transaction if payment is partial and customer exists
+      if (isDuePayment && dueAmount > 0) {
+        await this.createDueTransaction(connection, {
+          outletId,
+          customerId,
+          orderId,
+          invoiceId,
+          paymentId,
+          dueAmount,
+          userId: receivedBy,
+          notes: `Due from order ${order.order_number}`
+        });
+      }
+
+      // Check if this payment is settling a previous due (due collection)
+      const previousDue = parseFloat(order.due_amount) || 0;
+      if (previousDue > 0 && customerId) {
+        // This is a due collection payment - record the transaction
+        const collectedAmount = Math.min(totalAmount, previousDue);
+        await this.createDueCollectionTransaction(connection, {
+          outletId,
+          customerId,
+          orderId,
+          invoiceId,
+          paymentId,
+          amount: collectedAmount,
+          paymentMode,
+          userId: receivedBy,
+          notes: `Due collected for order ${order.order_number}`
+        });
       }
 
       // Record cash drawer transaction if cash payment
@@ -256,8 +302,9 @@ const paymentService = {
         });
       }
 
-      // Release table if fully paid - auto end session, unmerge, and make available
-      if (paymentStatus === 'completed' && tableId) {
+      // Release table if fully paid OR partial with customer (due payment) - same behavior
+      const shouldReleaseTable = (paymentStatus === 'completed' || isDuePayment) && tableId;
+      if (shouldReleaseTable) {
         // Unmerge any merged tables and restore capacity
         const [activeMerges] = await connection.query(
           `SELECT tm.merged_table_id, t.capacity
@@ -301,8 +348,8 @@ const paymentService = {
         }
       }
 
-      // Mark all KOTs and order items as served on full payment
-      if (paymentStatus === 'completed') {
+      // Mark all KOTs and order items as served on full payment OR partial with customer (due payment)
+      if (paymentStatus === 'completed' || isDuePayment) {
         await connection.query(
           `UPDATE kot_tickets SET status = 'served', served_at = NOW(), served_by = ?
            WHERE order_id = ? AND status NOT IN ('served', 'cancelled')`,
@@ -427,22 +474,36 @@ const paymentService = {
   },
 
   /**
-   * Process split payment
+   * Process split payment - works same as processPayment for due collection
    */
   async processSplitPayment(data) {
     const pool = getPool();
     const connection = await pool.getConnection();
 
+    // Variables needed after transaction for event publishing
+    let paymentId, paymentStatus, orderStatus, paidAmount, dueAmount;
+    let order, tableId, customerId, isDuePayment;
+    const { outletId, orderId, invoiceId, splits, receivedBy } = data;
+
     try {
-      await connection.beginTransaction();
-
-      const { outletId, orderId, invoiceId, splits, receivedBy } = data;
-
-      const order = await orderService.getById(orderId);
+      // Validate order BEFORE transaction
+      order = await orderService.getById(orderId);
       if (!order) throw new Error('Order not found');
 
-      // Calculate total
-      const totalAmount = splits.reduce((sum, s) => sum + parseFloat(s.amount), 0);
+      // Allow payments on completed orders that still have due amount (partial payment)
+      const isFullyPaid = order.status === 'paid' || 
+        (order.status === 'completed' && order.payment_status === 'completed');
+      if (isFullyPaid) {
+        throw new Error('Order already paid');
+      }
+
+      await connection.beginTransaction();
+
+      tableId = order.table_id;
+      customerId = order.customer_id;
+
+      // Calculate total for this split payment
+      const splitTotalAmount = splits.reduce((sum, s) => sum + parseFloat(s.amount), 0);
       const paymentNumber = await this.generatePaymentNumber(outletId);
       const uuid = uuidv4();
 
@@ -452,10 +513,10 @@ const paymentService = {
           uuid, outlet_id, order_id, invoice_id, payment_number,
           payment_mode, amount, total_amount, status, received_by
         ) VALUES (?, ?, ?, ?, ?, 'split', ?, ?, 'completed', ?)`,
-        [uuid, outletId, orderId, invoiceId, paymentNumber, totalAmount, totalAmount, receivedBy]
+        [uuid, outletId, orderId, invoiceId, paymentNumber, splitTotalAmount, splitTotalAmount, receivedBy]
       );
 
-      const paymentId = Number(mainResult.insertId);
+      paymentId = Number(mainResult.insertId);
 
       // Create split payment records
       for (const split of splits) {
@@ -485,23 +546,96 @@ const paymentService = {
         }
       }
 
+      // Calculate TOTAL paid from ALL payments (not just this split)
+      const [totalPaidResult] = await connection.query(
+        `SELECT SUM(total_amount) as paid FROM payments 
+         WHERE order_id = ? AND status = 'completed'`,
+        [orderId]
+      );
+      paidAmount = parseFloat(totalPaidResult[0].paid) || 0;
+
+      // Use invoice grand_total if available, fallback to order total_amount
+      let orderTotal = parseFloat(order.total_amount) || 0;
+      if (invoiceId) {
+        const [invRow] = await connection.query(
+          'SELECT grand_total FROM invoices WHERE id = ? AND is_cancelled = 0',
+          [invoiceId]
+        );
+        if (invRow[0]) {
+          orderTotal = parseFloat(invRow[0].grand_total) || orderTotal;
+        }
+      }
+      dueAmount = orderTotal - paidAmount;
+
+      // Check if customer info exists for due payment support
+      const hasCustomerInfo = customerId && order.customer_phone;
+      isDuePayment = dueAmount > 0 && hasCustomerInfo;
+
+      paymentStatus = 'pending';
+      orderStatus = order.status;
+
+      if (dueAmount <= 0) {
+        paymentStatus = 'completed';
+        orderStatus = 'completed';
+      } else if (paidAmount > 0) {
+        if (isDuePayment) {
+          paymentStatus = 'partial';
+          orderStatus = 'completed'; // Order completes with due if customer identified
+        } else {
+          paymentStatus = 'partial';
+        }
+      }
+
       // Update order status
       await connection.query(
         `UPDATE orders SET 
-          paid_amount = ?, due_amount = 0, payment_status = 'completed', status = 'completed'
+          paid_amount = ?, due_amount = ?, payment_status = ?, status = ?
          WHERE id = ?`,
-        [totalAmount, orderId]
+        [paidAmount, Math.max(0, dueAmount), paymentStatus, orderStatus, orderId]
       );
 
       if (invoiceId) {
         await connection.query(
-          `UPDATE invoices SET payment_status = 'paid' WHERE id = ?`,
-          [invoiceId]
+          `UPDATE invoices SET payment_status = ?, paid_amount = ?, due_amount = ?, is_due_payment = ? WHERE id = ?`,
+          [paymentStatus === 'completed' ? 'paid' : paymentStatus, paidAmount, Math.max(0, dueAmount), isDuePayment ? 1 : 0, invoiceId]
         );
       }
 
-      // Release table - unmerge, restore capacity, end session, set available
-      if (order.table_id) {
+      // Create due transaction if payment is partial and customer exists
+      if (isDuePayment && dueAmount > 0) {
+        await this.createDueTransaction(connection, {
+          outletId,
+          customerId,
+          orderId,
+          invoiceId,
+          paymentId,
+          dueAmount,
+          userId: receivedBy,
+          notes: `Due from split payment on order ${order.order_number}`
+        });
+      }
+
+      // Check if this payment is settling a previous due (due collection)
+      const previousDue = parseFloat(order.due_amount) || 0;
+      if (previousDue > 0 && customerId) {
+        // This is a due collection payment - record the transaction
+        const collectedAmount = Math.min(splitTotalAmount, previousDue);
+        await this.createDueCollectionTransaction(connection, {
+          outletId,
+          customerId,
+          orderId,
+          invoiceId,
+          paymentId,
+          amount: collectedAmount,
+          paymentMode: 'split',
+          userId: receivedBy,
+          notes: `Due collected via split payment for order ${order.order_number}`
+        });
+      }
+
+      // Release table only if fully paid OR partial with customer (due payment)
+      const shouldReleaseTable = (paymentStatus === 'completed' || isDuePayment) && tableId;
+      if (shouldReleaseTable) {
         // Unmerge any merged tables and restore capacity
         const [activeMerges] = await connection.query(
           `SELECT tm.merged_table_id, t.capacity
@@ -545,50 +679,78 @@ const paymentService = {
         }
       }
 
-      // Mark all KOTs and order items as served
-      await connection.query(
-        `UPDATE kot_tickets SET status = 'served', served_at = NOW(), served_by = ?
-         WHERE order_id = ? AND status NOT IN ('served', 'cancelled')`,
-        [receivedBy, orderId]
-      );
-      await connection.query(
-        `UPDATE kot_items SET status = 'served'
-         WHERE kot_id IN (SELECT id FROM kot_tickets WHERE order_id = ?)
-           AND status != 'cancelled'`,
-        [orderId]
-      );
-      await connection.query(
-        `UPDATE order_items SET status = 'served'
-         WHERE order_id = ? AND status NOT IN ('served', 'cancelled')`,
-        [orderId]
-      );
-
-      await connection.commit();
-
-      const payment = await this.getPaymentById(paymentId);
-
-      await publishMessage('order:update', {
-        type: 'order:payment_received',
-        outletId,
-        orderId,
-        payment,
-        orderStatus: 'completed',
-        timestamp: new Date().toISOString()
-      });
-
-      // Emit table update
-      if (order.table_id) {
-        await publishMessage('table:update', {
-          outletId,
-          tableId: order.table_id,
-          floorId: order.floor_id,
-          status: 'available',
-          event: 'session_ended',
-          timestamp: new Date().toISOString()
-        });
+      // Mark all KOTs and order items as served on full payment OR partial with customer (due payment)
+      if (paymentStatus === 'completed' || isDuePayment) {
+        await connection.query(
+          `UPDATE kot_tickets SET status = 'served', served_at = NOW(), served_by = ?
+           WHERE order_id = ? AND status NOT IN ('served', 'cancelled')`,
+          [receivedBy, orderId]
+        );
+        await connection.query(
+          `UPDATE kot_items SET status = 'served'
+           WHERE kot_id IN (SELECT id FROM kot_tickets WHERE order_id = ?)
+             AND status != 'cancelled'`,
+          [orderId]
+        );
+        await connection.query(
+          `UPDATE order_items SET status = 'served'
+           WHERE order_id = ? AND status NOT IN ('served', 'cancelled')`,
+          [orderId]
+        );
       }
 
-      // Emit KOT served events - remove from all stations
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+
+    // Fetch payment and publish events AFTER connection is released
+    const payment = await this.getPaymentById(paymentId);
+
+    // Emit realtime event
+    await publishMessage('order:update', {
+      type: 'order:payment_received',
+      outletId,
+      orderId,
+      tableId,
+      captainId: order.created_by,
+      payment,
+      orderStatus,
+      paymentStatus,
+      timestamp: new Date().toISOString()
+    });
+
+    // Emit bill status for Captain real-time tracking
+    await publishMessage('bill:status', {
+      outletId,
+      orderId,
+      tableId,
+      tableNumber: order.table_number,
+      captainId: order.created_by,
+      invoiceId,
+      billStatus: paymentStatus === 'completed' ? 'paid' : 'partial',
+      amountPaid: paidAmount,
+      dueAmount: Math.max(0, dueAmount),
+      timestamp: new Date().toISOString()
+    });
+
+    // Emit table update if released
+    if ((paymentStatus === 'completed' || isDuePayment) && tableId) {
+      await publishMessage('table:update', {
+        outletId,
+        tableId,
+        floorId: order.floor_id,
+        status: 'available',
+        event: 'session_ended',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Emit KOT served events - remove from all stations
+    if (paymentStatus === 'completed' || isDuePayment) {
       try {
         const kots = await kotService.getKotsByOrder(orderId);
         logger.info(`[SplitPayment] Emitting kot:served for ${kots.length} KOTs of order ${orderId}`);
@@ -599,19 +761,16 @@ const paymentService = {
       } catch (err) {
         logger.error('Failed to emit KOT served events:', err.message);
       }
+    }
 
-      // Send WhatsApp bill to customer on split payment completion
+    // Send WhatsApp bill to customer on full payment completion
+    if (paymentStatus === 'completed') {
       this.sendWhatsAppBillOnCompletion(invoiceId, outletId, orderId).catch(err =>
         logger.warn('WhatsApp bill send failed (non-critical):', err.message)
       );
-
-      return this.buildPaymentResponse(payment, orderId, invoiceId, 'completed', 'completed', order.table_id);
-    } catch (error) {
-      await connection.rollback();
-      throw error;
-    } finally {
-      connection.release();
     }
+
+    return this.buildPaymentResponse(payment, orderId, invoiceId, orderStatus, paymentStatus, tableId);
   },
 
   // ========================
@@ -2682,6 +2841,641 @@ const paymentService = {
       minDailySales: parseFloat(summary[0]?.min_daily_sales) || 0,
       floorId,
       cashierId
+    };
+  },
+
+  // ========================
+  // DUE PAYMENT MANAGEMENT
+  // ========================
+
+  /**
+   * Create a due transaction when payment is less than total
+   * @param {Object} connection - Database connection (for transaction support)
+   * @param {Object} data - Due transaction data
+   */
+  async createDueTransaction(connection, data) {
+    const {
+      outletId, customerId, orderId, invoiceId, paymentId,
+      dueAmount, userId, notes
+    } = data;
+
+    const uuid = uuidv4();
+
+    // Get current customer due balance
+    const [customer] = await connection.query(
+      'SELECT due_balance FROM customers WHERE id = ?',
+      [customerId]
+    );
+    const currentBalance = parseFloat(customer[0]?.due_balance) || 0;
+    const newBalance = currentBalance + dueAmount;
+
+    // Create due transaction record
+    await connection.query(
+      `INSERT INTO customer_due_transactions (
+        uuid, outlet_id, customer_id, order_id, invoice_id, payment_id,
+        transaction_type, amount, balance_after, notes, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, 'due_created', ?, ?, ?, ?)`,
+      [uuid, outletId, customerId, orderId, invoiceId, paymentId, dueAmount, newBalance, notes, userId]
+    );
+
+    // Update customer due balance
+    await connection.query(
+      'UPDATE customers SET due_balance = ? WHERE id = ?',
+      [newBalance, customerId]
+    );
+
+    logger.info(`Due created: customer=${customerId}, order=${orderId}, amount=${dueAmount}, newBalance=${newBalance}`);
+
+    return { dueAmount, balanceAfter: newBalance };
+  },
+
+  /**
+   * Create due collection transaction (when due is settled via regular payment API)
+   * @param {Object} connection - Database connection (for transaction support)
+   * @param {Object} data - Due collection data
+   */
+  async createDueCollectionTransaction(connection, data) {
+    const {
+      outletId, customerId, orderId, invoiceId, paymentId,
+      amount, paymentMode, userId, notes
+    } = data;
+
+    const uuid = uuidv4();
+
+    // Get current customer due balance
+    const [customer] = await connection.query(
+      'SELECT due_balance, total_due_collected FROM customers WHERE id = ?',
+      [customerId]
+    );
+    const currentBalance = parseFloat(customer[0]?.due_balance) || 0;
+    const totalCollected = parseFloat(customer[0]?.total_due_collected) || 0;
+    const newBalance = Math.max(0, currentBalance - amount);
+
+    // Create due collection transaction record
+    await connection.query(
+      `INSERT INTO customer_due_transactions (
+        uuid, outlet_id, customer_id, order_id, invoice_id, payment_id,
+        transaction_type, amount, balance_before, balance_after, reference_number, notes, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, 'due_collected', ?, ?, ?, ?, ?, ?)`,
+      [uuid, outletId, customerId, orderId, invoiceId, paymentId, amount, currentBalance, newBalance, paymentMode, notes, userId]
+    );
+
+    // Update customer due balance and total collected
+    await connection.query(
+      'UPDATE customers SET due_balance = ?, total_due_collected = ? WHERE id = ?',
+      [newBalance, totalCollected + amount, customerId]
+    );
+
+    logger.info(`Due collected: customer=${customerId}, order=${orderId}, amount=${amount}, newBalance=${newBalance}`);
+
+    return { amountCollected: amount, balanceAfter: newBalance };
+  },
+
+  /**
+   * Collect due payment from customer
+   * Can be for a specific order or general due collection
+   */
+  async collectDuePayment(data) {
+    const pool = getPool();
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      const {
+        outletId, customerId, orderId, invoiceId,
+        amount, paymentMode, transactionId, referenceNumber,
+        notes, receivedBy
+      } = data;
+
+      // Validate customer exists and has due balance
+      const [customer] = await connection.query(
+        'SELECT id, name, phone, due_balance FROM customers WHERE id = ? AND outlet_id = ?',
+        [customerId, outletId]
+      );
+      if (!customer[0]) throw new Error('Customer not found');
+      
+      const currentBalance = parseFloat(customer[0].due_balance) || 0;
+      if (currentBalance <= 0) throw new Error('Customer has no pending due');
+      if (amount > currentBalance) throw new Error(`Amount exceeds due balance (₹${currentBalance.toFixed(2)})`);
+
+      const uuid = uuidv4();
+      const paymentNumber = await this.generatePaymentNumber(outletId);
+      const newBalance = currentBalance - amount;
+
+      // Create payment record for due collection
+      const [paymentResult] = await connection.query(
+        `INSERT INTO payments (
+          uuid, outlet_id, order_id, invoice_id, payment_number,
+          payment_mode, amount, total_amount, status,
+          transaction_id, reference_number, notes,
+          received_by, is_due_collection
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, TRUE)`,
+        [uuid, outletId, orderId, invoiceId, paymentNumber, paymentMode, amount, amount,
+         transactionId, referenceNumber, notes, receivedBy]
+      );
+      const paymentId = paymentResult.insertId;
+
+      // Create due collection transaction
+      const dueUuid = uuidv4();
+      const [dueTxResult] = await connection.query(
+        `INSERT INTO customer_due_transactions (
+          uuid, outlet_id, customer_id, order_id, invoice_id, payment_id,
+          transaction_type, amount, balance_after, payment_mode,
+          transaction_id, reference_number, notes, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, 'due_collected', ?, ?, ?, ?, ?, ?, ?)`,
+        [dueUuid, outletId, customerId, orderId, invoiceId, paymentId,
+         -amount, newBalance, paymentMode, transactionId, referenceNumber, notes, receivedBy]
+      );
+
+      // Update payment with due transaction ID
+      await connection.query(
+        'UPDATE payments SET due_transaction_id = ? WHERE id = ?',
+        [dueTxResult.insertId, paymentId]
+      );
+
+      // Update customer balance
+      await connection.query(
+        'UPDATE customers SET due_balance = ?, total_due_collected = total_due_collected + ? WHERE id = ?',
+        [newBalance, amount, customerId]
+      );
+
+      // If collecting for specific order/invoice, update their due amounts
+      if (orderId) {
+        await connection.query(
+          `UPDATE orders SET 
+            paid_amount = paid_amount + ?, 
+            due_amount = GREATEST(0, due_amount - ?),
+            payment_status = CASE WHEN due_amount - ? <= 0 THEN 'completed' ELSE payment_status END,
+            status = CASE WHEN due_amount - ? <= 0 THEN 'completed' ELSE status END
+           WHERE id = ?`,
+          [amount, amount, amount, amount, orderId]
+        );
+      }
+      if (invoiceId) {
+        await connection.query(
+          `UPDATE invoices SET 
+            paid_amount = paid_amount + ?, 
+            due_amount = GREATEST(0, due_amount - ?),
+            payment_status = CASE WHEN due_amount - ? <= 0 THEN 'paid' ELSE payment_status END
+           WHERE id = ?`,
+          [amount, amount, amount, invoiceId]
+        );
+      }
+
+      // Record cash if applicable
+      if (paymentMode === 'cash') {
+        await this.recordCashTransaction(connection, {
+          outletId,
+          userId: receivedBy,
+          type: 'due_collection',
+          amount,
+          referenceType: 'due_payment',
+          referenceId: paymentId,
+          description: `Due collection from ${customer[0].name}`
+        });
+      }
+
+      await connection.commit();
+
+      logger.info(`Due collected: customer=${customerId}, amount=${amount}, newBalance=${newBalance}`);
+
+      return {
+        success: true,
+        paymentId,
+        paymentNumber,
+        customerId,
+        customerName: customer[0].name,
+        amountCollected: amount,
+        previousBalance: currentBalance,
+        newBalance,
+        paymentMode
+      };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  },
+
+  /**
+   * Get customer due balance and summary - calculated from actual orders
+   */
+  async getCustomerDueBalance(customerId) {
+    const pool = getPool();
+    
+    const [customer] = await pool.query(
+      `SELECT id, name, phone, email FROM customers WHERE id = ?`,
+      [customerId]
+    );
+    if (!customer[0]) return null;
+
+    // Get pending due orders with actual due amounts
+    const [pendingOrders] = await pool.query(
+      `SELECT o.id, o.order_number, o.total_amount, o.paid_amount, o.due_amount, o.created_at,
+              i.id as invoice_id, i.invoice_number
+       FROM orders o
+       LEFT JOIN invoices i ON o.id = i.order_id AND i.is_cancelled = 0
+       WHERE o.customer_id = ? AND o.due_amount > 0
+       ORDER BY o.created_at DESC`,
+      [customerId]
+    );
+
+    // Calculate actual due from orders
+    const actualDueBalance = pendingOrders.reduce((sum, o) => sum + (parseFloat(o.due_amount) || 0), 0);
+    const totalPaidOnDueOrders = pendingOrders.reduce((sum, o) => sum + (parseFloat(o.paid_amount) || 0), 0);
+
+    // If no pending due orders, return null to indicate customer has no due
+    if (pendingOrders.length === 0) {
+      return null;
+    }
+
+    return {
+      customerId: customer[0].id,
+      customerName: customer[0].name,
+      customerPhone: customer[0].phone,
+      customerEmail: customer[0].email,
+      dueBalance: actualDueBalance,
+      totalDueCollected: totalPaidOnDueOrders,
+      pendingOrdersCount: pendingOrders.length,
+      pendingOrders: pendingOrders.map(o => ({
+        orderId: o.id,
+        orderNumber: o.order_number,
+        invoiceId: o.invoice_id || null,
+        invoiceNumber: o.invoice_number || null,
+        totalAmount: parseFloat(o.total_amount) || 0,
+        paidAmount: parseFloat(o.paid_amount) || 0,
+        dueAmount: parseFloat(o.due_amount) || 0,
+        createdAt: o.created_at
+      }))
+    };
+  },
+
+  /**
+   * Get customer due transaction history
+   */
+  async getCustomerDueTransactions(customerId, options = {}) {
+    const pool = getPool();
+    const { page = 1, limit = 50, type } = options;
+    const offset = (page - 1) * limit;
+
+    let whereClause = 'cdt.customer_id = ?';
+    const params = [customerId];
+
+    if (type) {
+      whereClause += ' AND cdt.transaction_type = ?';
+      params.push(type);
+    }
+
+    const [transactions] = await pool.query(
+      `SELECT cdt.*, o.order_number, i.invoice_number, u.name as created_by_name
+       FROM customer_due_transactions cdt
+       LEFT JOIN orders o ON cdt.order_id = o.id
+       LEFT JOIN invoices i ON cdt.invoice_id = i.id
+       LEFT JOIN users u ON cdt.created_by = u.id
+       WHERE ${whereClause}
+       ORDER BY cdt.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+
+    const [[{ total }]] = await pool.query(
+      `SELECT COUNT(*) as total FROM customer_due_transactions cdt WHERE ${whereClause}`,
+      params
+    );
+
+    return {
+      transactions: transactions.map(t => ({
+        id: t.id,
+        transactionType: t.transaction_type,
+        amount: parseFloat(t.amount) || 0,
+        balanceAfter: parseFloat(t.balance_after) || 0,
+        orderNumber: t.order_number,
+        invoiceNumber: t.invoice_number,
+        paymentMode: t.payment_mode,
+        transactionId: t.transaction_id,
+        referenceNumber: t.reference_number,
+        notes: t.notes,
+        createdBy: t.created_by_name,
+        createdAt: t.created_at
+      })),
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+    };
+  },
+
+  /**
+   * Waive/adjust customer due (for manager override)
+   */
+  async waiveDue(data) {
+    const pool = getPool();
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      const { outletId, customerId, amount, reason, userId } = data;
+
+      const [customer] = await connection.query(
+        'SELECT due_balance FROM customers WHERE id = ?',
+        [customerId]
+      );
+      if (!customer[0]) throw new Error('Customer not found');
+
+      const currentBalance = parseFloat(customer[0].due_balance) || 0;
+      if (amount > currentBalance) throw new Error('Waive amount exceeds due balance');
+
+      const newBalance = currentBalance - amount;
+      const uuid = uuidv4();
+
+      await connection.query(
+        `INSERT INTO customer_due_transactions (
+          uuid, outlet_id, customer_id, transaction_type, amount,
+          balance_after, notes, created_by
+        ) VALUES (?, ?, ?, 'due_waived', ?, ?, ?, ?)`,
+        [uuid, outletId, customerId, -amount, newBalance, reason, userId]
+      );
+
+      await connection.query(
+        'UPDATE customers SET due_balance = ? WHERE id = ?',
+        [newBalance, customerId]
+      );
+
+      await connection.commit();
+
+      return { success: true, amountWaived: amount, newBalance };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  },
+
+  /**
+   * Get due report for admin/manager with search, filter, pagination
+   * @param {number} outletId - Outlet ID
+   * @param {Object} options - Query options
+   */
+  async getDueReport(outletId, options = {}) {
+    const pool = getPool();
+    const {
+      page = 1,
+      limit = 20,
+      search = null,
+      customerId = null,
+      minDue = null,
+      maxDue = null,
+      startDate = null,
+      endDate = null,
+      sortBy = 'due_balance',
+      sortOrder = 'DESC'
+    } = options;
+
+    const offset = (page - 1) * limit;
+    const conditions = ['c.outlet_id = ?', 'c.is_active = 1'];
+    const params = [outletId];
+
+    if (search) {
+      conditions.push('(c.name LIKE ? OR c.phone LIKE ? OR c.email LIKE ?)');
+      const searchPattern = `%${search}%`;
+      params.push(searchPattern, searchPattern, searchPattern);
+    }
+
+    if (customerId) {
+      conditions.push('c.id = ?');
+      params.push(customerId);
+    }
+
+    const whereClause = conditions.join(' AND ');
+
+    // Build having clause for due filters
+    let havingConditions = ['actual_due > 0'];
+    if (minDue) {
+      havingConditions.push(`actual_due >= ${parseFloat(minDue)}`);
+    }
+    if (maxDue) {
+      havingConditions.push(`actual_due <= ${parseFloat(maxDue)}`);
+    }
+    const havingClause = havingConditions.join(' AND ');
+
+    // Sort mapping - use actual calculated due, not stale column
+    const sortMap = {
+      due_balance: 'actual_due',
+      name: 'c.name',
+      total_orders: 'total_due_orders',
+      last_due_date: 'last_due_date',
+      total_due_collected: 'total_paid_on_due_orders'
+    };
+    const sortCol = sortMap[sortBy] || 'actual_due';
+    const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    // Get customers with actual due calculated from orders
+    const [customers] = await pool.query(
+      `SELECT 
+        c.id, c.name, c.phone, c.email, c.total_orders, c.total_spent, c.created_at,
+        COALESCE(SUM(o.due_amount), 0) as actual_due,
+        COUNT(o.id) as total_due_orders,
+        MAX(o.created_at) as last_due_date,
+        COALESCE(SUM(o.paid_amount), 0) as total_paid_on_due_orders
+       FROM customers c
+       INNER JOIN orders o ON o.customer_id = c.id AND o.due_amount > 0
+       WHERE ${whereClause}
+       GROUP BY c.id
+       HAVING ${havingClause}
+       ORDER BY ${sortCol} ${order}
+       LIMIT ? OFFSET ?`,
+      [...params, parseInt(limit), parseInt(offset)]
+    );
+
+    // Get total count
+    const [[{ total }]] = await pool.query(
+      `SELECT COUNT(*) as total FROM (
+        SELECT c.id, COALESCE(SUM(o.due_amount), 0) as actual_due
+        FROM customers c
+        INNER JOIN orders o ON o.customer_id = c.id AND o.due_amount > 0
+        WHERE ${whereClause}
+        GROUP BY c.id
+        HAVING ${havingClause}
+      ) as due_customers`,
+      params
+    );
+
+    // Get pending due orders for each customer
+    for (const customer of customers) {
+      const [orders] = await pool.query(
+        `SELECT o.id, o.order_number, o.total_amount, o.paid_amount, o.due_amount, 
+                o.created_at, i.invoice_number
+         FROM orders o
+         LEFT JOIN invoices i ON o.id = i.order_id AND i.is_cancelled = 0
+         WHERE o.customer_id = ? AND o.due_amount > 0
+         ORDER BY o.created_at DESC
+         LIMIT 5`,
+        [customer.id]
+      );
+      customer.pendingOrders = orders.map(o => ({
+        orderId: o.id,
+        orderNumber: o.order_number,
+        invoiceNumber: o.invoice_number,
+        totalAmount: parseFloat(o.total_amount) || 0,
+        paidAmount: parseFloat(o.paid_amount) || 0,
+        dueAmount: parseFloat(o.due_amount) || 0,
+        createdAt: o.created_at
+      }));
+    }
+
+    // Get summary - calculated from actual orders
+    const [[summary]] = await pool.query(
+      `SELECT 
+        COUNT(DISTINCT c.id) as total_customers_with_due,
+        COALESCE(SUM(o.due_amount), 0) as total_outstanding_due,
+        COALESCE(SUM(o.paid_amount), 0) as total_collected,
+        AVG(od.actual_due) as avg_due_per_customer,
+        MAX(od.actual_due) as max_due,
+        COUNT(o.id) as total_orders_with_due
+       FROM customers c
+       INNER JOIN orders o ON o.customer_id = c.id AND o.due_amount > 0
+       INNER JOIN (
+         SELECT customer_id, SUM(due_amount) as actual_due
+         FROM orders WHERE due_amount > 0
+         GROUP BY customer_id
+       ) od ON od.customer_id = c.id
+       WHERE c.outlet_id = ? AND c.is_active = 1`,
+      [outletId]
+    );
+
+    return {
+      customers: customers.map(c => ({
+        id: c.id,
+        name: c.name,
+        phone: c.phone,
+        email: c.email,
+        dueBalance: parseFloat(c.actual_due) || 0,
+        totalDueCollected: parseFloat(c.total_paid_on_due_orders) || 0,
+        totalOrders: c.total_orders || 0,
+        totalSpent: parseFloat(c.total_spent) || 0,
+        totalDueOrders: c.total_due_orders || 0,
+        totalPendingDue: parseFloat(c.actual_due) || 0,
+        lastDueDate: c.last_due_date,
+        createdAt: c.created_at,
+        pendingOrders: c.pendingOrders || []
+      })),
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        totalPages: Math.ceil(total / limit)
+      },
+      summary: {
+        totalCustomersWithDue: summary.total_customers_with_due || 0,
+        totalOutstandingDue: parseFloat(summary.total_outstanding_due) || 0,
+        totalCollected: parseFloat(summary.total_collected) || 0,
+        avgDuePerCustomer: parseFloat(summary.avg_due_per_customer) || 0,
+        maxDue: parseFloat(summary.max_due) || 0,
+        totalOrdersWithDue: summary.total_orders_with_due || 0
+      }
+    };
+  },
+
+  /**
+   * Get due report for CSV export (no pagination) - calculated from actual orders
+   */
+  async getDueReportForExport(outletId, options = {}) {
+    const pool = getPool();
+    const {
+      search = null,
+      customerId = null,
+      minDue = null,
+      maxDue = null,
+      sortBy = 'due_balance',
+      sortOrder = 'DESC'
+    } = options;
+
+    const conditions = ['c.outlet_id = ?', 'c.is_active = 1'];
+    const params = [outletId];
+
+    if (search) {
+      conditions.push('(c.name LIKE ? OR c.phone LIKE ? OR c.email LIKE ?)');
+      const searchPattern = `%${search}%`;
+      params.push(searchPattern, searchPattern, searchPattern);
+    }
+
+    if (customerId) {
+      conditions.push('c.id = ?');
+      params.push(customerId);
+    }
+
+    const whereClause = conditions.join(' AND ');
+
+    // Build having clause for due filters
+    let havingConditions = ['actual_due > 0'];
+    if (minDue) {
+      havingConditions.push(`actual_due >= ${parseFloat(minDue)}`);
+    }
+    if (maxDue) {
+      havingConditions.push(`actual_due <= ${parseFloat(maxDue)}`);
+    }
+    const havingClause = havingConditions.join(' AND ');
+
+    const sortMap = {
+      due_balance: 'actual_due',
+      name: 'c.name',
+      total_orders: 'total_due_orders',
+      last_due_date: 'last_due_date'
+    };
+    const sortCol = sortMap[sortBy] || 'actual_due';
+    const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    // Get all customers with actual due from orders
+    const [customers] = await pool.query(
+      `SELECT 
+        c.id, c.name, c.phone, c.email, c.total_orders, c.total_spent, c.created_at,
+        COALESCE(SUM(o.due_amount), 0) as actual_due,
+        COUNT(o.id) as total_due_orders,
+        MAX(o.created_at) as last_due_date,
+        COALESCE(SUM(o.paid_amount), 0) as total_paid_on_due_orders,
+        GROUP_CONCAT(CONCAT(o.order_number, ': ₹', o.due_amount) SEPARATOR '; ') as pending_orders_summary
+       FROM customers c
+       INNER JOIN orders o ON o.customer_id = c.id AND o.due_amount > 0
+       WHERE ${whereClause}
+       GROUP BY c.id
+       HAVING ${havingClause}
+       ORDER BY ${sortCol} ${order}`,
+      params
+    );
+
+    // Get summary from actual orders
+    const [[summary]] = await pool.query(
+      `SELECT 
+        COUNT(DISTINCT c.id) as total_customers_with_due,
+        COALESCE(SUM(o.due_amount), 0) as total_outstanding_due,
+        COALESCE(SUM(o.paid_amount), 0) as total_collected
+       FROM customers c
+       INNER JOIN orders o ON o.customer_id = c.id AND o.due_amount > 0
+       WHERE c.outlet_id = ? AND c.is_active = 1`,
+      [outletId]
+    );
+
+    return {
+      customers: customers.map(c => ({
+        id: c.id,
+        name: c.name,
+        phone: c.phone,
+        email: c.email,
+        dueBalance: parseFloat(c.actual_due) || 0,
+        totalDueCollected: parseFloat(c.total_paid_on_due_orders) || 0,
+        totalOrders: c.total_orders || 0,
+        totalSpent: parseFloat(c.total_spent) || 0,
+        totalDueOrders: c.total_due_orders || 0,
+        lastDueDate: c.last_due_date,
+        pendingOrdersSummary: c.pending_orders_summary,
+        createdAt: c.created_at
+      })),
+      summary: {
+        totalCustomersWithDue: summary.total_customers_with_due || 0,
+        totalOutstandingDue: parseFloat(summary.total_outstanding_due) || 0,
+        totalCollected: parseFloat(summary.total_collected) || 0
+      }
     };
   }
 };

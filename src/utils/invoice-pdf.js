@@ -280,6 +280,12 @@ async function generateInvoicePDF(invoice, outlet = {}) {
   y += 6;
   totalRow('GRAND TOTAL:', currency(invoice.grandTotal), { bold: true, fontSize: 12, color: '#000000', spacing: 20 });
 
+  // Show paid and due amounts for partial payments
+  if (invoice.dueAmount > 0) {
+    totalRow('Paid Amount:', currency(invoice.paidAmount), { bold: true, color: '#27ae60' });
+    totalRow('DUE AMOUNT:', currency(invoice.dueAmount), { bold: true, fontSize: 11, color: '#e74c3c', spacing: 20 });
+  }
+
   if (invoice.amountInWords) {
     doc.font('Helvetica').fontSize(7).fillColor('#888888');
     doc.text(`(${invoice.amountInWords})`, totalsX - 100, y, { width: totalsLabelW + totalsValW + 110, align: 'right' });

@@ -173,6 +173,9 @@ function formatInvoice(invoice) {
     deliveryCharge: parseFloat(invoice.delivery_charge) || 0,
     roundOff: parseFloat(invoice.round_off) || 0,
     grandTotal: parseFloat(invoice.grand_total) || 0,
+    paidAmount: parseFloat(invoice.paid_amount) || 0,
+    dueAmount: parseFloat(invoice.due_amount) || 0,
+    isDuePayment: !!invoice.is_due_payment,
     amountInWords: invoice.amount_in_words || null,
     paymentStatus: invoice.payment_status,
     taxBreakup,
@@ -375,6 +378,8 @@ const billingService = {
       discount: parseFloat(invoice.discountAmount || 0) > 0 ? parseFloat(invoice.discountAmount).toFixed(2) : null,
       roundOff: invoice.roundOff !== undefined ? parseFloat(invoice.roundOff).toFixed(2) : null,
       grandTotal: parseFloat(invoice.grandTotal || 0).toFixed(2),
+      paidAmount: parseFloat(invoice.paidAmount || 0).toFixed(2),
+      dueAmount: parseFloat(invoice.dueAmount || 0).toFixed(2),
       paymentMode: invoice.payments?.[0]?.paymentMode || null,
       splitBreakdown: invoice.payments?.[0]?.splitBreakdown || null,
       isDuplicate: invoice.isDuplicate || false,
@@ -1242,7 +1247,7 @@ const billingService = {
    */
   async getPendingBills(outletId, filters = {}, user = {}) {
     const pool = getPool();
-    const { floorId, search, sortBy = 'created_at', sortOrder = 'desc', status = 'pending' } = filters;
+    const { floorId, search, sortBy = 'created_at', sortOrder = 'desc', status = 'pending', fromDate, toDate } = filters;
     const page = Math.max(1, parseInt(filters.page) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(filters.limit) || 20));
     const offset = (page - 1) * limit;
@@ -1255,20 +1260,49 @@ const billingService = {
     let whereClause = `WHERE i.outlet_id = ? AND i.is_cancelled = 0`;
     const params = [outletId];
 
+    // Date range filter (IST-based: convert stored UTC to IST for comparison)
+    if (fromDate) {
+      // If only date provided (no time), filter by IST date
+      if (fromDate.length === 10) {
+        // Compare IST date: CONVERT_TZ(created_at, '+00:00', '+05:30')
+        whereClause += ` AND DATE(CONVERT_TZ(i.created_at, '+00:00', '+05:30')) >= ?`;
+        params.push(fromDate);
+      } else {
+        // Full datetime provided - convert IST to UTC for comparison
+        // IST is UTC+5:30, so subtract 5:30 to get UTC
+        whereClause += ` AND i.created_at >= CONVERT_TZ(?, '+05:30', '+00:00')`;
+        params.push(fromDate);
+      }
+    }
+    if (toDate) {
+      if (toDate.length === 10) {
+        // Compare IST date
+        whereClause += ` AND DATE(CONVERT_TZ(i.created_at, '+00:00', '+05:30')) <= ?`;
+        params.push(toDate);
+      } else {
+        // Full datetime provided - convert IST to UTC
+        whereClause += ` AND i.created_at <= CONVERT_TZ(?, '+05:30', '+00:00')`;
+        params.push(toDate);
+      }
+    }
+
     // Captain sees only their own orders' bills
     if (isCaptain && user.userId) {
       whereClause += ` AND o.created_by = ?`;
       params.push(user.userId);
     }
 
-    // Status filter: pending (default), completed, or all
+    // Status filter: pending (default), completed, partial/due, or all
     if (status === 'completed') {
       whereClause += ` AND i.payment_status = 'paid'`;
+    } else if (status === 'partial' || status === 'due') {
+      // Show only partial/due payment bills (order completed but has due amount)
+      whereClause += ` AND i.payment_status = 'partial'`;
     } else if (status === 'all') {
       whereClause += ` AND i.payment_status IN ('pending', 'partial', 'paid')`;
     } else {
-      // Default: pending bills only
-      whereClause += ` AND i.payment_status IN ('pending', 'partial')`;
+      // Default: pending bills only (exclude partial - those are completed with due)
+      whereClause += ` AND i.payment_status = 'pending'`;
     }
 
     // Also exclude invoices whose order is cancelled
@@ -1325,13 +1359,18 @@ const billingService = {
     const total = countResult[0].total;
     const totalPages = Math.ceil(total / limit);
 
-    // Sort
+    // Sort (support both camelCase and snake_case)
     const allowedSorts = {
       created_at: 'i.created_at',
+      createdAt: 'i.created_at',
       grand_total: 'i.grand_total',
+      grandTotal: 'i.grand_total',
       table_number: 't.table_number',
+      tableNumber: 't.table_number',
       invoice_number: 'i.invoice_number',
-      order_number: 'o.order_number'
+      invoiceNumber: 'i.invoice_number',
+      order_number: 'o.order_number',
+      orderNumber: 'o.order_number'
     };
     const sortCol = allowedSorts[sortBy] || 'i.created_at';
     const order = sortOrder?.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
@@ -1402,13 +1441,16 @@ const billingService = {
     let whereClause = `WHERE i.outlet_id = ? AND i.is_cancelled = 0 AND o.created_by = ?`;
     const params = [outletId, captainId];
 
-    // Status filter
+    // Status filter: pending (default), completed, partial/due, or all
     if (status === 'completed') {
       whereClause += ` AND i.payment_status = 'paid'`;
+    } else if (status === 'partial' || status === 'due') {
+      whereClause += ` AND i.payment_status = 'partial'`;
     } else if (status === 'all') {
       whereClause += ` AND i.payment_status IN ('pending', 'partial', 'paid')`;
     } else {
-      whereClause += ` AND i.payment_status IN ('pending', 'partial')`;
+      // Default: pending bills only (exclude partial - those are completed with due)
+      whereClause += ` AND i.payment_status = 'pending'`;
     }
 
     whereClause += ` AND (o.status IS NULL OR o.status != 'cancelled')`;

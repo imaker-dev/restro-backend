@@ -265,8 +265,28 @@ const customerService = {
 
     if (hasText(search)) {
       const searchTerm = `%${search.trim()}%`;
-      whereParts.push('(c.name LIKE ? OR c.phone LIKE ? OR c.email LIKE ? OR c.company_name LIKE ? OR c.gstin LIKE ?)');
-      params.push(searchTerm, searchTerm, searchTerm, searchTerm, searchTerm);
+      const isNumericSearch = /^\d+$/.test(search.trim());
+      
+      whereParts.push(`(
+        c.name LIKE ? OR c.phone LIKE ? OR c.email LIKE ? OR c.company_name LIKE ? OR c.gstin LIKE ? OR
+        EXISTS (
+          SELECT 1 FROM orders os 
+          LEFT JOIN invoices inv ON os.id = inv.order_id AND inv.is_cancelled = 0
+          WHERE os.customer_id = c.id AND os.status != 'cancelled' AND (
+            os.order_number LIKE ? OR 
+            os.id = ? OR
+            inv.invoice_number LIKE ? OR
+            inv.id = ?
+          )
+        )
+      )`);
+      params.push(
+        searchTerm, searchTerm, searchTerm, searchTerm, searchTerm,
+        searchTerm,
+        isNumericSearch ? parseInt(search.trim()) : 0,
+        searchTerm,
+        isNumericSearch ? parseInt(search.trim()) : 0
+      );
     }
 
     const minSpent = toSafeNumber(minTotalSpent);
@@ -407,10 +427,12 @@ const customerService = {
     const [orders] = await pool.query(
       `SELECT o.id, o.uuid, o.order_number, o.order_type, o.status, o.payment_status,
               o.subtotal, o.discount_amount, o.tax_amount, o.total_amount,
+              o.paid_amount, o.due_amount,
               o.is_interstate, o.customer_gstin, o.customer_company_name,
               o.created_at, o.billed_at,
               t.table_number, t.name as table_name,
-              i.cgst_amount, i.sgst_amount, i.igst_amount, i.invoice_number
+              i.cgst_amount, i.sgst_amount, i.igst_amount, i.invoice_number,
+              i.paid_amount as invoice_paid_amount, i.due_amount as invoice_due_amount
        FROM orders o
        LEFT JOIN tables t ON o.table_id = t.id
        LEFT JOIN invoices i ON o.id = i.order_id AND i.is_cancelled = 0
@@ -439,6 +461,8 @@ const customerService = {
           discountAmount: parseFloat(o.discount_amount) || 0,
           taxAmount: parseFloat(o.tax_amount) || 0,
           totalAmount: parseFloat(o.total_amount) || 0,
+          paidAmount: parseFloat(o.paid_amount) || 0,
+          dueAmount: parseFloat(o.due_amount) || 0,
           isInterstate,
           taxType: isInterstate ? 'IGST' : 'CGST+SGST',
           cgstAmount: parseFloat(o.cgst_amount) || 0,
@@ -536,8 +560,24 @@ const customerService = {
 
     if (hasText(search)) {
       const term = `%${search.trim()}%`;
-      whereParts.push('(o.order_number LIKE ? OR i.invoice_number LIKE ? OR t.table_number LIKE ? OR t.name LIKE ?)');
-      params.push(term, term, term, term);
+      const isNumericSearch = /^\d+$/.test(search.trim());
+      
+      whereParts.push(`(
+        o.order_number LIKE ? OR 
+        o.id = ? OR
+        i.invoice_number LIKE ? OR 
+        i.id = ? OR
+        t.table_number LIKE ? OR 
+        t.name LIKE ?
+      )`);
+      params.push(
+        term,
+        isNumericSearch ? parseInt(search.trim()) : 0,
+        term,
+        isNumericSearch ? parseInt(search.trim()) : 0,
+        term,
+        term
+      );
     }
 
     if (hasText(status) && VALID_ORDER_STATUSES.has(status.trim())) {
@@ -1218,11 +1258,196 @@ const customerService = {
       isInterstate: !!row.is_interstate,
       totalOrders: row.total_orders,
       totalSpent: parseFloat(row.total_spent) || 0,
+      dueBalance: parseFloat(row.due_balance) || 0,
+      totalDueCollected: parseFloat(row.total_due_collected) || 0,
       lastOrderAt: row.last_order_at,
       notes: row.notes,
       isActive: !!row.is_active,
       createdAt: row.created_at,
       updatedAt: row.updated_at
+    };
+  },
+
+  /**
+   * List customers with due balance (calculated from actual order dues)
+   * Supports search by customer name, phone, order number, invoice number
+   */
+  async listWithDue(outletId, options = {}) {
+    const pool = getPool();
+    const {
+      page = 1,
+      limit = 50,
+      search = null,
+      minDue = null,
+      maxDue = null,
+      fromDate = null,
+      toDate = null,
+      sortBy = 'dueBalance',
+      sortOrder = 'DESC'
+    } = options;
+
+    const safePage = toSafeInteger(page, 1, 1, 100000);
+    const safeLimit = toSafeInteger(limit, 50, 1, 200);
+    const offset = (safePage - 1) * safeLimit;
+
+    // Build conditions for customer and order filters
+    const customerConditions = ['c.outlet_id = ?', 'c.is_active = 1'];
+    const customerParams = [outletId];
+
+    // Build order subquery conditions for search
+    let orderSearchCondition = 'o.due_amount > 0';
+    const orderSearchParams = [];
+
+    // Search by customer name, phone, order number, invoice number
+    if (hasText(search)) {
+      const searchTerm = `%${search.trim()}%`;
+      // Check if search term looks like an order/invoice number
+      const isNumericSearch = /^\d+$/.test(search.trim());
+      
+      customerConditions.push(`(
+        c.name LIKE ? OR c.phone LIKE ? OR c.email LIKE ? OR
+        EXISTS (
+          SELECT 1 FROM orders os 
+          LEFT JOIN invoices inv ON os.id = inv.order_id AND inv.is_cancelled = 0
+          WHERE os.customer_id = c.id AND os.due_amount > 0 AND (
+            os.order_number LIKE ? OR 
+            os.id = ? OR
+            inv.invoice_number LIKE ? OR
+            inv.id = ?
+          )
+        )
+      )`);
+      customerParams.push(
+        searchTerm, searchTerm, searchTerm,
+        searchTerm,
+        isNumericSearch ? parseInt(search.trim()) : 0,
+        searchTerm,
+        isNumericSearch ? parseInt(search.trim()) : 0
+      );
+    }
+
+    // Date filters on due orders
+    if (hasText(fromDate)) {
+      orderSearchCondition += ' AND o.created_at >= ?';
+      orderSearchParams.push(fromDate.trim());
+    }
+    if (hasText(toDate)) {
+      orderSearchCondition += ' AND o.created_at <= ?';
+      orderSearchParams.push(toDate.trim());
+    }
+
+    const customerWhereClause = customerConditions.join(' AND ');
+
+    // Build due amount filter conditions (reference od.actual_due in WHERE, not HAVING)
+    let dueFilterConditions = [];
+    if (minDue !== null && minDue > 0) {
+      dueFilterConditions.push(`od.actual_due >= ${parseFloat(minDue)}`);
+    }
+    if (maxDue !== null) {
+      dueFilterConditions.push(`od.actual_due <= ${parseFloat(maxDue)}`);
+    }
+    const dueFilterClause = dueFilterConditions.length > 0 
+      ? ' AND ' + dueFilterConditions.join(' AND ') 
+      : '';
+
+    const sortMap = {
+      dueBalance: 'od.actual_due',
+      name: 'c.name',
+      lastOrderAt: 'od.last_due_date',
+      totalSpent: 'c.total_spent',
+      pendingOrders: 'od.pending_due_orders',
+      totalCollected: 'od.total_due_collected'
+    };
+    const sortExpr = sortMap[sortBy] || 'od.actual_due';
+    const order = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    // Main query with order-based due calculation
+    const [rows] = await pool.query(
+      `SELECT c.*, 
+              od.actual_due,
+              od.pending_due_orders,
+              od.total_due_collected as calculated_due_collected,
+              od.last_due_date,
+              od.first_due_date,
+              od.order_numbers
+       FROM customers c
+       INNER JOIN (
+         SELECT o.customer_id, 
+                SUM(o.due_amount) as actual_due,
+                COUNT(*) as pending_due_orders,
+                SUM(o.paid_amount) as total_due_collected,
+                MAX(o.created_at) as last_due_date,
+                MIN(o.created_at) as first_due_date,
+                GROUP_CONCAT(o.order_number ORDER BY o.created_at DESC SEPARATOR ', ') as order_numbers
+         FROM orders o
+         WHERE ${orderSearchCondition}
+         GROUP BY o.customer_id
+         HAVING SUM(o.due_amount) > 0
+       ) od ON od.customer_id = c.id
+       WHERE ${customerWhereClause}${dueFilterClause}
+       ORDER BY ${sortExpr} ${order}, c.id DESC
+       LIMIT ? OFFSET ?`,
+      [...orderSearchParams, ...customerParams, safeLimit, offset]
+    );
+
+    // Count query
+    const [[{ total }]] = await pool.query(
+      `SELECT COUNT(*) as total
+       FROM customers c
+       INNER JOIN (
+         SELECT o.customer_id, SUM(o.due_amount) as actual_due
+         FROM orders o
+         WHERE ${orderSearchCondition}
+         GROUP BY o.customer_id
+         HAVING SUM(o.due_amount) > 0
+       ) od ON od.customer_id = c.id
+       WHERE ${customerWhereClause}${dueFilterClause}`,
+      [...orderSearchParams, ...customerParams]
+    );
+
+    // Summary query
+    const [[summary]] = await pool.query(
+      `SELECT 
+         COUNT(DISTINCT c.id) as total_customers_with_due,
+         SUM(od.actual_due) as total_due_amount,
+         AVG(od.actual_due) as avg_due_amount,
+         MAX(od.actual_due) as max_due_amount,
+         SUM(od.pending_due_orders) as total_pending_orders
+       FROM customers c
+       INNER JOIN (
+         SELECT o.customer_id, SUM(o.due_amount) as actual_due, COUNT(*) as pending_due_orders
+         FROM orders o
+         WHERE ${orderSearchCondition}
+         GROUP BY o.customer_id
+         HAVING SUM(o.due_amount) > 0
+       ) od ON od.customer_id = c.id
+       WHERE ${customerWhereClause}${dueFilterClause}`,
+      [...orderSearchParams, ...customerParams]
+    );
+
+    return {
+      customers: rows.map(r => ({
+        ...this.formatCustomer(r),
+        dueBalance: parseFloat(r.actual_due) || 0,
+        totalDueCollected: parseFloat(r.calculated_due_collected) || parseFloat(r.total_due_collected) || 0,
+        pendingDueOrders: r.pending_due_orders || 0,
+        lastDueDate: r.last_due_date || null,
+        firstDueDate: r.first_due_date || null,
+        pendingOrderNumbers: r.order_numbers || null
+      })),
+      pagination: {
+        page: safePage,
+        limit: safeLimit,
+        total,
+        totalPages: Math.ceil(total / safeLimit)
+      },
+      summary: {
+        totalCustomersWithDue: Number(summary?.total_customers_with_due) || 0,
+        totalDueAmount: parseFloat(summary?.total_due_amount) || 0,
+        avgDueAmount: parseFloat(summary?.avg_due_amount) || 0,
+        maxDueAmount: parseFloat(summary?.max_due_amount) || 0,
+        totalPendingOrders: Number(summary?.total_pending_orders) || 0
+      }
     };
   }
 };

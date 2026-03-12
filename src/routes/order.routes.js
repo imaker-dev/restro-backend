@@ -589,6 +589,21 @@ router.post('/reports/:outletId/aggregate', authorize('super_admin', 'admin'), o
  */
 router.get('/reports/:outletId/service-type-breakdown', authorize('super_admin', 'admin', 'manager', 'cashier', 'captain'), orderController.getServiceTypeSalesBreakdown);
 
+/**
+ * @route   GET /api/v1/orders/reports/:outletId/due
+ * @desc    Get due report - customers with outstanding due amounts
+ * @access  Private (admin, manager)
+ * @query   page, limit, search, customerId, minDue, maxDue, sortBy, sortOrder
+ */
+router.get('/reports/:outletId/due', authorize('super_admin', 'admin', 'manager'), orderController.getDueReport);
+
+/**
+ * @route   GET /api/v1/orders/reports/:outletId/due/export
+ * @desc    Export due report as CSV
+ * @access  Private (admin, manager)
+ */
+router.get('/reports/:outletId/due/export', authorize('super_admin', 'admin', 'manager'), orderController.exportDueReport);
+
 // ========================
 // SHIFT HISTORY
 // ========================
