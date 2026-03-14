@@ -208,15 +208,19 @@ const paymentService = {
 
       const paidAmount = parseFloat(totalPaid[0].paid) || 0;
 
-      // Use invoice grand_total if available, fallback to order total_amount
+      // Use invoice grand_total (already includes NC deduction) if available, fallback to order total_amount
       let orderTotal = parseFloat(order.total_amount) || 0;
+      let isNCOrder = order.is_nc || false;
       if (invoiceId) {
         const [invRow] = await connection.query(
-          'SELECT grand_total, customer_id FROM invoices WHERE id = ? AND is_cancelled = 0',
+          'SELECT grand_total, is_nc, customer_id FROM invoices WHERE id = ? AND is_cancelled = 0',
           [invoiceId]
         );
         if (invRow[0]) {
-          orderTotal = parseFloat(invRow[0].grand_total) || orderTotal;
+          // Use !== null check (not ||) because grand_total can be 0 for NC orders
+          orderTotal = invRow[0].grand_total !== null && invRow[0].grand_total !== undefined
+            ? parseFloat(invRow[0].grand_total) : orderTotal;
+          isNCOrder = !!invRow[0].is_nc;
         }
       }
       const dueAmount = orderTotal - paidAmount;
@@ -233,13 +237,8 @@ const paymentService = {
         paymentStatus = 'completed';
         orderStatus = 'completed';
       } else if (paidAmount > 0) {
-        // If customer has info, allow completing order with due
-        if (isDuePayment) {
-          paymentStatus = 'partial';
-          orderStatus = 'completed'; // Order can complete with due if customer identified
-        } else {
-          paymentStatus = 'partial';
-        }
+        paymentStatus = 'partial';
+        orderStatus = 'completed'; // Always complete order on any payment — table freed, KOTs served
       }
 
       await connection.query(
@@ -302,8 +301,8 @@ const paymentService = {
         });
       }
 
-      // Release table if fully paid OR partial with customer (due payment) - same behavior
-      const shouldReleaseTable = (paymentStatus === 'completed' || isDuePayment) && tableId;
+      // Release table on any payment (full or partial) — order is completed, table should be freed
+      const shouldReleaseTable = (paymentStatus === 'completed' || paymentStatus === 'partial') && tableId;
       if (shouldReleaseTable) {
         // Unmerge any merged tables and restore capacity
         const [activeMerges] = await connection.query(
@@ -338,6 +337,7 @@ const paymentService = {
           [tableId]
         );
         
+        // Close table session - use provided ID or find active session for this table
         if (tableSessionId) {
           await connection.query(
             `UPDATE table_sessions SET 
@@ -345,11 +345,19 @@ const paymentService = {
              WHERE id = ?`,
             [tableSessionId]
           );
+        } else {
+          // Fallback: close any active sessions for this table
+          await connection.query(
+            `UPDATE table_sessions SET 
+              status = 'completed', ended_at = NOW()
+             WHERE table_id = ? AND status = 'active'`,
+            [tableId]
+          );
         }
       }
 
-      // Mark all KOTs and order items as served on full payment OR partial with customer (due payment)
-      if (paymentStatus === 'completed' || isDuePayment) {
+      // Mark all KOTs and order items as served on any payment (full or partial)
+      if (paymentStatus === 'completed' || paymentStatus === 'partial') {
         await connection.query(
           `UPDATE kot_tickets SET status = 'served', served_at = NOW(), served_by = ?
            WHERE order_id = ? AND status NOT IN ('served', 'cancelled')`,
@@ -405,8 +413,8 @@ const paymentService = {
       timestamp: new Date().toISOString()
     });
 
-    // Emit table update if released - table now available
-    if (paymentStatus === 'completed' && tableId) {
+    // Emit table update if released - table now available (on any payment)
+    if ((paymentStatus === 'completed' || paymentStatus === 'partial') && tableId) {
       // Check if there were merged tables and emit unmerge event
       const pool = getPool();
       const [mergeCheck] = await pool.query(
@@ -447,8 +455,8 @@ const paymentService = {
       });
     }
 
-    // Emit KOT served events for real-time kitchen display - remove from all stations
-    if (paymentStatus === 'completed') {
+    // Emit KOT served events for real-time kitchen display - remove from all stations (on any payment)
+    if (paymentStatus === 'completed' || paymentStatus === 'partial') {
       try {
         const kots = await kotService.getKotsByOrder(orderId);
         logger.info(`[Payment] Emitting kot:served for ${kots.length} KOTs of order ${orderId}`);
@@ -554,7 +562,7 @@ const paymentService = {
       );
       paidAmount = parseFloat(totalPaidResult[0].paid) || 0;
 
-      // Use invoice grand_total if available, fallback to order total_amount
+      // Use invoice grand_total (already includes NC deduction) if available, fallback to order total_amount
       let orderTotal = parseFloat(order.total_amount) || 0;
       if (invoiceId) {
         const [invRow] = await connection.query(
@@ -562,7 +570,9 @@ const paymentService = {
           [invoiceId]
         );
         if (invRow[0]) {
-          orderTotal = parseFloat(invRow[0].grand_total) || orderTotal;
+          // Use !== null check (not ||) because grand_total can be 0 for NC orders
+          orderTotal = invRow[0].grand_total !== null && invRow[0].grand_total !== undefined
+            ? parseFloat(invRow[0].grand_total) : orderTotal;
         }
       }
       dueAmount = orderTotal - paidAmount;
@@ -578,12 +588,8 @@ const paymentService = {
         paymentStatus = 'completed';
         orderStatus = 'completed';
       } else if (paidAmount > 0) {
-        if (isDuePayment) {
-          paymentStatus = 'partial';
-          orderStatus = 'completed'; // Order completes with due if customer identified
-        } else {
-          paymentStatus = 'partial';
-        }
+        paymentStatus = 'partial';
+        orderStatus = 'completed'; // Always complete order on any payment — table freed, KOTs served
       }
 
       // Update order status
@@ -633,8 +639,8 @@ const paymentService = {
         });
       }
 
-      // Release table only if fully paid OR partial with customer (due payment)
-      const shouldReleaseTable = (paymentStatus === 'completed' || isDuePayment) && tableId;
+      // Release table on any payment (full or partial) — order is completed, table should be freed
+      const shouldReleaseTable = (paymentStatus === 'completed' || paymentStatus === 'partial') && tableId;
       if (shouldReleaseTable) {
         // Unmerge any merged tables and restore capacity
         const [activeMerges] = await connection.query(
@@ -669,6 +675,7 @@ const paymentService = {
           [order.table_id]
         );
         
+        // Close table session - use provided ID or find active session for this table
         if (order.table_session_id) {
           await connection.query(
             `UPDATE table_sessions SET 
@@ -676,11 +683,19 @@ const paymentService = {
              WHERE id = ?`,
             [order.table_session_id]
           );
+        } else {
+          // Fallback: close any active sessions for this table
+          await connection.query(
+            `UPDATE table_sessions SET 
+              status = 'completed', ended_at = NOW()
+             WHERE table_id = ? AND status = 'active'`,
+            [order.table_id]
+          );
         }
       }
 
-      // Mark all KOTs and order items as served on full payment OR partial with customer (due payment)
-      if (paymentStatus === 'completed' || isDuePayment) {
+      // Mark all KOTs and order items as served on any payment (full or partial)
+      if (paymentStatus === 'completed' || paymentStatus === 'partial') {
         await connection.query(
           `UPDATE kot_tickets SET status = 'served', served_at = NOW(), served_by = ?
            WHERE order_id = ? AND status NOT IN ('served', 'cancelled')`,
@@ -737,8 +752,8 @@ const paymentService = {
       timestamp: new Date().toISOString()
     });
 
-    // Emit table update if released
-    if ((paymentStatus === 'completed' || isDuePayment) && tableId) {
+    // Emit table update if released — always on any payment
+    if ((paymentStatus === 'completed' || paymentStatus === 'partial') && tableId) {
       await publishMessage('table:update', {
         outletId,
         tableId,
@@ -749,8 +764,8 @@ const paymentService = {
       });
     }
 
-    // Emit KOT served events - remove from all stations
-    if (paymentStatus === 'completed' || isDuePayment) {
+    // Emit KOT served events - remove from all stations on any payment
+    if (paymentStatus === 'completed' || paymentStatus === 'partial') {
       try {
         const kots = await kotService.getKotsByOrder(orderId);
         logger.info(`[SplitPayment] Emitting kot:served for ${kots.length} KOTs of order ${orderId}`);
@@ -1118,15 +1133,16 @@ const paymentService = {
       }
     }
 
-    // Check if there's already an OPEN session for today for this floor
+    // Check if there's already an OPEN session for this floor (regardless of date)
+    // An open shift must be closed before a new one can be opened
     const [existingOpen] = await pool.query(
-      `SELECT * FROM day_sessions WHERE outlet_id = ? AND session_date = ? 
+      `SELECT * FROM day_sessions WHERE outlet_id = ? 
        AND (floor_id = ? OR (floor_id IS NULL AND ? IS NULL)) AND status = 'open'`,
-      [outletId, today, floorId, floorId]
+      [outletId, floorId, floorId]
     );
 
     if (existingOpen[0]) {
-      throw new Error('Shift already open for this floor');
+      throw new Error('Shift already open for this floor. Please close the existing shift first.');
     }
 
     // Always create a NEW shift - never reopen a closed one
@@ -1189,11 +1205,12 @@ const paymentService = {
         }
       }
 
-      // Get session for this floor
+      // Get open session for this floor — no date filter so shifts opened yesterday can be closed today
       const [sessions] = await connection.query(
-        `SELECT * FROM day_sessions WHERE outlet_id = ? AND session_date = ? AND status = 'open'
-         AND (floor_id = ? OR (floor_id IS NULL AND ? IS NULL))`,
-        [outletId, today, floorId, floorId]
+        `SELECT * FROM day_sessions WHERE outlet_id = ? AND status = 'open'
+         AND (floor_id = ? OR (floor_id IS NULL AND ? IS NULL))
+         ORDER BY id DESC LIMIT 1`,
+        [outletId, floorId, floorId]
       );
 
       if (!sessions[0]) throw new Error('No open shift found for this floor');
@@ -1368,14 +1385,14 @@ const paymentService = {
       }
     }
 
-    // Get session for this floor - prioritize OPEN session, else get most recent
-    // Since multiple shifts per day are now allowed, we need to find the current open one
+    // Get session for this floor - prioritize OPEN session (no date filter), else get today's most recent
+    // An open shift stays open until manually closed, regardless of date rollover
     let sessionQuery = `
       SELECT ds.*, f.name as floor_name, u.name as cashier_name
       FROM day_sessions ds
       LEFT JOIN floors f ON ds.floor_id = f.id
       LEFT JOIN users u ON ds.cashier_id = u.id
-      WHERE ds.outlet_id = ? AND ds.session_date = ?`;
+      WHERE ds.outlet_id = ? AND (ds.status = 'open' OR ds.session_date = ?)`;
     const sessionParams = [outletId, today];
 
     if (floorId) {
@@ -1823,14 +1840,16 @@ const paymentService = {
       [outletId]
     );
 
-    // Get shift status for each floor
+    // Get shift status for each floor — prioritize open shifts regardless of date
     const floorShifts = [];
     for (const floor of floors) {
       const [session] = await pool.query(
         `SELECT ds.*, u.name as cashier_name
          FROM day_sessions ds
          LEFT JOIN users u ON ds.cashier_id = u.id
-         WHERE ds.outlet_id = ? AND ds.floor_id = ? AND ds.session_date = ?`,
+         WHERE ds.outlet_id = ? AND ds.floor_id = ? AND (ds.status = 'open' OR ds.session_date = ?)
+         ORDER BY CASE WHEN ds.status = 'open' THEN 0 ELSE 1 END, ds.opening_time DESC
+         LIMIT 1`,
         [outletId, floor.id, today]
       );
 
@@ -1874,15 +1893,17 @@ const paymentService = {
    */
   async isFloorShiftOpen(outletId, floorId) {
     const pool = getPool();
-    const today = getLocalDate();
 
+    // Don't filter by session_date — open shift persists until manually closed
     const [session] = await pool.query(
-      `SELECT ds.id, ds.status, ds.cashier_id, u.name as cashier_name, f.name as floor_name
+      `SELECT ds.id, ds.status, ds.cashier_id, ds.opening_cash,
+              u.name as cashier_name, f.name as floor_name
        FROM day_sessions ds
        LEFT JOIN users u ON ds.cashier_id = u.id
        LEFT JOIN floors f ON ds.floor_id = f.id
-       WHERE ds.outlet_id = ? AND ds.floor_id = ? AND ds.session_date = ? AND ds.status = 'open'`,
-      [outletId, floorId, today]
+       WHERE ds.outlet_id = ? AND ds.floor_id = ? AND ds.status = 'open'
+       ORDER BY ds.id DESC LIMIT 1`,
+      [outletId, floorId]
     );
 
     return {
@@ -1890,6 +1911,7 @@ const paymentService = {
       shiftId: session[0]?.id || null,
       cashierId: session[0]?.cashier_id || null,
       cashierName: session[0]?.cashier_name || null,
+      openingCash: session[0] ? (parseFloat(session[0].opening_cash) || 0).toFixed(2) : null,
       floorName: session[0]?.floor_name || null
     };
   },
@@ -2093,6 +2115,16 @@ const paymentService = {
         else totalOtherSales += amount;
       }
 
+      // NC stats for this shift
+      const ncFloorCond = shift.floor_id ? ' AND (floor_id = ? OR (floor_id IS NULL AND order_type IN (\'takeaway\', \'delivery\')))' : '';
+      const ncFloorParams = shift.floor_id ? [shift.floor_id] : [];
+      const [ncStats] = await pool.query(
+        `SELECT COUNT(CASE WHEN is_nc = 1 THEN 1 END) as nc_orders,
+                SUM(CASE WHEN status != 'cancelled' THEN COALESCE(nc_amount, 0) ELSE 0 END) as nc_amount
+         FROM orders WHERE outlet_id = ? AND created_at >= ? AND created_at <= ?${ncFloorCond}`,
+        [shift.outlet_id, shiftStartTime, shiftEndTime, ...ncFloorParams]
+      );
+
       const openingCash = parseFloat(shift.opening_cash) || 0;
       const closingCash = parseFloat(shift.closing_cash) || 0;
       const expectedAmount = openingCash + totalSales;
@@ -2128,6 +2160,8 @@ const paymentService = {
         totalDiscounts: parseFloat(shift.total_discounts) || 0,
         totalRefunds: parseFloat(shift.total_refunds) || 0,
         totalCancellations: parseFloat(shift.total_cancellations) || 0,
+        ncOrders: parseInt(ncStats[0]?.nc_orders) || 0,
+        ncAmount: parseFloat(ncStats[0]?.nc_amount) || 0,
         status: shift.status,
         openedBy: shift.opened_by,
         openedByName: shift.opened_by_name,
@@ -2309,7 +2343,9 @@ const paymentService = {
         SUM(CASE WHEN status IN ('completed', 'paid') THEN total_amount ELSE 0 END) as real_total_sales,
         AVG(CASE WHEN status != 'cancelled' THEN total_amount ELSE NULL END) as avg_order_value,
         MAX(CASE WHEN status != 'cancelled' THEN total_amount ELSE NULL END) as max_order_value,
-        MIN(CASE WHEN status != 'cancelled' AND total_amount > 0 THEN total_amount ELSE NULL END) as min_order_value
+        MIN(CASE WHEN status != 'cancelled' AND total_amount > 0 THEN total_amount ELSE NULL END) as min_order_value,
+        COUNT(CASE WHEN is_nc = 1 THEN 1 END) as nc_orders,
+        SUM(CASE WHEN status != 'cancelled' THEN COALESCE(nc_amount, 0) ELSE 0 END) as nc_amount
       FROM orders
       WHERE outlet_id = ? AND created_at >= ? AND created_at <= ?`;
     const orderParams = [shift.outlet_id, shiftStartTime, shiftEndTime];
@@ -2374,6 +2410,7 @@ const paymentService = {
         o.id, o.uuid, o.order_number, o.order_type, o.status, o.payment_status,
         o.customer_name, o.customer_phone,
         o.subtotal, o.tax_amount, o.discount_amount, o.total_amount,
+        o.is_nc, o.nc_amount, o.nc_reason, o.due_amount, o.paid_amount as order_paid_amount,
         o.created_at, o.updated_at,
         u.name as created_by_name,
         t.table_number, t.name as table_name,
@@ -2441,11 +2478,16 @@ const paymentService = {
           taxAmount: parseFloat(row.tax_amount) || 0,
           discountAmount: parseFloat(row.discount_amount) || 0,
           totalAmount: parseFloat(row.total_amount) || 0,
+          isNC: !!row.is_nc,
+          ncAmount: parseFloat(row.nc_amount) || 0,
+          ncReason: row.nc_reason || null,
+          paidAmount: parseFloat(row.order_paid_amount) || 0,
+          dueAmount: parseFloat(row.due_amount) || 0,
           createdByName: row.created_by_name,
           createdAt: row.created_at,
           updatedAt: row.updated_at,
           paymentMode: row.payment_mode,
-          paidAmount: parseFloat(row.paid_amount) || 0,
+          paymentPaid: parseFloat(row.paid_amount) || 0,
           items: orderItemsMap[row.id] || []
         });
       }
@@ -2530,7 +2572,9 @@ const paymentService = {
         deliveryOrders: orderStats[0]?.delivery_orders || 0,
         avgOrderValue: parseFloat(orderStats[0]?.avg_order_value) || 0,
         maxOrderValue: parseFloat(orderStats[0]?.max_order_value) || 0,
-        minOrderValue: parseFloat(orderStats[0]?.min_order_value) || 0
+        minOrderValue: parseFloat(orderStats[0]?.min_order_value) || 0,
+        ncOrders: parseInt(orderStats[0]?.nc_orders) || 0,
+        ncAmount: parseFloat(orderStats[0]?.nc_amount) || 0
       },
       staffActivity: staffActivity.map(s => ({
         userId: s.user_id,
@@ -2631,7 +2675,9 @@ const paymentService = {
         SUM(CASE WHEN order_type = 'delivery' AND status != 'cancelled' THEN 1 ELSE 0 END) as delivery_orders,
         AVG(CASE WHEN status != 'cancelled' THEN total_amount ELSE NULL END) as avg_order_value,
         MAX(CASE WHEN status != 'cancelled' THEN total_amount ELSE NULL END) as max_order_value,
-        MIN(CASE WHEN status != 'cancelled' AND total_amount > 0 THEN total_amount ELSE NULL END) as min_order_value
+        MIN(CASE WHEN status != 'cancelled' AND total_amount > 0 THEN total_amount ELSE NULL END) as min_order_value,
+        COUNT(CASE WHEN is_nc = 1 THEN 1 END) as nc_orders,
+        SUM(CASE WHEN status != 'cancelled' THEN COALESCE(nc_amount, 0) ELSE 0 END) as nc_amount
       FROM orders
       WHERE outlet_id = ? AND created_at >= ? AND created_at <= ?`;
     const orderParams = [shift.outlet_id, shiftStartTime, shiftEndTime];
@@ -2746,7 +2792,9 @@ const paymentService = {
         deliveryOrders: parseInt(orderStats[0]?.delivery_orders) || 0,
         avgOrderValue: parseFloat(orderStats[0]?.avg_order_value) || 0,
         maxOrderValue: parseFloat(orderStats[0]?.max_order_value) || 0,
-        minOrderValue: parseFloat(orderStats[0]?.min_order_value) || 0
+        minOrderValue: parseFloat(orderStats[0]?.min_order_value) || 0,
+        ncOrders: parseInt(orderStats[0]?.nc_orders) || 0,
+        ncAmount: parseFloat(orderStats[0]?.nc_amount) || 0
       },
       paymentBreakdown: paymentBreakdown.map(p => ({
         mode: p.payment_mode,
@@ -3061,23 +3109,32 @@ const paymentService = {
 
   /**
    * Get customer due balance and summary - calculated from actual orders
+   * Returns comprehensive due info including history even when current due is 0
    */
-  async getCustomerDueBalance(customerId) {
+  async getCustomerDueBalance(customerId, outletId = null) {
     const pool = getPool();
     
-    const [customer] = await pool.query(
-      `SELECT id, name, phone, email FROM customers WHERE id = ?`,
-      [customerId]
-    );
+    // Get customer with outlet validation
+    let customerQuery = `SELECT id, name, phone, email, outlet_id, due_balance, total_due_collected FROM customers WHERE id = ?`;
+    const customerParams = [customerId];
+    
+    if (outletId) {
+      customerQuery = `SELECT id, name, phone, email, outlet_id, due_balance, total_due_collected FROM customers WHERE id = ? AND outlet_id = ?`;
+      customerParams.push(outletId);
+    }
+    
+    const [customer] = await pool.query(customerQuery, customerParams);
     if (!customer[0]) return null;
 
-    // Get pending due orders with actual due amounts
+    // Get pending due orders with actual due amounts + NC computed from items
     const [pendingOrders] = await pool.query(
       `SELECT o.id, o.order_number, o.total_amount, o.paid_amount, o.due_amount, o.created_at,
-              i.id as invoice_id, i.invoice_number
+              i.id as invoice_id, i.invoice_number,
+              (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id AND oi.is_nc = 1 AND oi.status != 'cancelled') as nc_item_count,
+              (SELECT COALESCE(SUM(oi.total_price), 0) FROM order_items oi WHERE oi.order_id = o.id AND oi.is_nc = 1 AND oi.status != 'cancelled') as nc_amount
        FROM orders o
        LEFT JOIN invoices i ON o.id = i.order_id AND i.is_cancelled = 0
-       WHERE o.customer_id = ? AND o.due_amount > 0
+       WHERE o.customer_id = ? AND o.due_amount > 0 AND o.status != 'cancelled'
        ORDER BY o.created_at DESC`,
       [customerId]
     );
@@ -3086,19 +3143,44 @@ const paymentService = {
     const actualDueBalance = pendingOrders.reduce((sum, o) => sum + (parseFloat(o.due_amount) || 0), 0);
     const totalPaidOnDueOrders = pendingOrders.reduce((sum, o) => sum + (parseFloat(o.paid_amount) || 0), 0);
 
-    // If no pending due orders, return null to indicate customer has no due
-    if (pendingOrders.length === 0) {
-      return null;
-    }
+    // Get due transaction summary
+    const [[txnSummary]] = await pool.query(
+      `SELECT 
+        COALESCE(SUM(CASE WHEN transaction_type = 'due_created' THEN amount ELSE 0 END), 0) as total_due_created,
+        COALESCE(SUM(CASE WHEN transaction_type = 'due_collected' THEN amount ELSE 0 END), 0) as total_due_collected,
+        COALESCE(SUM(CASE WHEN transaction_type = 'due_waived' THEN amount ELSE 0 END), 0) as total_due_waived,
+        COUNT(*) as transaction_count
+       FROM customer_due_transactions
+       WHERE customer_id = ?`,
+      [customerId]
+    );
+
+    // Get recent transactions
+    const [recentTransactions] = await pool.query(
+      `SELECT cdt.id, cdt.transaction_type, cdt.amount, cdt.balance_after, cdt.notes, cdt.created_at,
+              o.order_number, i.invoice_number
+       FROM customer_due_transactions cdt
+       LEFT JOIN orders o ON cdt.order_id = o.id
+       LEFT JOIN invoices i ON cdt.invoice_id = i.id
+       WHERE cdt.customer_id = ?
+       ORDER BY cdt.created_at DESC
+       LIMIT 10`,
+      [customerId]
+    );
 
     return {
       customerId: customer[0].id,
       customerName: customer[0].name,
       customerPhone: customer[0].phone,
       customerEmail: customer[0].email,
+      outletId: customer[0].outlet_id,
       dueBalance: actualDueBalance,
-      totalDueCollected: totalPaidOnDueOrders,
+      storedDueBalance: parseFloat(customer[0].due_balance) || 0,
+      totalDueCollected: parseFloat(txnSummary.total_due_collected) || 0,
+      totalDueCreated: parseFloat(txnSummary.total_due_created) || 0,
+      totalDueWaived: parseFloat(txnSummary.total_due_waived) || 0,
       pendingOrdersCount: pendingOrders.length,
+      hasHistory: (txnSummary.transaction_count || 0) > 0,
       pendingOrders: pendingOrders.map(o => ({
         orderId: o.id,
         orderNumber: o.order_number,
@@ -3107,7 +3189,19 @@ const paymentService = {
         totalAmount: parseFloat(o.total_amount) || 0,
         paidAmount: parseFloat(o.paid_amount) || 0,
         dueAmount: parseFloat(o.due_amount) || 0,
+        ncItemCount: parseInt(o.nc_item_count) || 0,
+        ncAmount: parseFloat(o.nc_amount) || 0,
         createdAt: o.created_at
+      })),
+      recentTransactions: recentTransactions.map(t => ({
+        id: t.id,
+        type: t.transaction_type,
+        amount: parseFloat(t.amount) || 0,
+        balanceAfter: parseFloat(t.balance_after) || 0,
+        orderNumber: t.order_number || null,
+        invoiceNumber: t.invoice_number || null,
+        notes: t.notes || null,
+        createdAt: t.created_at
       }))
     };
   },
@@ -3270,7 +3364,21 @@ const paymentService = {
     const sortCol = sortMap[sortBy] || 'actual_due';
     const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
-    // Get customers with actual due calculated from orders
+    // Build date filter for orders (IST — MySQL stores dates in IST, use DATE() directly)
+    let orderDateFilter = '';
+    const orderDateParams = [];
+    if (startDate && endDate) {
+      orderDateFilter = ' AND DATE(o.created_at) BETWEEN ? AND ?';
+      orderDateParams.push(startDate, endDate);
+    } else if (startDate) {
+      orderDateFilter = ' AND DATE(o.created_at) >= ?';
+      orderDateParams.push(startDate);
+    } else if (endDate) {
+      orderDateFilter = ' AND DATE(o.created_at) <= ?';
+      orderDateParams.push(endDate);
+    }
+
+    // Get customers with actual due calculated from orders (exclude cancelled orders)
     const [customers] = await pool.query(
       `SELECT 
         c.id, c.name, c.phone, c.email, c.total_orders, c.total_spent, c.created_at,
@@ -3279,13 +3387,13 @@ const paymentService = {
         MAX(o.created_at) as last_due_date,
         COALESCE(SUM(o.paid_amount), 0) as total_paid_on_due_orders
        FROM customers c
-       INNER JOIN orders o ON o.customer_id = c.id AND o.due_amount > 0
+       INNER JOIN orders o ON o.customer_id = c.id AND o.due_amount > 0 AND o.status != 'cancelled'${orderDateFilter}
        WHERE ${whereClause}
        GROUP BY c.id
        HAVING ${havingClause}
        ORDER BY ${sortCol} ${order}
        LIMIT ? OFFSET ?`,
-      [...params, parseInt(limit), parseInt(offset)]
+      [...orderDateParams, ...params, parseInt(limit), parseInt(offset)]
     );
 
     // Get total count
@@ -3293,22 +3401,23 @@ const paymentService = {
       `SELECT COUNT(*) as total FROM (
         SELECT c.id, COALESCE(SUM(o.due_amount), 0) as actual_due
         FROM customers c
-        INNER JOIN orders o ON o.customer_id = c.id AND o.due_amount > 0
+        INNER JOIN orders o ON o.customer_id = c.id AND o.due_amount > 0 AND o.status != 'cancelled'${orderDateFilter}
         WHERE ${whereClause}
         GROUP BY c.id
         HAVING ${havingClause}
       ) as due_customers`,
-      params
+      [...orderDateParams, ...params]
     );
 
     // Get pending due orders for each customer
     for (const customer of customers) {
       const [orders] = await pool.query(
-        `SELECT o.id, o.order_number, o.total_amount, o.paid_amount, o.due_amount, 
-                o.created_at, i.invoice_number
+        `SELECT o.id, o.order_number, o.total_amount, o.paid_amount, o.due_amount,
+                o.is_nc, o.nc_amount, o.nc_reason,
+                o.created_at, i.invoice_number, i.grand_total as invoice_total
          FROM orders o
          LEFT JOIN invoices i ON o.id = i.order_id AND i.is_cancelled = 0
-         WHERE o.customer_id = ? AND o.due_amount > 0
+         WHERE o.customer_id = ? AND o.due_amount > 0 AND o.status != 'cancelled'
          ORDER BY o.created_at DESC
          LIMIT 5`,
         [customer.id]
@@ -3317,14 +3426,18 @@ const paymentService = {
         orderId: o.id,
         orderNumber: o.order_number,
         invoiceNumber: o.invoice_number,
+        invoiceTotal: parseFloat(o.invoice_total) || 0,
         totalAmount: parseFloat(o.total_amount) || 0,
         paidAmount: parseFloat(o.paid_amount) || 0,
         dueAmount: parseFloat(o.due_amount) || 0,
+        isNC: !!o.is_nc,
+        ncAmount: parseFloat(o.nc_amount) || 0,
+        ncReason: o.nc_reason || null,
         createdAt: o.created_at
       }));
     }
 
-    // Get summary - calculated from actual orders
+    // Get summary - calculated from actual orders (exclude cancelled)
     const [[summary]] = await pool.query(
       `SELECT 
         COUNT(DISTINCT c.id) as total_customers_with_due,
@@ -3334,10 +3447,10 @@ const paymentService = {
         MAX(od.actual_due) as max_due,
         COUNT(o.id) as total_orders_with_due
        FROM customers c
-       INNER JOIN orders o ON o.customer_id = c.id AND o.due_amount > 0
+       INNER JOIN orders o ON o.customer_id = c.id AND o.due_amount > 0 AND o.status != 'cancelled'
        INNER JOIN (
          SELECT customer_id, SUM(due_amount) as actual_due
-         FROM orders WHERE due_amount > 0
+         FROM orders WHERE due_amount > 0 AND status != 'cancelled'
          GROUP BY customer_id
        ) od ON od.customer_id = c.id
        WHERE c.outlet_id = ? AND c.is_active = 1`,
@@ -3426,7 +3539,7 @@ const paymentService = {
     const sortCol = sortMap[sortBy] || 'actual_due';
     const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
-    // Get all customers with actual due from orders
+    // Get all customers with actual due from orders (exclude cancelled)
     const [customers] = await pool.query(
       `SELECT 
         c.id, c.name, c.phone, c.email, c.total_orders, c.total_spent, c.created_at,
@@ -3436,7 +3549,7 @@ const paymentService = {
         COALESCE(SUM(o.paid_amount), 0) as total_paid_on_due_orders,
         GROUP_CONCAT(CONCAT(o.order_number, ': ₹', o.due_amount) SEPARATOR '; ') as pending_orders_summary
        FROM customers c
-       INNER JOIN orders o ON o.customer_id = c.id AND o.due_amount > 0
+       INNER JOIN orders o ON o.customer_id = c.id AND o.due_amount > 0 AND o.status != 'cancelled'
        WHERE ${whereClause}
        GROUP BY c.id
        HAVING ${havingClause}
@@ -3444,14 +3557,14 @@ const paymentService = {
       params
     );
 
-    // Get summary from actual orders
+    // Get summary from actual orders (exclude cancelled)
     const [[summary]] = await pool.query(
       `SELECT 
         COUNT(DISTINCT c.id) as total_customers_with_due,
         COALESCE(SUM(o.due_amount), 0) as total_outstanding_due,
         COALESCE(SUM(o.paid_amount), 0) as total_collected
        FROM customers c
-       INNER JOIN orders o ON o.customer_id = c.id AND o.due_amount > 0
+       INNER JOIN orders o ON o.customer_id = c.id AND o.due_amount > 0 AND o.status != 'cancelled'
        WHERE c.outlet_id = ? AND c.is_active = 1`,
       [outletId]
     );

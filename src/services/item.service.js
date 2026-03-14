@@ -149,9 +149,9 @@ const itemService = {
     `;
     const params = [categoryId];
 
-    if (!includeInactive) {
-      query += ' AND i.is_active = 1 AND i.is_available = 1';
-    }
+    // if (!includeInactive) {
+    //   query += ' AND i.is_active = 1 AND i.is_available = 1';
+    // }
     query += ' ORDER BY i.display_order, i.name';
 
     const [items] = await pool.query(query, params);
@@ -185,9 +185,9 @@ const itemService = {
     // Build WHERE conditions
     let whereConditions = '';
     
-    if (!filters.includeInactive) {
-      whereConditions += ' AND i.is_active = 1';
-    }
+    // if (!filters.includeInactive) {
+    //   whereConditions += ' AND i.is_active = 1';
+    // }
     if (filters.categoryId) {
       whereConditions += ' AND i.category_id = ?';
       params.push(parseInt(filters.categoryId));

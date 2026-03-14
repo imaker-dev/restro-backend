@@ -255,10 +255,10 @@ const customerController = {
 
   async getDueBalance(req, res) {
     try {
-      const { customerId } = req.params;
-      const result = await paymentService.getCustomerDueBalance(customerId);
+      const { outletId, customerId } = req.params;
+      const result = await paymentService.getCustomerDueBalance(customerId, parseInt(outletId));
       if (!result) {
-        return res.status(404).json({ success: false, message: 'No outstanding dues found for this customer' });
+        return res.status(404).json({ success: false, message: 'Customer not found in this outlet' });
       }
       res.json({ success: true, data: result });
     } catch (error) {

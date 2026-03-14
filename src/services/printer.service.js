@@ -1139,7 +1139,7 @@ const printerService = {
     );
     lines.push(dash);
 
-    // Items (preserve original case)
+    // Items (preserve original case, mark NC items)
     let totalQty = 0;
     for (const item of billData.items || []) {
       const qty = parseInt(item.quantity) || 0;
@@ -1148,7 +1148,12 @@ const printerService = {
         this.rAlign(qty.toString(), cQ) +
         this.rAlign(parseFloat(item.unitPrice).toFixed(2), cP) +
         this.rAlign(parseFloat(item.totalPrice).toFixed(2), cA);
-      const name = item.itemName || '';
+      let name = item.itemName || '';
+      
+      // Add NC tag for no-charge items
+      if (item.isNC) {
+        name = name + ' [NC]';
+      }
 
       if (name.length <= cN) {
         lines.push(name.padEnd(cN) + cols);
@@ -1189,7 +1194,15 @@ const printerService = {
       lines.push(dash);
     }
 
-    // Grand total (bold + double height, centered)
+    // NC (No Charge) breakdown - show when there are NC items
+    const hasNC = billData.ncAmount && parseFloat(billData.ncAmount) > 0;
+    if (hasNC) {
+      lines.push(cmd.BOLD_ON + '** NO CHARGE (NC) **' + cmd.BOLD_OFF);
+      lines.push(this.padBetween('NC Amount:', '-' + parseFloat(billData.ncAmount).toFixed(2), w));
+      lines.push(dash);
+    }
+
+    // Grand total (bold + double height, centered) — already includes NC deduction
     // Use "Rs." instead of Unicode ₹ (\u20B9) for thermal printer compatibility
     lines.push(cmd.ALIGN_CENTER + cmd.BOLD_ON + cmd.DOUBLE_HEIGHT + 'Grand Total Rs.' + billData.grandTotal);
     lines.push(cmd.NORMAL + cmd.BOLD_OFF + cmd.ALIGN_LEFT + dash);

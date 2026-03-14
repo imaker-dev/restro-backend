@@ -84,9 +84,9 @@ const floorService = {
       WHERE f.outlet_id = ?${floorRestriction}
     `;
 
-    if (!includeInactive) {
-      query += ' AND f.is_active = 1';
-    }
+    // if (!includeInactive) {
+    //   query += ' AND f.is_active = 1';
+    // }
 
     query += ' ORDER BY f.display_order, f.floor_number, f.name';
 
@@ -255,7 +255,7 @@ const floorService = {
       `SELECT s.id, s.name, s.code, s.description, s.section_type, s.color_code, s.display_order, s.is_active
        FROM sections s
        JOIN floor_sections fs ON s.id = fs.section_id AND fs.is_active = 1
-       WHERE fs.floor_id = ? AND s.is_active = 1
+       WHERE fs.floor_id = ?
        ORDER BY s.display_order, s.name`,
       [floorId]
     );
@@ -270,7 +270,7 @@ const floorService = {
        FROM tables t
        LEFT JOIN table_sessions ts ON t.id = ts.table_id AND ts.status IN ('active', 'billing')
        LEFT JOIN orders o ON ts.order_id = o.id AND o.status NOT IN ('cancelled', 'completed', 'paid')
-       WHERE t.floor_id = ? AND t.is_active = 1
+       WHERE t.floor_id = ?
        ORDER BY t.display_order, t.table_number`,
       [floorId]
     );

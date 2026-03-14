@@ -246,7 +246,7 @@ const outletController = {
 
   async getSectionsByOutlet(req, res, next) {
     try {
-      const includeInactive = req.query.includeInactive === 'true';
+      // const includeInactive = req.query.includeInactive === 'true';
       const sections = await sectionService.getByOutlet(req.params.outletId, includeInactive);
       res.json({ success: true, data: sections });
     } catch (error) {
@@ -256,7 +256,7 @@ const outletController = {
 
   async getSectionsByFloor(req, res, next) {
     try {
-      const includeInactive = req.query.includeInactive === 'true';
+      // const includeInactive = req.query.includeInactive === 'true';
       const sections = await sectionService.getByFloor(req.params.floorId, includeInactive);
       res.json({ success: true, data: sections });
     } catch (error) {

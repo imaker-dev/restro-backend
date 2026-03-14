@@ -271,6 +271,9 @@ const tableService = {
               isPriority: !!order.is_priority,
               isComplimentary: !!order.is_complimentary,
               complimentaryReason: order.complimentary_reason,
+              // NC (No Charge) - order level
+              isNC: !!order.is_nc,
+              ncAmount: parseFloat(order.nc_amount) || 0,
               totalAmount: parseFloat(order.total_amount) || 0,
               paidAmount: parseFloat(order.paid_amount) || 0,
               dueAmount: parseFloat(order.due_amount) || 0,
@@ -304,7 +307,7 @@ const tableService = {
               };
             }
 
-            // Get order items with variants, addons, and full pricing
+            // Get order items with variants, addons, NC details, and full pricing
             const [items] = await pool.query(
               `SELECT oi.*, 
                 i.name as item_name, i.short_name, i.image_url, i.item_type,
@@ -312,13 +315,15 @@ const tableService = {
                 v.name as variant_name, v.price as variant_menu_price,
                 ks.name as kitchen_station_name, ks.station_type,
                 tg.name as tax_group_name, tg.total_rate as tax_total_rate,
-                uc.name as cancelled_by_name
+                uc.name as cancelled_by_name,
+                unc.name as nc_by_name
                FROM order_items oi
                JOIN items i ON oi.item_id = i.id
                LEFT JOIN variants v ON oi.variant_id = v.id
                LEFT JOIN kitchen_stations ks ON i.kitchen_station_id = ks.id
                LEFT JOIN tax_groups tg ON oi.tax_group_id = tg.id
                LEFT JOIN users uc ON oi.cancelled_by = uc.id
+               LEFT JOIN users unc ON oi.nc_by = unc.id
                WHERE oi.order_id = ?
                ORDER BY oi.created_at`,
               [order.id]
@@ -363,6 +368,13 @@ const tableService = {
                 station: item.kitchen_station_name, stationType: item.station_type,
                 specialInstructions: item.special_instructions,
                 isComplimentary: !!item.is_complimentary, complimentaryReason: item.complimentary_reason,
+                // NC (No Charge) details
+                isNC: !!item.is_nc,
+                ncReasonId: item.nc_reason_id || null,
+                ncReason: item.nc_reason || null,
+                ncAmount: parseFloat(item.nc_amount || 0),
+                ncBy: item.nc_by_name || null,
+                ncAt: item.nc_at || null,
                 cancelReason: item.cancel_reason,
                 cancelQuantity: parseFloat(item.cancel_quantity || 0),
                 cancelledBy: item.cancelled_by_name, cancelledAt: item.cancelled_at,
@@ -392,6 +404,12 @@ const tableService = {
               specialInstructions: item.specialInstructions,
               isComplimentary: item.isComplimentary,
               complimentaryReason: item.complimentaryReason,
+              // NC (No Charge) badge and details
+              isNC: item.isNC,
+              ncReason: item.ncReason,
+              ncAmount: item.ncAmount,
+              ncBy: item.ncBy,
+              ncAt: item.ncAt,
               cancelReason: item.cancelReason,
               cancelQuantity: item.cancelQuantity,
               cancelledBy: item.cancelledBy,
@@ -407,20 +425,54 @@ const tableService = {
               }))
             }));
 
+            // ── Build NC summary for quick badge display ──
+            // const ncItems = _items.filter(i => i.isNC && i.status !== 'cancelled');
+            // if (ncItems.length > 0) {
+            //   result.ncSummary = {
+            //     hasNcItems: true,
+            //     ncItemCount: ncItems.length,
+            //     totalNcAmount: ncItems.reduce((sum, i) => sum + i.ncAmount, 0),
+            //     ncItems: ncItems.map(i => ({
+            //       id: i.id,
+            //       itemName: i.name,
+            //       quantity: i.quantity,
+            //       ncAmount: i.ncAmount,
+            //       ncReason: i.ncReason,
+            //       ncBy: i.ncBy,
+            //       ncAt: i.ncAt
+            //     }))
+            //   };
+            // } else {
+            //   result.ncSummary = {
+            //     hasNcItems: false,
+            //     ncItemCount: 0,
+            //     totalNcAmount: 0,
+            //     ncItems: []
+            //   };
+            // }
+
             // ── Build clear order-level charges breakdown ──
             const activeItems = _items.filter(i => i.status !== 'cancelled');
             const cancelledItems = _items.filter(i => i.status === 'cancelled');
 
-            // itemsMenuTotal = sum of (menuPrice + addonTotal) * qty for active items
+            // Separate chargeable (non-NC) and NC items
+            const chargeableItems = activeItems.filter(i => !i.isNC);
+            const ncItemsList = activeItems.filter(i => i.isNC);
+
+            // itemsMenuTotal = sum of (menuPrice + addonTotal) * qty for CHARGEABLE items only
             const itemsMenuTotal = parseFloat(
-              activeItems.reduce((s, i) => s + (i.menuPrice + i.addonTotal) * i.quantity, 0).toFixed(2)
+              chargeableItems.reduce((s, i) => s + (i.menuPrice + i.addonTotal) * i.quantity, 0).toFixed(2)
             );
-            const subtotal = parseFloat(order.subtotal) || 0;
+            
+            // Subtotal = sum of totalPrice for CHARGEABLE (non-NC) items only
+            const subtotal = parseFloat(
+              chargeableItems.reduce((s, i) => s + i.totalPrice, 0).toFixed(2)
+            );
             const priceAdjustment = parseFloat((subtotal - itemsMenuTotal).toFixed(2));
 
-            // Group active items by tax group for clear tax summary
+            // Group active NON-NC items by tax group for tax summary (NC items have zero tax)
             const taxGroupMap = {};
-            for (const item of activeItems) {
+            for (const item of chargeableItems) {
               const gKey = item.taxGroupId || 0;
               if (!taxGroupMap[gKey]) {
                 taxGroupMap[gKey] = {
@@ -472,14 +524,28 @@ const tableService = {
               };
             });
 
-            const totalTax = parseFloat(order.tax_amount) || 0;
             const scAmount = parseFloat(order.service_charge) || 0;
+
+            // NC amount from NC items list (already filtered above)
+            const ncAmount = parseFloat(ncItemsList.reduce((sum, i) => sum + i.totalPrice, 0).toFixed(2));
+
+            // totalTax from tax summary (only non-NC items)
+            const totalTax = parseFloat(taxSummary.reduce((sum, g) => sum + g.totalTax, 0).toFixed(2));
+
+            // grandTotal = (subtotal - discount) + totalTax + charges
+            // Note: subtotal already excludes NC items, so no need to subtract ncAmount
+            const discountAmt = parseFloat(order.discount_amount) || 0;
+            const packagingCharge = parseFloat(order.packaging_charge) || 0;
+            const deliveryCharge = parseFloat(order.delivery_charge) || 0;
+            const taxableAmount = subtotal - discountAmt;
+            const preRound = taxableAmount + totalTax + scAmount + packagingCharge + deliveryCharge;
+            const grandTotal = Math.max(0, Math.round(preRound));
 
             result.order.charges = {
               itemsMenuTotal,
               priceAdjustment,
               subtotal,
-              discount: parseFloat(order.discount_amount) || 0,
+              discount: discountAmt,
               taxSummary,
               totalTax,
               serviceCharge: serviceChargeConfig ? {
@@ -488,10 +554,11 @@ const tableService = {
                 isPercentage: serviceChargeConfig.isPercentage,
                 amount: scAmount
               } : { name: null, rate: 0, isPercentage: false, amount: scAmount },
-              packagingCharge: parseFloat(order.packaging_charge) || 0,
-              deliveryCharge: parseFloat(order.delivery_charge) || 0,
-              roundOff: parseFloat(order.round_off) || 0,
-              grandTotal: parseFloat(order.total_amount) || 0
+              packagingCharge,
+              deliveryCharge,
+              roundOff: parseFloat((grandTotal - preRound).toFixed(2)),
+              ncAmount,
+              grandTotal
             };
 
             result.order.activeItemCount = activeItems.length;
@@ -683,18 +750,22 @@ const tableService = {
     const pool = getPool();
     const today = getLocalDate();
     
-    // Get floor info and shift status
+    // Get floor info and shift status — no date filter; open shift persists until manually closed
     const [floorInfo] = await pool.query(
       `SELECT f.id, f.name, f.outlet_id, f.floor_number,
         ds.id as shift_id, ds.status as shift_status, ds.cashier_id,
         u.name as cashier_name, ds.opening_cash
        FROM floors f
-       LEFT JOIN day_sessions ds ON f.id = ds.floor_id AND ds.session_date = ? AND ds.status = 'open'
+       LEFT JOIN (
+         SELECT * FROM day_sessions WHERE status = 'open' ORDER BY id DESC
+       ) ds ON f.id = ds.floor_id
        LEFT JOIN users u ON ds.cashier_id = u.id
-       WHERE f.id = ?`,
-      [today, floorId]
+       WHERE f.id = ?
+       LIMIT 1`,
+      [floorId]
     );
     
+    // Use subquery for session to ensure only one session per table (latest active)
     const [tables] = await pool.query(
       `SELECT t.*, 
         s.name as section_name, s.section_type,
@@ -706,7 +777,15 @@ const tableService = {
        FROM tables t
        LEFT JOIN sections s ON t.section_id = s.id
        LEFT JOIN table_layouts tl ON t.id = tl.table_id
-       LEFT JOIN table_sessions ts ON t.id = ts.table_id AND ts.status = 'active'
+       LEFT JOIN (
+         SELECT ts1.* FROM table_sessions ts1
+         INNER JOIN (
+           SELECT table_id, MAX(id) as max_id 
+           FROM table_sessions 
+           WHERE status = 'active' 
+           GROUP BY table_id
+         ) ts2 ON ts1.id = ts2.max_id
+       ) ts ON t.id = ts.table_id
        LEFT JOIN users u ON ts.started_by = u.id
        LEFT JOIN orders o ON ts.order_id = o.id
        WHERE t.floor_id = ? AND t.is_active = 1
@@ -737,6 +816,44 @@ const tableService = {
           [table.current_order_id]
         );
         table.item_count = itemCount[0].count;
+
+        // Get NC items summary and details
+        const [ncItems] = await pool.query(
+          `SELECT oi.id, oi.item_name, oi.quantity, oi.unit_price, oi.total_price,
+                  oi.is_nc, oi.nc_reason, oi.nc_amount, oi.nc_at,
+                  u.name as nc_by_name
+           FROM order_items oi
+           LEFT JOIN users u ON oi.nc_by = u.id
+           WHERE oi.order_id = ? AND oi.is_nc = 1 AND oi.status != 'cancelled'`,
+          [table.current_order_id]
+        );
+        
+        if (ncItems.length > 0) {
+          const totalNcAmount = ncItems.reduce((sum, item) => sum + (parseFloat(item.nc_amount) || 0), 0);
+          table.ncSummary = {
+            hasNcItems: true,
+            ncItemCount: ncItems.length,
+            totalNcAmount: totalNcAmount,
+            ncItems: ncItems.map(item => ({
+              id: item.id,
+              itemName: item.item_name,
+              quantity: parseFloat(item.quantity) || 0,
+              unitPrice: parseFloat(item.unit_price) || 0,
+              totalPrice: parseFloat(item.total_price) || 0,
+              ncAmount: parseFloat(item.nc_amount) || 0,
+              ncReason: item.nc_reason || null,
+              ncAt: item.nc_at || null,
+              ncByName: item.nc_by_name || null
+            }))
+          };
+        } else {
+          table.ncSummary = {
+            hasNcItems: false,
+            ncItemCount: 0,
+            totalNcAmount: 0,
+            ncItems: []
+          };
+        }
       }
 
       // Get merged tables info (check active merges regardless of session)
@@ -997,6 +1114,13 @@ const tableService = {
           throw new Error(`Shift not opened for ${floorName}. Please ask the assigned cashier to open the shift first.`);
         }
       }
+
+      // Close any existing active sessions for this table to prevent duplicates
+      await connection.query(
+        `UPDATE table_sessions SET status = 'closed', ended_at = NOW() 
+         WHERE table_id = ? AND status = 'active'`,
+        [tableId]
+      );
 
       // Create session
       const [result] = await connection.query(

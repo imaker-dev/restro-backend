@@ -1556,7 +1556,7 @@ const orderController = {
   async getDueReport(req, res) {
     try {
       const { outletId } = req.params;
-      const { page, limit, search, customerId, minDue, maxDue, sortBy, sortOrder } = req.query;
+      const { page, limit, search, customerId, minDue, maxDue, sortBy, sortOrder, startDate, endDate } = req.query;
 
       const result = await paymentService.getDueReport(outletId, {
         page: parseInt(page) || 1,
@@ -1565,6 +1565,8 @@ const orderController = {
         customerId: customerId ? parseInt(customerId) : null,
         minDue: minDue ? parseFloat(minDue) : null,
         maxDue: maxDue ? parseFloat(maxDue) : null,
+        startDate: startDate || null,
+        endDate: endDate || null,
         sortBy: sortBy || 'due_balance',
         sortOrder: sortOrder || 'DESC'
       });
@@ -1901,6 +1903,81 @@ const orderController = {
       res.send(csv);
     } catch (error) {
       logger.error('Export shift detail error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  // ========================
+  // NC (NO CHARGE) REPORT
+  // ========================
+
+  /**
+   * GET /api/v1/orders/reports/:outletId/nc
+   * NC Report with filters, pagination, sorting — order-level and item-level
+   */
+  async getNCReport(req, res) {
+    try {
+      const { outletId } = req.params;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const options = {
+        page: req.query.page,
+        limit: req.query.limit,
+        search: req.query.search,
+        ncType: req.query.ncType,
+        ncReason: req.query.ncReason,
+        appliedByName: req.query.appliedByName,
+        orderType: req.query.orderType,
+        floorName: req.query.floorName,
+        sortBy: req.query.sortBy,
+        sortOrder: req.query.sortOrder,
+        floorIds: floorIds.length > 0 ? floorIds : undefined
+      };
+      const report = await reportsService.getNCReport(outletId, req.query.startDate, req.query.endDate, options);
+      res.json({ success: true, data: report });
+    } catch (error) {
+      logger.error('Get NC report error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  /**
+   * GET /api/v1/orders/reports/:outletId/nc/export
+   * Export NC Report as CSV
+   */
+  async exportNCReport(req, res) {
+    try {
+      const { outletId } = req.params;
+      const floorIds = await getUserFloorIds(req.user.userId, outletId);
+      const options = {
+        page: 1,
+        limit: 10000,
+        search: req.query.search,
+        ncType: req.query.ncType,
+        ncReason: req.query.ncReason,
+        appliedByName: req.query.appliedByName,
+        orderType: req.query.orderType,
+        floorName: req.query.floorName,
+        sortBy: req.query.sortBy || 'nc_at',
+        sortOrder: req.query.sortOrder || 'DESC',
+        floorIds: floorIds.length > 0 ? floorIds : undefined
+      };
+      const report = await reportsService.getNCReport(outletId, req.query.startDate, req.query.endDate, options);
+
+      const csv = csvExport.ncReportCSV(report, {
+        startDate: req.query.startDate,
+        endDate: req.query.endDate,
+        outletId
+      });
+      const filename = csvExport.generateFilename('nc_report', {
+        startDate: req.query.startDate,
+        endDate: req.query.endDate
+      });
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (error) {
+      logger.error('Export NC report error:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   }

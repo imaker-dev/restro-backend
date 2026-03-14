@@ -51,6 +51,9 @@ function formatInvoiceItem(item) {
       : null,
     status: item.status,
     specialInstructions: item.special_instructions || item.specialInstructions || null,
+    isNC: !!(item.is_nc || item.isNc || item.isNC),
+    ncAmount: parseFloat(item.nc_amount || item.ncAmount) || 0,
+    ncReason: item.nc_reason || item.ncReason || null,
   };
 }
 
@@ -173,6 +176,8 @@ function formatInvoice(invoice) {
     deliveryCharge: parseFloat(invoice.delivery_charge) || 0,
     roundOff: parseFloat(invoice.round_off) || 0,
     grandTotal: parseFloat(invoice.grand_total) || 0,
+    isNC: !!invoice.is_nc,
+    ncAmount: parseFloat(invoice.nc_amount) || 0,
     paidAmount: parseFloat(invoice.paid_amount) || 0,
     dueAmount: parseFloat(invoice.due_amount) || 0,
     isDuePayment: !!invoice.is_due_payment,
@@ -366,7 +371,9 @@ const billingService = {
         itemName: item.name || item.item_name || item.itemName,
         quantity: item.quantity,
         unitPrice: parseFloat(item.unitPrice || item.unit_price || 0).toFixed(2),
-        totalPrice: parseFloat(item.totalPrice || item.total_price || 0).toFixed(2)
+        totalPrice: parseFloat(item.totalPrice || item.total_price || 0).toFixed(2),
+        isNC: !!(item.isNC || item.is_nc),
+        ncAmount: parseFloat(item.ncAmount || item.nc_amount || 0)
       })),
       subtotal: parseFloat(invoice.subtotal || 0).toFixed(2),
       taxes: Object.values(invoice.taxBreakup || {}).map(t => ({
@@ -378,6 +385,9 @@ const billingService = {
       discount: parseFloat(invoice.discountAmount || 0) > 0 ? parseFloat(invoice.discountAmount).toFixed(2) : null,
       roundOff: invoice.roundOff !== undefined ? parseFloat(invoice.roundOff).toFixed(2) : null,
       grandTotal: parseFloat(invoice.grandTotal || 0).toFixed(2),
+      // NC (No Charge) fields for print
+      isNC: !!(invoice.isNC || invoice.is_nc),
+      ncAmount: parseFloat(invoice.ncAmount || invoice.nc_amount || 0),
       paidAmount: parseFloat(invoice.paidAmount || 0).toFixed(2),
       dueAmount: parseFloat(invoice.dueAmount || 0).toFixed(2),
       paymentMode: invoice.payments?.[0]?.paymentMode || null,
@@ -529,13 +539,27 @@ const billingService = {
         const calculatedTaxSum = storedCgst + storedSgst + storedIgst + storedVat + storedCess;
         const taxInconsistent = Math.abs(calculatedTaxSum - storedTotalTax) > 0.01;
         
-        // Recalculate if service charge, interstate, customer, amounts, or tax inconsistency
+        // Check if NC status changed on items (need to recalculate bill)
+        const currentInvoiceNC = parseFloat(ei.nc_amount) || 0;
+        const orderNCAmount = parseFloat(order.nc_amount) || 0;
+        // Also check individual items for NC changes
+        let itemsNCAmount = 0;
+        for (const item of order.items || []) {
+          if (item.status !== 'cancelled' && (item.is_nc || item.isNc || item.isNC)) {
+            itemsNCAmount += parseFloat(item.total_price || item.totalPrice) || 0;
+          }
+        }
+        const ncChanged = Math.abs(currentInvoiceNC - itemsNCAmount) > 0.01 || 
+                          Math.abs(currentInvoiceNC - orderNCAmount) > 0.01;
+        
+        // Recalculate if service charge, interstate, customer, amounts, tax inconsistency, or NC changed
         const needsUpdate = (currentSC > 0 && !applyServiceCharge) || 
                            (currentSC === 0 && applyServiceCharge) ||
                            (isInterstate !== currentIsInterstate) ||
                            customerChanged ||
                            amountsChanged ||
-                           taxInconsistent;
+                           taxInconsistent ||
+                           ncChanged;
 
         if (needsUpdate) {
           const billDetails = await this.calculateBillDetails(order, { applyServiceCharge, isInterstate });
@@ -548,6 +572,7 @@ const billingService = {
               subtotal = ?, discount_amount = ?, taxable_amount = ?,
               cgst_amount = ?, sgst_amount = ?, igst_amount = ?, vat_amount = ?, cess_amount = ?, total_tax = ?,
               service_charge = ?, grand_total = ?, round_off = ?,
+              is_nc = ?, nc_amount = ?, nc_tax_amount = 0, payable_amount = ?,
               amount_in_words = ?, tax_breakup = ?, hsn_summary = ?
              WHERE id = ?`,
             [
@@ -563,6 +588,9 @@ const billingService = {
               billDetails.cgstAmount, billDetails.sgstAmount, billDetails.igstAmount, 
               billDetails.vatAmount, billDetails.cessAmount, billDetails.totalTax,
               billDetails.serviceCharge, billDetails.grandTotal, billDetails.roundOff,
+              billDetails.isNC ? 1 : 0, 
+              billDetails.ncAmount || 0,
+              billDetails.grandTotal,
               this.numberToWords(billDetails.grandTotal),
               JSON.stringify(billDetails.taxBreakup), JSON.stringify(billDetails.hsnSummary),
               ei.id
@@ -597,7 +625,7 @@ const billingService = {
       const uuid = uuidv4();
       const today = new Date();
 
-      // Create invoice with customer GST details
+      // Create invoice with customer GST details and NC information
       const [result] = await connection.query(
         `INSERT INTO invoices (
           uuid, outlet_id, order_id, invoice_number, invoice_date, invoice_time,
@@ -607,9 +635,10 @@ const billingService = {
           subtotal, discount_amount, taxable_amount,
           cgst_amount, sgst_amount, igst_amount, vat_amount, cess_amount, total_tax,
           service_charge, packaging_charge, delivery_charge, round_off, grand_total,
+          is_nc, nc_amount, nc_tax_amount, payable_amount,
           amount_in_words, payment_status, tax_breakup, hsn_summary,
           notes, terms_conditions, generated_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
         [
           uuid, order.outlet_id, orderId, invoiceNumber,
           today.toISOString().slice(0, 10), today.toTimeString().slice(0, 8),
@@ -628,6 +657,7 @@ const billingService = {
           billDetails.vatAmount, billDetails.cessAmount, billDetails.totalTax,
           billDetails.serviceCharge, billDetails.packagingCharge, billDetails.deliveryCharge,
           billDetails.roundOff, billDetails.grandTotal,
+          billDetails.isNC ? 1 : 0, billDetails.ncAmount || 0, 0, billDetails.grandTotal,
           this.numberToWords(billDetails.grandTotal),
           JSON.stringify(billDetails.taxBreakup),
           JSON.stringify(billDetails.hsnSummary),
@@ -776,15 +806,27 @@ const billingService = {
     const taxBreakup = {};
     const hsnSummary = {};
 
+    // Track NC amounts
+    let ncAmount = 0;
+
     // Process each item
     for (const item of order.items) {
       if (item.status === 'cancelled') continue;
 
       // Handle both snake_case (raw DB) and camelCase (formatted) item structures
       const itemTotal = parseFloat(item.total_price || item.totalPrice) || 0;
+      const itemIsNC = item.is_nc || item.isNc || item.isNC || false;
+      
+      // NC items: track amount separately, do NOT add to subtotal
+      if (itemIsNC) {
+        ncAmount += itemTotal;
+        continue;
+      }
+
+      // Add to subtotal (only non-NC items)
       subtotal += itemTotal;
 
-      // Parse tax details (handle both snake_case and camelCase)
+      // Tax calculation — only for non-NC items
       const itemTaxDetails = item.tax_details || item.taxDetails;
       if (itemTaxDetails) {
         const taxDetails = typeof itemTaxDetails === 'string' 
@@ -869,10 +911,10 @@ const billingService = {
 
     // Get discount amount and calculate discount ratio
     const discountAmount = parseFloat(order.discount_amount) || 0;
+    // Subtotal already excludes NC items, so taxableAmount = subtotal - discount
     const taxableAmount = subtotal - discountAmount;
     
     // Calculate discount ratio to proportionally reduce tax
-    // Tax should be calculated on discounted amount, not full subtotal
     const discountRatio = subtotal > 0 ? (taxableAmount / subtotal) : 1;
 
     // Apply discount ratio to all tax amounts (tax on discounted subtotal)
@@ -909,7 +951,7 @@ const billingService = {
       }
     }
 
-    // Service charge
+    // Service charge (applied on subtotal which already excludes NC items)
     let serviceCharge = 0;
     if (applyServiceCharge && order.order_type === 'dine_in') {
       const [charges] = await pool.query(
@@ -918,7 +960,7 @@ const billingService = {
       );
       if (charges[0]) {
         if (charges[0].is_percentage) {
-          serviceCharge = (taxableAmount * parseFloat(charges[0].rate)) / 100;
+          serviceCharge = (subtotal * parseFloat(charges[0].rate)) / 100;
         } else {
           serviceCharge = parseFloat(charges[0].rate);
         }
@@ -928,8 +970,9 @@ const billingService = {
     const packagingCharge = parseFloat(order.packaging_charge) || 0;
     const deliveryCharge = parseFloat(order.delivery_charge) || 0;
 
+    // grandTotal = taxableAmount (non-NC minus discount) + tax (non-NC only) + charges
     const preRoundTotal = taxableAmount + totalTax + serviceCharge + packagingCharge + deliveryCharge;
-    const grandTotal = Math.round(preRoundTotal);
+    const grandTotal = Math.max(0, Math.round(preRoundTotal));
     const roundOff = grandTotal - preRoundTotal;
 
     return {
@@ -947,6 +990,8 @@ const billingService = {
       deliveryCharge: parseFloat(deliveryCharge.toFixed(2)),
       roundOff: parseFloat(roundOff.toFixed(2)),
       grandTotal,
+      isNC: ncAmount > 0,
+      ncAmount: parseFloat(ncAmount.toFixed(2)),
       taxBreakup,
       hsnSummary
     };
@@ -1260,28 +1305,22 @@ const billingService = {
     let whereClause = `WHERE i.outlet_id = ? AND i.is_cancelled = 0`;
     const params = [outletId];
 
-    // Date range filter (IST-based: convert stored UTC to IST for comparison)
+    // Date range filter (timestamps already stored in IST)
     if (fromDate) {
-      // If only date provided (no time), filter by IST date
       if (fromDate.length === 10) {
-        // Compare IST date: CONVERT_TZ(created_at, '+00:00', '+05:30')
-        whereClause += ` AND DATE(CONVERT_TZ(i.created_at, '+00:00', '+05:30')) >= ?`;
+        whereClause += ` AND DATE(i.created_at) >= ?`;
         params.push(fromDate);
       } else {
-        // Full datetime provided - convert IST to UTC for comparison
-        // IST is UTC+5:30, so subtract 5:30 to get UTC
-        whereClause += ` AND i.created_at >= CONVERT_TZ(?, '+05:30', '+00:00')`;
+        whereClause += ` AND i.created_at >= ?`;
         params.push(fromDate);
       }
     }
     if (toDate) {
       if (toDate.length === 10) {
-        // Compare IST date
-        whereClause += ` AND DATE(CONVERT_TZ(i.created_at, '+00:00', '+05:30')) <= ?`;
+        whereClause += ` AND DATE(i.created_at) <= ?`;
         params.push(toDate);
       } else {
-        // Full datetime provided - convert IST to UTC
-        whereClause += ` AND i.created_at <= CONVERT_TZ(?, '+05:30', '+00:00')`;
+        whereClause += ` AND i.created_at <= ?`;
         params.push(toDate);
       }
     }

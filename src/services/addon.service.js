@@ -40,9 +40,10 @@ const addonService = {
     const pool = getPool();
     const [groups] = await pool.query(
       `SELECT ag.*,
-        (SELECT COUNT(*) FROM addons a WHERE a.addon_group_id = ag.id AND a.is_active = 1) as addon_count
+        (SELECT COUNT(*) FROM addons a WHERE a.addon_group_id = ag.id) as addon_count,
+        (SELECT COUNT(*) FROM addons a WHERE a.addon_group_id = ag.id AND a.is_active = 1) as active_addon_count
        FROM addon_groups ag
-       WHERE ag.outlet_id = ? AND ag.is_active = 1
+       WHERE ag.outlet_id = ?
        ORDER BY ag.display_order, ag.name`,
       [outletId]
     );
@@ -66,7 +67,7 @@ const addonService = {
 
     const pool = getPool();
     const [addons] = await pool.query(
-      `SELECT * FROM addons WHERE addon_group_id = ? AND is_active = 1 ORDER BY display_order, name`,
+      `SELECT * FROM addons WHERE addon_group_id = ? ORDER BY display_order, name`,
       [id]
     );
 

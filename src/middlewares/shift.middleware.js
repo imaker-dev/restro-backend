@@ -23,12 +23,13 @@ async function getUserFloorIds(userId, outletId) {
  */
 async function isShiftOpenForFloor(outletId, floorId) {
   const pool = getPool();
-  const today = new Date().toISOString().slice(0, 10);
 
+  // Don't filter by session_date — an open shift stays open until manually closed
   const [session] = await pool.query(
     `SELECT id, status, cashier_id FROM day_sessions 
-     WHERE outlet_id = ? AND floor_id = ? AND session_date = ? AND status = 'open'`,
-    [outletId, floorId, today]
+     WHERE outlet_id = ? AND floor_id = ? AND status = 'open'
+     ORDER BY id DESC LIMIT 1`,
+    [outletId, floorId]
   );
 
   return {
@@ -211,15 +212,15 @@ const validateBillingFloorShift = async (req, res, next) => {
  */
 async function getFloorCashierForBilling(outletId, floorId) {
   const pool = getPool();
-  const today = new Date().toISOString().slice(0, 10);
 
-  // First try to get cashier from active shift
+  // First try to get cashier from active (open) shift — no date filter
   const [session] = await pool.query(
     `SELECT ds.cashier_id, u.name as cashier_name
      FROM day_sessions ds
      LEFT JOIN users u ON ds.cashier_id = u.id
-     WHERE ds.outlet_id = ? AND ds.floor_id = ? AND ds.session_date = ? AND ds.status = 'open'`,
-    [outletId, floorId, today]
+     WHERE ds.outlet_id = ? AND ds.floor_id = ? AND ds.status = 'open'
+     ORDER BY ds.id DESC LIMIT 1`,
+    [outletId, floorId]
   );
 
   if (session[0]?.cashier_id) {

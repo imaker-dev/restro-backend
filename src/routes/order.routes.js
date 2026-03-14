@@ -604,6 +604,21 @@ router.get('/reports/:outletId/due', authorize('super_admin', 'admin', 'manager'
  */
 router.get('/reports/:outletId/due/export', authorize('super_admin', 'admin', 'manager'), orderController.exportDueReport);
 
+/**
+ * @route   GET /api/v1/orders/reports/:outletId/nc
+ * @desc    NC (No Charge) report — order-level and item-level NC with filters, pagination, sorting
+ * @access  Private (admin, manager, cashier, captain)
+ * @query   startDate, endDate, page, limit, search, ncType (order|item|all), ncReason, appliedByName, orderType, floorName, sortBy, sortOrder
+ */
+router.get('/reports/:outletId/nc', authorize('super_admin', 'admin', 'manager', 'cashier', 'captain'), orderController.getNCReport);
+
+/**
+ * @route   GET /api/v1/orders/reports/:outletId/nc/export
+ * @desc    Export NC report as CSV
+ * @access  Private (admin, manager)
+ */
+router.get('/reports/:outletId/nc/export', authorize('super_admin', 'admin', 'manager'), orderController.exportNCReport);
+
 // ========================
 // SHIFT HISTORY
 // ========================
@@ -784,5 +799,92 @@ router.get('/reports/:outletId/counter/export', authorize('super_admin', 'admin'
  * @access  Private (manager, admin, cashier)
  */
 router.get('/reports/:outletId/cancellations/export', authorize('super_admin', 'admin', 'manager', 'cashier', 'captain'), orderController.exportCancellations);
+
+// ========================
+// NC (NO CHARGE) MANAGEMENT
+// ========================
+
+const ncController = require('../controllers/nc.controller');
+
+/**
+ * @route   GET /api/v1/orders/:outletId/nc/reasons
+ * @desc    Get NC reasons for an outlet
+ * @access  Private (admin, manager, cashier)
+ */
+router.get('/:outletId/nc/reasons', authorize('super_admin', 'admin', 'manager', 'cashier'), ncController.getNCReasons);
+
+/**
+ * @route   POST /api/v1/orders/:outletId/nc/reasons
+ * @desc    Create NC reason
+ * @access  Private (admin, manager)
+ */
+router.post('/:outletId/nc/reasons', authorize('super_admin', 'admin', 'manager'), ncController.createNCReason);
+
+/**
+ * @route   PUT /api/v1/orders/:outletId/nc/reasons/:reasonId
+ * @desc    Update NC reason
+ * @access  Private (admin, manager)
+ */
+router.put('/:outletId/nc/reasons/:reasonId', authorize('super_admin', 'admin', 'manager'), ncController.updateNCReason);
+
+/**
+ * @route   POST /api/v1/orders/:orderId/nc
+ * @desc    Mark entire order as NC
+ * @access  Private (admin, manager, cashier)
+ */
+router.post('/:orderId/nc', authorize('super_admin', 'admin', 'manager', 'cashier'), ncController.markOrderAsNC);
+
+/**
+ * @route   DELETE /api/v1/orders/:orderId/nc
+ * @desc    Remove NC from entire order
+ * @access  Private (admin, manager)
+ */
+router.delete('/:orderId/nc', authorize('super_admin', 'admin', 'manager', 'cashier'), ncController.removeOrderNC);
+
+/**
+ * @route   GET /api/v1/orders/:orderId/nc/logs
+ * @desc    Get NC logs for an order
+ * @access  Private (admin, manager, cashier)
+ */
+router.get('/:orderId/nc/logs', authorize('super_admin', 'admin', 'manager', 'cashier'), ncController.getNCLogs);
+
+/**
+ * @route   POST /api/v1/orders/:orderId/items/:orderItemId/nc
+ * @desc    Mark an order item as NC
+ * @access  Private (admin, manager, cashier)
+ */
+router.post('/:orderId/items/:orderItemId/nc', authorize('super_admin', 'admin', 'manager', 'cashier'), ncController.markItemAsNC);
+
+/**
+ * @route   DELETE /api/v1/orders/:orderId/items/:orderItemId/nc
+ * @desc    Remove NC from an order item
+ * @access  Private (admin, manager)
+ */
+router.delete('/:orderId/items/:orderItemId/nc', authorize('super_admin', 'admin', 'manager'), ncController.removeItemNC);
+
+/**
+ * @route   POST /api/v1/orders/:orderId/items/nc/bulk
+ * @desc    Mark multiple order items as NC (bulk operation)
+ * @access  Private (admin, manager, cashier)
+ * @body    { items: [{ orderItemId, ncReasonId?, ncReason? }], ncReasonId?, ncReason?, notes? }
+ */
+router.post('/:orderId/items/nc/bulk', authorize('super_admin', 'admin', 'manager', 'cashier'), ncController.markItemsAsNC);
+
+/**
+ * @route   DELETE /api/v1/orders/:orderId/items/nc/bulk
+ * @desc    Remove NC from multiple order items (bulk operation)
+ * @access  Private (admin, manager)
+ * @body    { orderItemIds: [1, 2, 3], notes? }
+ */
+router.delete('/:orderId/items/nc/bulk', authorize('super_admin', 'admin', 'manager', 'cashier'), ncController.removeItemsNC);
+
+/**
+ * @route   GET /api/v1/orders/reports/:outletId/nc
+ * @desc    Get NC report for an outlet
+ * @access  Private (admin, manager)
+ * @query   startDate, endDate - Date range (required)
+ * @query   groupBy - 'date' | 'reason' | 'staff' | 'item'
+ */
+router.get('/reports/:outletId/nc', authorize('super_admin', 'admin', 'manager'), ncController.getNCReport);
 
 module.exports = router;

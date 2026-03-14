@@ -49,13 +49,13 @@ function serviceTypeFilter(serviceType, categoryAlias = 'c') {
 }
 
 /**
- * Convert UTC timestamp to IST date for comparison
- * Use this for all date filtering to ensure consistent timezone handling
- * @param {string} column - the timestamp column to convert (e.g., 'o.created_at')
- * @returns {string} SQL snippet for IST date extraction
+ * Extract DATE from a timestamp column for date filtering.
+ * MySQL session timezone is already IST — no CONVERT_TZ needed.
+ * @param {string} column - the timestamp column (e.g., 'o.created_at')
+ * @returns {string} SQL snippet for date extraction
  */
 function toISTDate(column) {
-  return `DATE(CONVERT_TZ(${column}, '+00:00', '+05:30'))`;
+  return `DATE(${column})`;
 }
 
 const reportsService = {
@@ -86,7 +86,9 @@ const reportsService = {
         SUM(service_charge) as service_charge,
         SUM(packaging_charge) as packaging_charge,
         SUM(delivery_charge) as delivery_charge,
-        SUM(round_off) as round_off
+        SUM(round_off) as round_off,
+        COUNT(CASE WHEN is_nc = 1 THEN 1 END) as nc_orders,
+        SUM(COALESCE(nc_amount, 0)) as nc_amount
        FROM orders 
        WHERE outlet_id = ? AND ${toISTDate('created_at')} = ? AND status != 'cancelled'`,
       [outletId, date]
@@ -123,7 +125,7 @@ const reportsService = {
         SUM(total_amount) as sales
        FROM orders 
        WHERE outlet_id = ? AND ${toISTDate('created_at')} = ? AND status IN ('paid', 'completed')
-       GROUP BY HOUR(CONVERT_TZ(created_at, '+00:00', '+05:30'))
+       GROUP BY HOUR(created_at)
        ORDER BY sales DESC
        LIMIT 1`,
       [outletId, date]
@@ -140,17 +142,18 @@ const reportsService = {
     await pool.query(
       `INSERT INTO daily_sales (
         outlet_id, report_date, total_orders, dine_in_orders, takeaway_orders, delivery_orders,
-        cancelled_orders, total_guests, gross_sales, net_sales, discount_amount, tax_amount,
+        cancelled_orders, nc_orders, nc_amount, total_guests, gross_sales, net_sales, discount_amount, tax_amount,
         service_charge, packaging_charge, delivery_charge, round_off,
         total_collection, cash_collection, card_collection, upi_collection, wallet_collection, credit_collection,
         complimentary_amount, refund_amount, tip_amount,
         average_order_value, average_guest_spend,
         peak_hour, peak_hour_sales, aggregated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
       ON DUPLICATE KEY UPDATE
         total_orders = VALUES(total_orders), dine_in_orders = VALUES(dine_in_orders),
         takeaway_orders = VALUES(takeaway_orders), delivery_orders = VALUES(delivery_orders),
-        cancelled_orders = VALUES(cancelled_orders), total_guests = VALUES(total_guests),
+        cancelled_orders = VALUES(cancelled_orders), nc_orders = VALUES(nc_orders), nc_amount = VALUES(nc_amount),
+        total_guests = VALUES(total_guests),
         gross_sales = VALUES(gross_sales), net_sales = VALUES(net_sales),
         discount_amount = VALUES(discount_amount), tax_amount = VALUES(tax_amount),
         service_charge = VALUES(service_charge), packaging_charge = VALUES(packaging_charge),
@@ -165,6 +168,7 @@ const reportsService = {
       [
         outletId, date, stats.total_orders || 0, stats.dine_in_orders || 0,
         stats.takeaway_orders || 0, stats.delivery_orders || 0, stats.cancelled_orders || 0,
+        stats.nc_orders || 0, stats.nc_amount || 0,
         stats.total_guests || 0, stats.gross_sales || 0, stats.net_sales || 0,
         stats.discount_amount || 0, stats.tax_amount || 0, stats.service_charge || 0,
         stats.packaging_charge || 0, stats.delivery_charge || 0, stats.round_off || 0,
@@ -247,10 +251,12 @@ const reportsService = {
         o.created_by as user_id, u.name as user_name,
         COUNT(*) as order_count,
         SUM(o.guest_count) as guest_count,
-        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END) as net_sales,
+        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) ELSE 0 END) as net_sales,
         SUM(o.discount_amount) as discount_given,
         SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_orders,
-        SUM(CASE WHEN o.status = 'cancelled' THEN o.total_amount ELSE 0 END) as cancelled_amount
+        SUM(CASE WHEN o.status = 'cancelled' THEN o.total_amount ELSE 0 END) as cancelled_amount,
+        COUNT(CASE WHEN o.is_nc = 1 THEN 1 END) as nc_orders,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.nc_amount, 0) ELSE 0 END) as nc_amount
        FROM orders o
        JOIN users u ON o.created_by = u.id
        WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} = ?
@@ -276,18 +282,20 @@ const reportsService = {
         `INSERT INTO staff_sales (
           outlet_id, report_date, user_id, user_name,
           order_count, guest_count, net_sales, discount_given, tips_received,
-          cancelled_orders, cancelled_amount, average_order_value, aggregated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+          cancelled_orders, cancelled_amount, nc_orders, nc_amount, average_order_value, aggregated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
         ON DUPLICATE KEY UPDATE
           order_count = VALUES(order_count), guest_count = VALUES(guest_count),
           net_sales = VALUES(net_sales), discount_given = VALUES(discount_given),
           tips_received = VALUES(tips_received), cancelled_orders = VALUES(cancelled_orders),
-          cancelled_amount = VALUES(cancelled_amount), average_order_value = VALUES(average_order_value),
+          cancelled_amount = VALUES(cancelled_amount), nc_orders = VALUES(nc_orders),
+          nc_amount = VALUES(nc_amount), average_order_value = VALUES(average_order_value),
           aggregated_at = NOW()`,
         [
           outletId, date, s.user_id, s.user_name,
           s.order_count, s.guest_count, s.net_sales, s.discount_given,
-          tipMap[s.user_id] || 0, s.cancelled_orders, s.cancelled_amount, avgOrderValue
+          tipMap[s.user_id] || 0, s.cancelled_orders, s.cancelled_amount,
+          s.nc_orders || 0, s.nc_amount || 0, avgOrderValue
         ]
       );
     }
@@ -327,6 +335,7 @@ const reportsService = {
         COUNT(CASE WHEN o.order_type = 'takeaway' THEN 1 END) as takeaway_orders,
         COUNT(CASE WHEN o.order_type = 'delivery' THEN 1 END) as delivery_orders,
         COUNT(CASE WHEN o.status = 'cancelled' THEN 1 END) as cancelled_orders,
+        COUNT(CASE WHEN o.is_nc = 1 THEN 1 END) as nc_orders,
         SUM(o.guest_count) as total_guests,
         SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal + o.tax_amount) ELSE 0 END) as gross_sales,
         SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) ELSE 0 END) as net_sales,
@@ -335,7 +344,10 @@ const reportsService = {
         SUM(CASE WHEN o.status != 'cancelled' THEN o.service_charge ELSE 0 END) as service_charge,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.packaging_charge ELSE 0 END) as packaging_charge,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.delivery_charge ELSE 0 END) as delivery_charge,
-        SUM(CASE WHEN o.status != 'cancelled' THEN o.round_off ELSE 0 END) as round_off
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.round_off ELSE 0 END) as round_off,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.nc_amount, 0) ELSE 0 END) as nc_amount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.due_amount, 0) ELSE 0 END) as due_amount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.paid_amount, 0) ELSE 0 END) as paid_amount
        FROM orders o
        WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ?${ff.sql}
        GROUP BY ${toISTDate('o.created_at')}
@@ -447,6 +459,12 @@ const reportsService = {
     const creditCollection = daily.reduce((s, r) => s + parseFloat(r.credit_collection || 0), 0);
     const totalTips = daily.reduce((s, r) => s + parseFloat(r.tip_amount || 0), 0);
 
+    // Calculate NC totals
+    const totalNCOrders = rows.reduce((s, r) => s + (r.nc_orders || 0), 0);
+    const totalNCAmount = rows.reduce((s, r) => s + parseFloat(r.nc_amount || 0), 0);
+    const totalDueAmount = rows.reduce((s, r) => s + parseFloat(r.due_amount || 0), 0);
+    const totalPaidAmount = rows.reduce((s, r) => s + parseFloat(r.paid_amount || 0), 0);
+
     return {
       dateRange: { start, end },
       daily,
@@ -457,6 +475,10 @@ const reportsService = {
         takeaway_orders: rows.reduce((s, r) => s + (r.takeaway_orders || 0), 0),
         delivery_orders: rows.reduce((s, r) => s + (r.delivery_orders || 0), 0),
         cancelled_orders: rows.reduce((s, r) => s + (r.cancelled_orders || 0), 0),
+        nc_orders: totalNCOrders,
+        nc_amount: totalNCAmount.toFixed(2),
+        due_amount: totalDueAmount.toFixed(2),
+        paid_amount: totalPaidAmount.toFixed(2),
         total_guests: totalGuests,
         gross_sales: grossSales.toFixed(2),
         net_sales: netSales.toFixed(2),
@@ -492,7 +514,9 @@ const reportsService = {
       `SELECT 
         COUNT(DISTINCT CONCAT(oi.item_id, '-', COALESCE(oi.variant_name, ''))) as total_items,
         SUM(CASE WHEN oi.status != 'cancelled' THEN oi.quantity ELSE 0 END) as total_quantity,
-        SUM(CASE WHEN oi.status = 'cancelled' THEN oi.quantity ELSE 0 END) as cancelled_quantity
+        SUM(CASE WHEN oi.status = 'cancelled' THEN oi.quantity ELSE 0 END) as cancelled_quantity,
+        SUM(CASE WHEN oi.status != 'cancelled' AND oi.is_nc = 1 THEN oi.quantity ELSE 0 END) as nc_quantity,
+        SUM(CASE WHEN oi.status != 'cancelled' AND oi.is_nc = 1 THEN oi.total_price ELSE 0 END) as nc_amount
        FROM order_items oi
        JOIN orders o ON oi.order_id = o.id
        LEFT JOIN items i ON oi.item_id = i.id
@@ -503,13 +527,15 @@ const reportsService = {
     const itemCount = itemCountResult[0];
 
     // Get financial summary from ORDERS table for consistency with daily sales report
-    // Gross = subtotal + tax (before discounts), Net = subtotal - discount (actual revenue, excludes tax)
+    // Gross = subtotal + tax, Net = subtotal - discount
     const [orderSummary] = await pool.query(
       `SELECT 
         SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal + o.tax_amount) ELSE 0 END) as gross_revenue,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as discount_amount,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.tax_amount ELSE 0 END) as tax_amount,
-        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) ELSE 0 END) as net_revenue
+        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) ELSE 0 END) as net_revenue,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.due_amount, 0) ELSE 0 END) as due_amount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.paid_amount, 0) ELSE 0 END) as paid_amount
        FROM orders o
        WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ? AND o.status != 'cancelled'${ff.sql}`,
       [outletId, start, end, ...ff.params]
@@ -529,7 +555,9 @@ const reportsService = {
         SUM(CASE WHEN oi.status != 'cancelled' THEN oi.tax_amount ELSE 0 END) as tax_amount,
         SUM(CASE WHEN oi.status != 'cancelled' THEN (oi.total_price - oi.discount_amount) ELSE 0 END) as net_revenue,
         COUNT(DISTINCT oi.order_id) as order_count,
-        AVG(CASE WHEN oi.status != 'cancelled' THEN oi.unit_price ELSE NULL END) as avg_price
+        AVG(CASE WHEN oi.status != 'cancelled' THEN oi.unit_price ELSE NULL END) as avg_price,
+        SUM(CASE WHEN oi.status != 'cancelled' AND oi.is_nc = 1 THEN oi.quantity ELSE 0 END) as nc_quantity,
+        SUM(CASE WHEN oi.status != 'cancelled' AND oi.is_nc = 1 THEN oi.total_price ELSE 0 END) as nc_amount
        FROM order_items oi
        JOIN orders o ON oi.order_id = o.id
        LEFT JOIN items i ON oi.item_id = i.id
@@ -549,6 +577,10 @@ const reportsService = {
     const discountAmount = parseFloat(summary.discount_amount || 0);
     const taxAmount = parseFloat(summary.tax_amount || 0);
     const netRevenue = parseFloat(summary.net_revenue || 0);
+    const ncQuantity = parseInt(summary.nc_quantity || 0);
+    const ncAmount = parseFloat(summary.nc_amount || 0);
+    const dueAmount = parseFloat(summary.due_amount || 0);
+    const paidAmount = parseFloat(summary.paid_amount || 0);
 
     return {
       dateRange: { start, end },
@@ -557,6 +589,10 @@ const reportsService = {
         total_items: totalItems,
         total_quantity: totalQuantity,
         cancelled_quantity: cancelledQuantity,
+        nc_quantity: ncQuantity,
+        nc_amount: ncAmount.toFixed(2),
+        due_amount: dueAmount.toFixed(2),
+        paid_amount: paidAmount.toFixed(2),
         gross_revenue: grossRevenue.toFixed(2),
         discount_amount: discountAmount.toFixed(2),
         tax_amount: taxAmount.toFixed(2),
@@ -588,7 +624,9 @@ const reportsService = {
         SUM(CASE WHEN oi.status != 'cancelled' THEN oi.discount_amount ELSE 0 END) as discount_amount,
         SUM(CASE WHEN oi.status != 'cancelled' THEN (oi.total_price - oi.discount_amount) ELSE 0 END) as net_revenue,
         COUNT(DISTINCT oi.item_id) as item_count,
-        COUNT(DISTINCT oi.order_id) as order_count
+        COUNT(DISTINCT oi.order_id) as order_count,
+        SUM(CASE WHEN oi.status != 'cancelled' AND oi.is_nc = 1 THEN oi.quantity ELSE 0 END) as nc_quantity,
+        SUM(CASE WHEN oi.status != 'cancelled' AND oi.is_nc = 1 THEN oi.total_price ELSE 0 END) as nc_amount
        FROM order_items oi
        JOIN orders o ON oi.order_id = o.id
        LEFT JOIN items i ON oi.item_id = i.id
@@ -600,12 +638,16 @@ const reportsService = {
     );
 
     // Get financial summary from ORDERS table for consistency with daily sales report
-    // Gross = subtotal + tax (before discounts), Net = subtotal - discount (actual revenue, excludes tax)
+    // Gross = subtotal + tax, Net = subtotal - discount
     const [orderSummary] = await pool.query(
       `SELECT 
         SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal + o.tax_amount) ELSE 0 END) as gross_revenue,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as discount_amount,
-        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) ELSE 0 END) as net_revenue
+        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) ELSE 0 END) as net_revenue,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.nc_amount, 0) ELSE 0 END) as nc_amount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.due_amount, 0) ELSE 0 END) as due_amount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.paid_amount, 0) ELSE 0 END) as paid_amount,
+        COUNT(CASE WHEN o.is_nc = 1 AND o.status != 'cancelled' THEN 1 END) as nc_orders
        FROM orders o
        WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ? AND o.status != 'cancelled'${ff.sql}`,
       [outletId, start, end, ...ff.params]
@@ -615,6 +657,9 @@ const reportsService = {
     const grossRevenue = parseFloat(orderSummary[0].gross_revenue || 0);
     const discountAmount = parseFloat(orderSummary[0].discount_amount || 0);
     const totalRevenue = parseFloat(orderSummary[0].net_revenue || 0);
+    const ncAmount = parseFloat(orderSummary[0].nc_amount || 0);
+    const dueAmount = parseFloat(orderSummary[0].due_amount || 0);
+    const paidAmount = parseFloat(orderSummary[0].paid_amount || 0);
 
     const categories = rows.map(r => ({
       ...r,
@@ -627,6 +672,9 @@ const reportsService = {
       summary: {
         total_categories: categories.length,
         total_quantity: totalQuantity,
+        nc_amount: ncAmount.toFixed(2),
+        due_amount: dueAmount.toFixed(2),
+        paid_amount: paidAmount.toFixed(2),
         gross_revenue: grossRevenue.toFixed(2),
         discount_amount: discountAmount.toFixed(2),
         net_revenue: totalRevenue.toFixed(2),
@@ -710,6 +758,28 @@ const reportsService = {
     const totalTips = rows.reduce((sum, r) => sum + r.tip_amount, 0);
     const totalTransactions = rows.reduce((sum, r) => sum + r.transaction_count, 0);
 
+    // NC summary — compute from order_items (item-level is_nc) since orders table may not be updated
+    const [ncSummary] = await pool.query(
+      `SELECT 
+        COUNT(DISTINCT oi.order_id) as nc_orders,
+        COALESCE(SUM(oi.total_price), 0) as nc_amount
+       FROM order_items oi
+       JOIN orders o ON oi.order_id = o.id
+       WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ? AND o.status != 'cancelled'
+       AND oi.is_nc = 1 AND oi.status != 'cancelled'${ff.sql}`,
+      [outletId, start, end, ...ff.params]
+    );
+    const ncData = ncSummary[0] || {};
+
+    // Due summary from orders
+    const [dueSummary] = await pool.query(
+      `SELECT SUM(COALESCE(o.due_amount, 0)) as due_amount
+       FROM orders o
+       WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ? AND o.status != 'cancelled'${ff.sql}`,
+      [outletId, start, end, ...ff.params]
+    );
+    const dueData = dueSummary[0] || {};
+
     return {
       dateRange: { start, end },
       modes: rows.map(r => ({
@@ -721,7 +791,10 @@ const reportsService = {
         total_collected: totalAmount.toFixed(2),
         total_base_amount: totalBase.toFixed(2),
         total_tips: totalTips.toFixed(2),
-        average_transaction: totalTransactions > 0 ? (totalAmount / totalTransactions).toFixed(2) : '0.00'
+        average_transaction: totalTransactions > 0 ? (totalAmount / totalTransactions).toFixed(2) : '0.00',
+        nc_orders: parseInt(ncData.nc_orders) || 0,
+        nc_amount: parseFloat(ncData.nc_amount || 0).toFixed(2),
+        due_amount: parseFloat(dueData.due_amount || 0).toFixed(2)
       }
     };
   },
@@ -816,6 +889,30 @@ const reportsService = {
       total_invoices: rows.reduce((s, r) => s + r.invoice_count, 0)
     };
 
+    // NC summary — compute from order_items (item-level is_nc) since orders table may not be updated
+    const [ncSummary] = await pool.query(
+      `SELECT 
+        COUNT(DISTINCT oi.order_id) as nc_orders,
+        COALESCE(SUM(oi.total_price), 0) as nc_amount
+       FROM order_items oi
+       JOIN orders o ON oi.order_id = o.id
+       WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ? AND o.status != 'cancelled'
+       AND oi.is_nc = 1 AND oi.status != 'cancelled'${ff.sql}`,
+      [outletId, start, end, ...ff.params]
+    );
+    const ncData = ncSummary[0] || {};
+    summary.nc_orders = parseInt(ncData.nc_orders) || 0;
+    summary.nc_amount = parseFloat(ncData.nc_amount || 0).toFixed(2);
+
+    // Due summary from orders
+    const [dueSummary] = await pool.query(
+      `SELECT SUM(COALESCE(o.due_amount, 0)) as due_amount
+       FROM orders o
+       WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ? AND o.status != 'cancelled'${ff.sql}`,
+      [outletId, start, end, ...ff.params]
+    );
+    summary.due_amount = parseFloat((dueSummary[0] || {}).due_amount || 0).toFixed(2);
+
     return { dateRange: { start, end }, daily: rows, taxComponents, summary };
   },
 
@@ -832,12 +929,14 @@ const reportsService = {
         HOUR(o.created_at) as hour,
         COUNT(*) as order_count,
         SUM(o.guest_count) as guest_count,
-        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END) as net_sales,
+        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) ELSE 0 END) as net_sales,
         COUNT(CASE WHEN o.order_type = 'dine_in' THEN 1 END) as dine_in_count,
-        COUNT(CASE WHEN o.order_type = 'takeaway' THEN 1 END) as takeaway_count
+        COUNT(CASE WHEN o.order_type = 'takeaway' THEN 1 END) as takeaway_count,
+        COUNT(CASE WHEN o.is_nc = 1 THEN 1 END) as nc_orders,
+        SUM(COALESCE(o.nc_amount, 0)) as nc_amount
        FROM orders o
        WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} = ? AND o.status != 'cancelled'${ff.sql}
-       GROUP BY HOUR(CONVERT_TZ(o.created_at, '+00:00', '+05:30'))
+       GROUP BY HOUR(o.created_at)
        ORDER BY hour`,
       [outletId, date, ...ff.params]
     );
@@ -849,7 +948,7 @@ const reportsService = {
     for (let h = 0; h < 24; h++) {
       fullDay.push(hourMap[h] || {
         hour: h, order_count: 0, guest_count: 0, net_sales: 0,
-        dine_in_count: 0, takeaway_count: 0
+        dine_in_count: 0, takeaway_count: 0, nc_orders: 0, nc_amount: 0
       });
     }
 
@@ -881,10 +980,14 @@ const reportsService = {
         o.created_by as user_id, u.name as user_name,
         COUNT(*) as total_orders,
         SUM(o.guest_count) as total_guests,
-        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END) as total_sales,
+        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) ELSE 0 END) as total_sales,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as total_discounts,
         COUNT(CASE WHEN o.status = 'cancelled' THEN 1 END) as cancelled_orders,
-        SUM(CASE WHEN o.status = 'cancelled' THEN o.total_amount ELSE 0 END) as cancelled_amount
+        SUM(CASE WHEN o.status = 'cancelled' THEN o.total_amount ELSE 0 END) as cancelled_amount,
+        COUNT(CASE WHEN o.is_nc = 1 THEN 1 END) as nc_orders,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.nc_amount, 0) ELSE 0 END) as nc_amount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.due_amount, 0) ELSE 0 END) as due_amount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.paid_amount, 0) ELSE 0 END) as paid_amount
        FROM orders o
        JOIN users u ON o.created_by = u.id
        WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ?${ff.sql}
@@ -932,6 +1035,10 @@ const reportsService = {
         total_discounts: totalDiscounts.toFixed(2),
         cancelled_orders: cancelledOrders,
         cancelled_amount: cancelledAmount.toFixed(2),
+        nc_orders: rows.reduce((s, r) => s + (r.nc_orders || 0), 0),
+        nc_amount: rows.reduce((s, r) => s + parseFloat(r.nc_amount || 0), 0).toFixed(2),
+        due_amount: rows.reduce((s, r) => s + parseFloat(r.due_amount || 0), 0).toFixed(2),
+        paid_amount: rows.reduce((s, r) => s + parseFloat(r.paid_amount || 0), 0).toFixed(2),
         total_tips: totalTips.toFixed(2),
         average_per_staff: staff.length > 0 ? (totalSales / staff.length).toFixed(2) : '0.00',
         top_performer: staff.length > 0 ? staff[0].user_name : null,
@@ -989,8 +1096,12 @@ const reportsService = {
         f.name as floor_name,
         COUNT(*) as order_count,
         COALESCE(SUM(CAST(o.guest_count AS UNSIGNED)), 0) as guest_count,
-        COALESCE(SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END), 0) as net_sales,
-        SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_orders
+        COALESCE(SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) ELSE 0 END), 0) as net_sales,
+        SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_orders,
+        COUNT(CASE WHEN o.is_nc = 1 THEN 1 END) as nc_orders,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.nc_amount, 0) ELSE 0 END) as nc_amount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.due_amount, 0) ELSE 0 END) as due_amount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.paid_amount, 0) ELSE 0 END) as paid_amount
        FROM orders o
        INNER JOIN floors f ON o.floor_id = f.id
        WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ? AND o.floor_id IS NOT NULL${ff.sql}${floorSearchSql}
@@ -1018,8 +1129,12 @@ const reportsService = {
         s.name as section_name,
         COUNT(*) as order_count,
         COALESCE(SUM(CAST(o.guest_count AS UNSIGNED)), 0) as guest_count,
-        COALESCE(SUM(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE 0 END), 0) as net_sales,
-        SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_orders
+        COALESCE(SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) ELSE 0 END), 0) as net_sales,
+        SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_orders,
+        COUNT(CASE WHEN o.is_nc = 1 THEN 1 END) as nc_orders,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.nc_amount, 0) ELSE 0 END) as nc_amount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.due_amount, 0) ELSE 0 END) as due_amount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.paid_amount, 0) ELSE 0 END) as paid_amount
        FROM orders o
        INNER JOIN floors f ON o.floor_id = f.id
        LEFT JOIN sections s ON o.section_id = s.id
@@ -1040,6 +1155,10 @@ const reportsService = {
       guestCount: parseInt(r.guest_count) || 0,
       netSales: parseFloat(r.net_sales) || 0,
       cancelledOrders: parseInt(r.cancelled_orders) || 0,
+      ncOrders: parseInt(r.nc_orders) || 0,
+      ncAmount: parseFloat(r.nc_amount) || 0,
+      dueAmount: parseFloat(r.due_amount) || 0,
+      paidAmount: parseFloat(r.paid_amount) || 0,
       avgOrderValue: r.order_count > 0 ? parseFloat((parseFloat(r.net_sales) / r.order_count).toFixed(2)) : 0
     }));
 
@@ -1057,6 +1176,10 @@ const reportsService = {
         guestCount: section.guestCount,
         netSales: section.netSales,
         cancelledOrders: section.cancelledOrders,
+        ncOrders: section.ncOrders,
+        ncAmount: section.ncAmount,
+        dueAmount: section.dueAmount,
+        paidAmount: section.paidAmount,
         avgOrderValue: section.avgOrderValue
       });
     }
@@ -1072,6 +1195,10 @@ const reportsService = {
         guestCount: parseInt(r.guest_count) || 0,
         netSales: parseFloat(r.net_sales) || 0,
         cancelledOrders: parseInt(r.cancelled_orders) || 0,
+        ncOrders: parseInt(r.nc_orders) || 0,
+        ncAmount: parseFloat(r.nc_amount) || 0,
+        dueAmount: parseFloat(r.due_amount) || 0,
+        paidAmount: parseFloat(r.paid_amount) || 0,
         avgOrderValue: r.order_count > 0 ? parseFloat((parseFloat(r.net_sales) / r.order_count).toFixed(2)) : 0,
         sections: floorSections
       };
@@ -1082,6 +1209,10 @@ const reportsService = {
     const totalGuests = floors.reduce((s, r) => s + r.guestCount, 0);
     const totalSales = floors.reduce((s, r) => s + r.netSales, 0);
     const cancelledOrders = floors.reduce((s, r) => s + r.cancelledOrders, 0);
+    const totalNCOrders = floors.reduce((s, r) => s + r.ncOrders, 0);
+    const totalNCAmount = floors.reduce((s, r) => s + r.ncAmount, 0);
+    const totalDueAmount = floors.reduce((s, r) => s + r.dueAmount, 0);
+    const totalPaidAmount = floors.reduce((s, r) => s + r.paidAmount, 0);
 
     // Find top section by sales
     const topSection = formattedSections.length > 0 ? formattedSections.reduce((a, b) => a.netSales > b.netSales ? a : b) : null;
@@ -1096,6 +1227,10 @@ const reportsService = {
         total_guests: totalGuests,
         total_sales: totalSales.toFixed(2),
         cancelled_orders: cancelledOrders,
+        nc_orders: totalNCOrders,
+        nc_amount: parseFloat(totalNCAmount.toFixed(2)),
+        due_amount: parseFloat(totalDueAmount.toFixed(2)),
+        paid_amount: parseFloat(totalPaidAmount.toFixed(2)),
         average_order_value: totalOrders > 0 ? (totalSales / totalOrders).toFixed(2) : '0.00',
         top_section: topSection?.sectionName || null,
         top_section_sales: topSection ? topSection.netSales.toFixed(2) : '0.00'
@@ -2151,8 +2286,12 @@ const reportsService = {
       `SELECT 
         COUNT(*) as total_orders,
         SUM(guest_count) as total_guests,
-        SUM(CASE WHEN status IN ('paid', 'completed') THEN COALESCE(paid_amount, total_amount) ELSE 0 END) as net_sales,
-        COUNT(CASE WHEN status NOT IN ('paid', 'completed', 'cancelled') THEN 1 END) as active_orders
+        SUM(CASE WHEN status != 'cancelled' THEN (subtotal - discount_amount) ELSE 0 END) as net_sales,
+        COUNT(CASE WHEN status NOT IN ('paid', 'completed', 'cancelled') THEN 1 END) as active_orders,
+        COUNT(CASE WHEN is_nc = 1 THEN 1 END) as nc_orders,
+        SUM(CASE WHEN status != 'cancelled' THEN COALESCE(nc_amount, 0) ELSE 0 END) as nc_amount,
+        SUM(CASE WHEN status != 'cancelled' THEN COALESCE(due_amount, 0) ELSE 0 END) as due_amount,
+        SUM(CASE WHEN status != 'cancelled' THEN COALESCE(paid_amount, 0) ELSE 0 END) as paid_amount
        FROM orders o
        WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} = ?${ff.sql}`,
       [outletId, today, ...ff.params]
@@ -2306,7 +2445,9 @@ const reportsService = {
         SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal + o.tax_amount) ELSE 0 END) as gross_sales,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as total_discount,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.tax_amount ELSE 0 END) as total_tax,
-        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) ELSE 0 END) as net_sales
+        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) ELSE 0 END) as net_sales,
+        0 as nc_orders_placeholder,
+        0 as nc_amount_placeholder
        ${baseFrom} ${whereClause}`,
       params
     );
@@ -2338,6 +2479,24 @@ const reportsService = {
     const completedCount = parseInt(sr.completed_orders) || 0;
     const netSales = parseFloat(sr.net_sales) || 0;
 
+    // NC summary — compute from order_items (item-level is_nc) since orders table may not be updated
+    const [ncSummaryRows] = await pool.query(
+      `SELECT 
+        COUNT(DISTINCT oi.order_id) as nc_orders,
+        SUM(oi.total_price) as nc_amount
+       FROM order_items oi
+       JOIN orders o ON oi.order_id = o.id
+       LEFT JOIN tables t ON o.table_id = t.id
+       LEFT JOIN floors f ON o.floor_id = f.id
+       LEFT JOIN users u_captain ON o.created_by = u_captain.id
+       LEFT JOIN users u_biller ON o.billed_by = u_biller.id
+       LEFT JOIN users u_cancel ON o.cancelled_by = u_cancel.id
+       ${whereClause}
+       AND oi.is_nc = 1 AND oi.status != 'cancelled'`,
+      params
+    );
+    const ncSr = ncSummaryRows[0] || {};
+
     const summary = {
       dateRange: { start, end },
       totalOrders: parseInt(sr.total_orders) || 0,
@@ -2353,6 +2512,8 @@ const reportsService = {
       totalDiscount: parseFloat((parseFloat(sr.total_discount) || 0).toFixed(2)),
       totalTax: parseFloat((parseFloat(sr.total_tax) || 0).toFixed(2)),
       netSales: parseFloat(netSales.toFixed(2)),
+      ncOrders: parseInt(ncSr.nc_orders) || 0,
+      ncAmount: parseFloat((parseFloat(ncSr.nc_amount) || 0).toFixed(2)),
       totalPaid: parseFloat(totalPaidAll.toFixed(2)),
       totalTips: parseFloat(totalTipsAll.toFixed(2)),
       averageOrderValue: completedCount > 0 ? parseFloat((netSales / completedCount).toFixed(2)) : 0,
@@ -2401,6 +2562,7 @@ const reportsService = {
         oi.discount_amount, oi.tax_amount, oi.total_price,
         oi.status, oi.special_instructions, oi.tax_details,
         oi.is_complimentary, oi.complimentary_reason,
+        oi.is_nc, oi.nc_amount, oi.nc_reason,
         oi.cancelled_by, oi.cancelled_at, oi.cancel_reason,
         oi.created_at,
         u.name as cancelled_by_name,
@@ -2508,6 +2670,9 @@ const reportsService = {
         taxDetails,
         isComplimentary: !!it.is_complimentary,
         complimentaryReason: it.complimentary_reason || null,
+        isNC: !!it.is_nc,
+        ncAmount: parseFloat(it.nc_amount) || 0,
+        ncReason: it.nc_reason || null,
         cancelReason: it.cancel_reason || null,
         cancelledByName: it.cancelled_by_name || null,
         cancelledAt: it.cancelled_at || null,
@@ -2593,6 +2758,13 @@ const reportsService = {
       const itemTax = activeItems.reduce((s, i) => s + i.taxAmount, 0);
       const itemDiscount = activeItems.reduce((s, i) => s + i.discountAmount, 0);
 
+      // Compute NC from actual item data (orders table is_nc/nc_amount may not be updated)
+      const ncItems = activeItems.filter(i => i.isNC);
+      const computedNcAmount = ncItems.reduce((s, i) => s + i.totalPrice, 0);
+      const computedIsNc = ncItems.length > 0;
+      const ncReasons = [...new Set(ncItems.map(i => i.ncReason).filter(Boolean))];
+      const computedNcReason = ncReasons.length > 0 ? ncReasons.join(', ') : null;
+
       return {
         orderId: o.id,
         orderNumber: o.order_number,
@@ -2631,6 +2803,10 @@ const reportsService = {
         // Flags
         isComplimentary: !!o.is_complimentary,
         isPriority: !!o.is_priority,
+        isNC: computedIsNc,
+        ncAmount: parseFloat(computedNcAmount.toFixed(2)),
+        ncReason: computedNcReason,
+        ncItemCount: ncItems.length,
         cancelReason: o.cancel_reason || null,
 
         // Timestamps
@@ -2785,10 +2961,12 @@ const reportsService = {
         oi.special_instructions, oi.status as item_status,
         oi.kot_id, oi.is_complimentary, oi.complimentary_reason,
         oi.cancelled_by, oi.cancelled_at, oi.cancel_reason, oi.cancel_quantity,
+        oi.is_nc, oi.nc_reason,
         oi.created_by as item_created_by, oi.created_at as item_created_at,
         o.order_number, o.order_type, o.status as order_status,
         o.payment_status, o.table_id, o.guest_count,
         o.customer_name, o.customer_phone,
+        o.is_nc as order_is_nc, o.nc_amount as order_nc_amount, o.nc_reason as order_nc_reason,
         o.created_at as order_created_at, o.billed_at, o.billed_by,
         t.table_number, t.name as table_name,
         fl.name as floor_name,
@@ -2841,6 +3019,7 @@ const reportsService = {
     let globalTotalQty = 0, globalCancelledQty = 0, globalGrossRevenue = 0;
     let globalDiscount = 0, globalTax = 0, globalNetRevenue = 0;
     let globalAddonRevenue = 0, globalComplimentaryCount = 0;
+    let globalNcCount = 0, globalNcQuantity = 0, globalNcAmount = 0;
     const globalCategoryBreakdown = {};
     const globalTypeBreakdown = {};
 
@@ -2908,6 +3087,13 @@ const reportsService = {
         isComplimentary: !!r.is_complimentary,
         complimentaryReason: r.complimentary_reason || null,
 
+        // NC (No Charge)
+        isNc: !!r.is_nc,
+        ncReason: r.nc_reason || null,
+        orderIsNc: !!r.order_is_nc,
+        orderNcAmount: parseFloat(r.order_nc_amount) || 0,
+        orderNcReason: r.order_nc_reason || null,
+
         // Cancellation
         cancelQuantity: parseFloat(r.cancel_quantity || 0),
         cancelReason: r.cancel_reason || null,
@@ -2939,6 +3125,9 @@ const reportsService = {
           netRevenue: 0,
           addonRevenue: 0,
           complimentaryCount: 0,
+          ncCount: 0,
+          ncQuantity: 0,
+          ncAmount: 0,
           orderCount: new Set(),
           dineInCount: 0,
           takeawayCount: 0,
@@ -2974,6 +3163,15 @@ const reportsService = {
         if (r.is_complimentary) {
           item.complimentaryCount++;
           globalComplimentaryCount++;
+        }
+
+        if (r.is_nc) {
+          item.ncCount++;
+          item.ncQuantity += qty;
+          item.ncAmount += tp;
+          globalNcCount++;
+          globalNcQuantity += qty;
+          globalNcAmount += tp;
         }
 
         // Type breakdown
@@ -3028,6 +3226,9 @@ const reportsService = {
           : 0,
         orderCount,
         complimentaryCount: item.complimentaryCount,
+        ncCount: item.ncCount,
+        ncQuantity: parseFloat(item.ncQuantity.toFixed(3)),
+        ncAmount: parseFloat(item.ncAmount.toFixed(2)),
 
         // Order type breakdown
         orderTypeBreakdown: {
@@ -3079,6 +3280,9 @@ const reportsService = {
       netRevenue: parseFloat(globalNetRevenue.toFixed(2)),
       addonRevenue: parseFloat(globalAddonRevenue.toFixed(2)),
       complimentaryCount: globalComplimentaryCount,
+      ncCount: globalNcCount,
+      ncQuantity: parseFloat(globalNcQuantity.toFixed(3)),
+      ncAmount: parseFloat(globalNcAmount.toFixed(2)),
       avgRevenuePerItem: itemsArray.length > 0
         ? parseFloat((globalNetRevenue / itemsArray.length).toFixed(2))
         : 0,
@@ -3212,10 +3416,12 @@ const reportsService = {
         oi.special_instructions, oi.status as item_status,
         oi.kot_id, oi.is_complimentary, oi.complimentary_reason,
         oi.cancelled_by, oi.cancelled_at, oi.cancel_reason, oi.cancel_quantity,
+        oi.is_nc, oi.nc_reason,
         oi.created_by as item_created_by, oi.created_at as item_created_at,
         o.order_number, o.order_type, o.status as order_status,
         o.payment_status, o.table_id, o.guest_count,
         o.customer_name, o.customer_phone,
+        o.is_nc as order_is_nc, o.nc_amount as order_nc_amount, o.nc_reason as order_nc_reason,
         o.created_at as order_created_at, o.billed_at,
         t.table_number, t.name as table_name,
         fl.name as floor_name,
@@ -3266,6 +3472,7 @@ const reportsService = {
     let globalTotalQty = 0, globalCancelledQty = 0, globalGrossRevenue = 0;
     let globalDiscount = 0, globalTax = 0, globalNetRevenue = 0;
     let globalAddonRevenue = 0, globalComplimentaryCount = 0;
+    let globalNcCount = 0, globalNcQuantity = 0, globalNcAmount = 0;
     const globalOrderIds = new Set();
     const globalTypeBreakdown = {};
 
@@ -3322,6 +3529,11 @@ const reportsService = {
         specialInstructions: r.special_instructions || null,
         isComplimentary: !!r.is_complimentary,
         complimentaryReason: r.complimentary_reason || null,
+        isNc: !!r.is_nc,
+        ncReason: r.nc_reason || null,
+        orderIsNc: !!r.order_is_nc,
+        orderNcAmount: parseFloat(r.order_nc_amount) || 0,
+        orderNcReason: r.order_nc_reason || null,
         cancelQuantity: parseFloat(r.cancel_quantity || 0),
         cancelReason: r.cancel_reason || null,
         cancelledByName: r.item_cancelled_by_name || null,
@@ -3339,6 +3551,7 @@ const reportsService = {
           totalQuantity: 0, cancelledQuantity: 0,
           grossRevenue: 0, discountAmount: 0, taxAmount: 0, netRevenue: 0,
           addonRevenue: 0, complimentaryCount: 0,
+          ncCount: 0, ncQuantity: 0, ncAmount: 0,
           orderIds: new Set(), uniqueItemIds: new Set(),
           dineInCount: 0, takeawayCount: 0, deliveryCount: 0,
           items: {}
@@ -3361,6 +3574,7 @@ const reportsService = {
           totalQuantity: 0, cancelledQuantity: 0,
           grossRevenue: 0, discountAmount: 0, taxAmount: 0, netRevenue: 0,
           addonRevenue: 0, complimentaryCount: 0,
+          ncCount: 0, ncQuantity: 0, ncAmount: 0,
           orderCount: new Set(),
           occurrences: []
         };
@@ -3402,6 +3616,18 @@ const reportsService = {
           globalComplimentaryCount++;
         }
 
+        if (r.is_nc) {
+          item.ncCount++;
+          item.ncQuantity += qty;
+          item.ncAmount += tp;
+          cat.ncCount++;
+          cat.ncQuantity += qty;
+          cat.ncAmount += tp;
+          globalNcCount++;
+          globalNcQuantity += qty;
+          globalNcAmount += tp;
+        }
+
         const type = r.item_type || 'other';
         if (!globalTypeBreakdown[type]) globalTypeBreakdown[type] = { quantity: 0, revenue: 0 };
         globalTypeBreakdown[type].quantity += qty;
@@ -3440,6 +3666,9 @@ const reportsService = {
           ? parseFloat((item.grossRevenue / item.totalQuantity).toFixed(2)) : 0,
         orderCount: item.orderCount.size,
         complimentaryCount: item.complimentaryCount,
+        ncCount: item.ncCount,
+        ncQuantity: parseFloat(item.ncQuantity.toFixed(3)),
+        ncAmount: parseFloat(item.ncAmount.toFixed(2)),
         occurrenceCount: item.occurrences.length,
         occurrences: item.occurrences
       })).sort((a, b) => b.totalQuantity - a.totalQuantity);
@@ -3457,6 +3686,9 @@ const reportsService = {
         addonRevenue: parseFloat(cat.addonRevenue.toFixed(2)),
         contributionPercent: parseFloat(((netRev / totalNetRevenue) * 100).toFixed(2)),
         complimentaryCount: cat.complimentaryCount,
+        ncCount: cat.ncCount,
+        ncQuantity: parseFloat(cat.ncQuantity.toFixed(3)),
+        ncAmount: parseFloat(cat.ncAmount.toFixed(2)),
         uniqueItemCount: cat.uniqueItemIds.size,
         orderCount: cat.orderIds.size,
         orderTypeBreakdown: {
@@ -3500,6 +3732,9 @@ const reportsService = {
       netRevenue: parseFloat(globalNetRevenue.toFixed(2)),
       addonRevenue: parseFloat(globalAddonRevenue.toFixed(2)),
       complimentaryCount: globalComplimentaryCount,
+      ncCount: globalNcCount,
+      ncQuantity: parseFloat(globalNcQuantity.toFixed(3)),
+      ncAmount: parseFloat(globalNcAmount.toFixed(2)),
       avgRevenuePerCategory: categoriesArray.length > 0
         ? parseFloat((globalNetRevenue / categoriesArray.length).toFixed(2)) : 0,
       topCategory: allSortedByRevenue.length > 0 ? {
@@ -3705,6 +3940,8 @@ const reportsService = {
         o.tax_amount as order_tax, o.service_charge as order_service_charge,
         o.total_amount as order_total, o.guest_count,
         o.customer_name, o.customer_phone,
+        o.is_nc as order_is_nc, o.nc_amount as order_nc_amount, o.nc_reason as order_nc_reason,
+        o.due_amount as order_due_amount,
         o.table_id, o.created_at as order_created_at, o.billed_at,
         o.created_by as order_created_by, o.billed_by,
         t.table_number, t.name as table_name,
@@ -3736,6 +3973,7 @@ const reportsService = {
       const [items] = await pool.query(
         `SELECT oi.order_id, oi.item_name, oi.variant_name, oi.item_type,
                 oi.quantity, oi.unit_price, oi.total_price, oi.status,
+                oi.is_nc, oi.nc_reason,
                 c.name as category_name
          FROM order_items oi
          LEFT JOIN items i ON oi.item_id = i.id
@@ -3754,7 +3992,9 @@ const reportsService = {
           quantity: parseFloat(it.quantity),
           unitPrice: parseFloat(it.unit_price) || 0,
           totalPrice: parseFloat(it.total_price) || 0,
-          status: it.status
+          status: it.status,
+          isNc: !!it.is_nc,
+          ncReason: it.nc_reason || null
         });
       }
     }
@@ -3808,6 +4048,10 @@ const reportsService = {
         orderTax: parseFloat(p.order_tax) || 0,
         orderServiceCharge: parseFloat(p.order_service_charge) || 0,
         orderTotal: parseFloat(p.order_total) || 0,
+        orderIsNc: !!p.order_is_nc,
+        orderNcAmount: parseFloat(p.order_nc_amount) || 0,
+        orderNcReason: p.order_nc_reason || null,
+        orderDueAmount: parseFloat(p.order_due_amount) || 0,
         itemCount: parseFloat(itemCount.toFixed(3)),
         items: activeItems,
         paymentCreatedAt: p.payment_created_at,
@@ -4058,6 +4302,8 @@ const reportsService = {
         inv.notes, inv.created_at as invoice_created_at,
         inv.generated_by,
         o.order_number, o.order_type, o.status as order_status,
+        o.is_nc as order_is_nc, o.nc_amount as order_nc_amount, o.nc_reason as order_nc_reason,
+        o.due_amount as order_due_amount,
         o.table_id, o.guest_count, o.created_at as order_created_at, o.billed_at,
         t.table_number, t.name as table_name,
         fl.name as floor_name,
@@ -4089,6 +4335,7 @@ const reportsService = {
                 oi.quantity, oi.unit_price, oi.base_price,
                 oi.discount_amount, oi.tax_amount, oi.total_price,
                 oi.tax_details, oi.status,
+                oi.is_nc, oi.nc_reason,
                 c.name as category_name,
                 tg.name as tax_group_name, tg.total_rate as tax_rate
          FROM order_items oi
@@ -4119,7 +4366,9 @@ const reportsService = {
           taxGroupName: it.tax_group_name || null,
           taxRate: it.tax_rate ? parseFloat(it.tax_rate) : null,
           taxDetails,
-          status: it.status
+          status: it.status,
+          isNc: !!it.is_nc,
+          ncReason: it.nc_reason || null
         });
       }
     }
@@ -4270,6 +4519,12 @@ const reportsService = {
         roundOff: ro,
         grandTotal: grand,
         amountInWords: inv.amount_in_words || null,
+
+        // NC info
+        orderIsNc: !!inv.order_is_nc,
+        orderNcAmount: parseFloat(inv.order_nc_amount) || 0,
+        orderNcReason: inv.order_nc_reason || null,
+        orderDueAmount: parseFloat(inv.order_due_amount) || 0,
 
         // Tax detail
         taxBreakup,
@@ -4432,6 +4687,7 @@ const reportsService = {
       totalOrders: 0, completedOrders: 0, cancelledOrders: 0, activeOrders: 0,
       orderTypeBreakdown: { dine_in: 0, takeaway: 0, delivery: 0 },
       grossSales: 0, totalDiscount: 0, totalTax: 0, netSales: 0,
+      ncOrders: 0, ncAmount: 0,
       totalPaid: 0, totalTips: 0, averageOrderValue: 0,
       paymentModeBreakdown: {}
     };
@@ -4455,7 +4711,9 @@ const reportsService = {
         SUM(CASE WHEN oi.status != 'cancelled' THEN oi.discount_amount ELSE 0 END) as discount_amount,
         SUM(CASE WHEN oi.status != 'cancelled' THEN oi.tax_amount ELSE 0 END) as tax_amount,
         SUM(CASE WHEN oi.status != 'cancelled' THEN (oi.total_price - oi.discount_amount) ELSE 0 END) as net_revenue,
-        COUNT(DISTINCT oi.item_id) as unique_items
+        COUNT(DISTINCT oi.item_id) as unique_items,
+        SUM(CASE WHEN oi.status != 'cancelled' AND oi.is_nc = 1 THEN oi.quantity ELSE 0 END) as nc_quantity,
+        SUM(CASE WHEN oi.status != 'cancelled' AND oi.is_nc = 1 THEN oi.total_price ELSE 0 END) as nc_amount
        FROM order_items oi
        JOIN orders o ON oi.order_id = o.id
        LEFT JOIN items i ON oi.item_id = i.id
@@ -4467,13 +4725,17 @@ const reportsService = {
     );
 
     // Get order-level summary for consistency with other reports
-    // Gross = subtotal + tax (before discounts), Net = subtotal - discount (actual revenue, excludes tax)
+    // Gross = subtotal + tax, Net = subtotal - discount
     const [orderSummary] = await pool.query(
       `SELECT 
         SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal + o.tax_amount) ELSE 0 END) as gross_revenue,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as discount_amount,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.tax_amount ELSE 0 END) as tax_amount,
-        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) ELSE 0 END) as net_revenue
+        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) ELSE 0 END) as net_revenue,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.nc_amount, 0) ELSE 0 END) as nc_amount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.due_amount, 0) ELSE 0 END) as due_amount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.paid_amount, 0) ELSE 0 END) as paid_amount,
+        COUNT(CASE WHEN o.is_nc = 1 AND o.status != 'cancelled' THEN 1 END) as nc_orders
        FROM orders o
        WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ? AND o.status != 'cancelled'${ff.sql}`,
       [outletId, start, end, ...ff.params]
@@ -4486,12 +4748,15 @@ const reportsService = {
     const orderDiscount = parseFloat(orderSummary[0].discount_amount || 0);
     const orderTax = parseFloat(orderSummary[0].tax_amount || 0);
     const orderNet = parseFloat(orderSummary[0].net_revenue || 0);
+    const orderNC = parseFloat(orderSummary[0].nc_amount || 0);
+    const orderDue = parseFloat(orderSummary[0].due_amount || 0);
+    const orderPaid = parseFloat(orderSummary[0].paid_amount || 0);
 
     // Build breakdown with percentages
     const breakdown = {
-      restaurant: { quantity: 0, gross_revenue: 0, net_revenue: 0, discount: 0, tax: 0, order_count: 0, unique_items: 0, percentage: 0 },
-      bar: { quantity: 0, gross_revenue: 0, net_revenue: 0, discount: 0, tax: 0, order_count: 0, unique_items: 0, percentage: 0 },
-      both: { quantity: 0, gross_revenue: 0, net_revenue: 0, discount: 0, tax: 0, order_count: 0, unique_items: 0, percentage: 0 }
+      restaurant: { quantity: 0, gross_revenue: 0, net_revenue: 0, discount: 0, tax: 0, order_count: 0, unique_items: 0, nc_quantity: 0, nc_amount: 0, percentage: 0 },
+      bar: { quantity: 0, gross_revenue: 0, net_revenue: 0, discount: 0, tax: 0, order_count: 0, unique_items: 0, nc_quantity: 0, nc_amount: 0, percentage: 0 },
+      both: { quantity: 0, gross_revenue: 0, net_revenue: 0, discount: 0, tax: 0, order_count: 0, unique_items: 0, nc_quantity: 0, nc_amount: 0, percentage: 0 }
     };
 
     for (const row of rows) {
@@ -4505,6 +4770,8 @@ const reportsService = {
           tax: parseFloat(row.tax_amount || 0),
           order_count: parseInt(row.order_count || 0),
           unique_items: parseInt(row.unique_items || 0),
+          nc_quantity: parseInt(row.nc_quantity || 0),
+          nc_amount: parseFloat(row.nc_amount || 0),
           percentage: totalRevenue > 0 ? ((parseFloat(row.net_revenue) / totalRevenue) * 100).toFixed(2) : '0.00'
         };
       }
@@ -4517,6 +4784,9 @@ const reportsService = {
         gross_revenue: orderGross.toFixed(2),
         discount_amount: orderDiscount.toFixed(2),
         tax_amount: orderTax.toFixed(2),
+        nc_amount: orderNC.toFixed(2),
+        due_amount: orderDue.toFixed(2),
+        paid_amount: orderPaid.toFixed(2),
         net_revenue: orderNet.toFixed(2),
         total_quantity: totalQuantity,
         restaurant_revenue: breakdown.restaurant.net_revenue.toFixed(2),
@@ -4572,7 +4842,11 @@ const reportsService = {
         SUM(CASE WHEN o.status != 'cancelled' THEN o.discount_amount ELSE 0 END) as total_discount,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.tax_amount ELSE 0 END) as total_tax,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.service_charge ELSE 0 END) as total_sc,
-        SUM(CASE WHEN o.status != 'cancelled' THEN o.guest_count ELSE 0 END) as total_guests
+        SUM(CASE WHEN o.status != 'cancelled' THEN o.guest_count ELSE 0 END) as total_guests,
+        COUNT(CASE WHEN o.is_nc = 1 THEN 1 END) as nc_orders,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.nc_amount, 0) ELSE 0 END) as nc_amount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.due_amount, 0) ELSE 0 END) as due_amount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.paid_amount, 0) ELSE 0 END) as paid_amount
        FROM orders o
        ${whereClause}
        GROUP BY ${toISTDate('o.created_at')}
@@ -4631,6 +4905,8 @@ const reportsService = {
     const summary = rows.map(r => {
       const dateKey = r.report_date instanceof Date ? r.report_date.toISOString().slice(0, 10) : r.report_date;
       const payments = paymentByDate[dateKey] || { breakdown: {}, splitBreakdown: {} };
+      // Total collection = sum of all payment mode amounts for this date
+      const totalCollection = Object.values(payments.breakdown).reduce((sum, v) => sum + (v || 0), 0);
       return {
         date: dateKey,
         totalOrders: parseInt(r.total_orders) || 0,
@@ -4647,6 +4923,11 @@ const reportsService = {
         totalTax: parseFloat(r.total_tax) || 0,
         totalServiceCharge: parseFloat(r.total_sc) || 0,
         totalGuests: parseInt(r.total_guests) || 0,
+        ncOrders: parseInt(r.nc_orders) || 0,
+        ncAmount: parseFloat(r.nc_amount) || 0,
+        dueAmount: parseFloat(r.due_amount) || 0,
+        paidAmount: parseFloat(r.paid_amount) || 0,
+        totalCollection: parseFloat(totalCollection.toFixed(2)),
         avgOrderValue: r.completed_orders > 0 ? parseFloat((r.total_sales / r.completed_orders).toFixed(2)) : 0,
         payments: payments.breakdown,
         splitPaymentBreakdown: payments.splitBreakdown
@@ -4668,7 +4949,12 @@ const reportsService = {
       totalDiscount: parseFloat(summary.reduce((s, r) => s + r.totalDiscount, 0).toFixed(2)),
       totalTax: parseFloat(summary.reduce((s, r) => s + r.totalTax, 0).toFixed(2)),
       totalServiceCharge: parseFloat(summary.reduce((s, r) => s + r.totalServiceCharge, 0).toFixed(2)),
-      totalGuests: summary.reduce((s, r) => s + r.totalGuests, 0)
+      totalGuests: summary.reduce((s, r) => s + r.totalGuests, 0),
+      ncOrders: summary.reduce((s, r) => s + r.ncOrders, 0),
+      ncAmount: parseFloat(summary.reduce((s, r) => s + r.ncAmount, 0).toFixed(2)),
+      dueAmount: parseFloat(summary.reduce((s, r) => s + r.dueAmount, 0).toFixed(2)),
+      paidAmount: parseFloat(summary.reduce((s, r) => s + r.paidAmount, 0).toFixed(2)),
+      totalCollection: parseFloat(summary.reduce((s, r) => s + r.totalCollection, 0).toFixed(2))
     };
 
     return {
@@ -4721,9 +5007,13 @@ const reportsService = {
         SUM(CASE WHEN o.status != 'cancelled' THEN o.tax_amount ELSE 0 END) as total_tax,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.service_charge ELSE 0 END) as total_service_charge,
         SUM(CASE WHEN o.status != 'cancelled' THEN o.guest_count ELSE 0 END) as total_guests,
-        AVG(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) END) as avg_order_value,
-        MAX(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) END) as max_order_value,
-        MIN(CASE WHEN o.status != 'cancelled' AND (o.subtotal - o.discount_amount) > 0 THEN (o.subtotal - o.discount_amount) END) as min_order_value
+        AVG(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, 0) END) as avg_order_value,
+        MAX(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, 0) END) as max_order_value,
+        MIN(CASE WHEN o.status IN ('paid', 'completed') AND COALESCE(o.paid_amount, 0) > 0 THEN COALESCE(o.paid_amount, 0) END) as min_order_value,
+        COUNT(CASE WHEN o.is_nc = 1 THEN 1 END) as nc_orders,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.nc_amount, 0) ELSE 0 END) as nc_amount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.due_amount, 0) ELSE 0 END) as due_amount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.paid_amount, 0) ELSE 0 END) as paid_amount
        FROM orders o
        ${whereClause}`,
       params
@@ -4871,6 +5161,7 @@ const reportsService = {
         o.id, o.uuid, o.order_number, o.order_type, o.status, o.payment_status,
         o.customer_name, o.customer_phone, o.guest_count,
         o.subtotal, o.discount_amount, o.tax_amount, o.service_charge, o.total_amount,
+        o.is_nc, o.nc_amount, o.nc_reason, o.due_amount, o.paid_amount,
         o.created_at, o.updated_at,
         t.table_number, f.name as floor_name,
         u.name as created_by_name,
@@ -5015,6 +5306,11 @@ const reportsService = {
       taxAmount: parseFloat(o.tax_amount) || 0,
       serviceCharge: parseFloat(o.service_charge) || 0,
       totalAmount: parseFloat(o.total_amount) || 0,
+      paidAmount: parseFloat(o.paid_amount) || 0,
+      dueAmount: parseFloat(o.due_amount) || 0,
+      isNC: !!o.is_nc,
+      ncAmount: parseFloat(o.nc_amount) || 0,
+      ncReason: o.nc_reason || null,
       paymentMode: o.payment_mode,
       createdBy: o.created_by_name,
       createdAt: o.created_at,
@@ -5064,6 +5360,10 @@ const reportsService = {
         totalServiceCharge: parseFloat(summary.total_service_charge) || 0,
         netSales: (parseFloat(summary.total_sales) || 0) - totalRefunds,
         totalGuests: parseInt(summary.total_guests) || 0,
+        ncOrders: parseInt(summary.nc_orders) || 0,
+        ncAmount: parseFloat(summary.nc_amount) || 0,
+        dueAmount: parseFloat(summary.due_amount) || 0,
+        paidAmount: parseFloat(summary.paid_amount) || 0,
         avgOrderValue: parseFloat(summary.avg_order_value) || 0,
         maxOrderValue: parseFloat(summary.max_order_value) || 0,
         minOrderValue: parseFloat(summary.min_order_value) || 0,
@@ -5117,7 +5417,8 @@ const reportsService = {
         o.id, o.order_number, o.order_type, o.status, o.payment_status,
         o.table_id, o.floor_id, o.customer_name, o.customer_phone,
         o.guest_count, o.subtotal, o.total_amount, o.discount_amount,
-        o.is_priority, o.special_instructions, o.created_at, o.updated_at,
+        o.is_priority, o.special_instructions, o.is_nc, o.nc_amount, o.nc_reason,
+        o.created_at, o.updated_at,
         t.table_number, t.name as table_name,
         f.name as floor_name,
         u.name as created_by_name,
@@ -5160,7 +5461,8 @@ const reportsService = {
         t.id, t.table_number, t.name as table_name, t.capacity, t.status,
         f.name as floor_name, f.id as floor_id,
         o.id as order_id, o.order_number, o.status as order_status,
-        o.total_amount, o.guest_count, o.created_at as order_started,
+        o.total_amount, o.guest_count, o.is_nc, o.nc_amount,
+        o.created_at as order_started,
         u.name as captain_name
        FROM tables t
        LEFT JOIN floors f ON t.floor_id = f.id
@@ -5191,6 +5493,7 @@ const reportsService = {
       
       const duration = t.order_started ? Math.round((Date.now() - new Date(t.order_started).getTime()) / 60000) : 0;
       const tableAmount = parseFloat(t.total_amount) || 0;
+      const ncAmount = parseFloat(t.nc_amount) || 0;
       const guestCount = t.guest_count || 0;
       
       floorMap[floorKey].tableCount++;
@@ -5208,6 +5511,9 @@ const reportsService = {
           orderNumber: t.order_number,
           status: t.order_status,
           totalAmount: tableAmount,
+          isNC: !!t.is_nc,
+          ncAmount: ncAmount,
+          payableAmount: tableAmount - ncAmount,
           startedAt: t.order_started,
           durationMinutes: duration,
           durationFormatted: duration >= 60 ? `${Math.floor(duration / 60)}h ${duration % 60}m` : `${duration}m`
@@ -5266,11 +5572,15 @@ const reportsService = {
         o.billed_by as user_id, u.name as biller_name,
         COUNT(*) as total_bills,
         SUM(o.guest_count) as total_pax,
-        SUM(CASE WHEN o.status IN ('paid', 'completed') THEN o.total_amount ELSE 0 END) as total_sales,
+        SUM(CASE WHEN o.status != 'cancelled' THEN (o.subtotal - o.discount_amount) ELSE 0 END) as total_sales,
         SUM(o.discount_amount) as total_discount,
         SUM(o.tax_amount) as total_tax,
         SUM(o.service_charge) as total_sc,
-        COUNT(CASE WHEN o.status = 'cancelled' THEN 1 END) as cancelled_bills
+        COUNT(CASE WHEN o.status = 'cancelled' THEN 1 END) as cancelled_bills,
+        COUNT(CASE WHEN o.is_nc = 1 THEN 1 END) as nc_orders,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.nc_amount, 0) ELSE 0 END) as nc_amount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.due_amount, 0) ELSE 0 END) as due_amount,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.paid_amount, 0) ELSE 0 END) as paid_amount
        FROM orders o
        JOIN users u ON o.billed_by = u.id
        ${whereClause}
@@ -5309,6 +5619,10 @@ const reportsService = {
       totalTax: parseFloat(r.total_tax) || 0,
       totalServiceCharge: parseFloat(r.total_sc) || 0,
       cancelledBills: parseInt(r.cancelled_bills) || 0,
+      ncOrders: parseInt(r.nc_orders) || 0,
+      ncAmount: parseFloat(r.nc_amount) || 0,
+      dueAmount: parseFloat(r.due_amount) || 0,
+      paidAmount: parseFloat(r.paid_amount) || 0,
       avgBillValue: r.total_bills > 0 ? parseFloat((r.total_sales / r.total_bills).toFixed(2)) : 0,
       paxPerBill: r.total_bills > 0 ? parseFloat((r.total_pax / r.total_bills).toFixed(1)) : 0,
       payments: paymentByBiller[r.user_id] || {}
@@ -5318,7 +5632,11 @@ const reportsService = {
       totalBills: billers.reduce((s, b) => s + b.totalBills, 0),
       totalPax: billers.reduce((s, b) => s + b.totalPax, 0),
       totalSales: parseFloat(billers.reduce((s, b) => s + b.totalSales, 0).toFixed(2)),
-      totalDiscount: parseFloat(billers.reduce((s, b) => s + b.totalDiscount, 0).toFixed(2))
+      totalDiscount: parseFloat(billers.reduce((s, b) => s + b.totalDiscount, 0).toFixed(2)),
+      ncOrders: billers.reduce((s, b) => s + b.ncOrders, 0),
+      ncAmount: parseFloat(billers.reduce((s, b) => s + b.ncAmount, 0).toFixed(2)),
+      dueAmount: parseFloat(billers.reduce((s, b) => s + b.dueAmount, 0).toFixed(2)),
+      paidAmount: parseFloat(billers.reduce((s, b) => s + b.paidAmount, 0).toFixed(2))
     };
 
     return {
@@ -5326,6 +5644,410 @@ const reportsService = {
       billers,
       grandTotal,
       billerCount: billers.length
+    };
+  },
+
+  // ========================
+  // NC (NO CHARGE) REPORT
+  // ========================
+
+  /**
+   * NC Report — comprehensive NC data with filters, pagination, sorting
+   * Supports order-level NC and item-level NC separately
+   *
+   * @param {number} outletId
+   * @param {string} startDate
+   * @param {string} endDate
+   * @param {Object} options
+   * @param {number}  options.page          - 1-indexed page (default 1)
+   * @param {number}  options.limit         - items per page (default 50, max 200)
+   * @param {string}  options.search        - search in order_number, item_name, nc_reason
+   * @param {string}  options.ncType        - 'order' | 'item' | 'all' (default 'all')
+   * @param {string}  options.ncReason      - filter by NC reason text (partial match)
+   * @param {string}  options.appliedByName - filter by staff who applied NC
+   * @param {string}  options.orderType     - dine_in | takeaway | delivery
+   * @param {string}  options.floorName     - partial match on floor name
+   * @param {string}  options.sortBy        - nc_at | nc_amount | order_number (default nc_at)
+   * @param {string}  options.sortOrder     - ASC | DESC (default DESC)
+   * @param {Array}   options.floorIds      - floor restriction
+   */
+  async getNCReport(outletId, startDate, endDate, options = {}) {
+    const pool = getPool();
+    const { start, end } = this._dateRange(startDate, endDate);
+
+    const page = Math.max(1, parseInt(options.page) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(options.limit) || 50));
+    const offset = (page - 1) * limit;
+    const search = (options.search || '').trim();
+    const ncType = options.ncType || 'all';
+    const ff = floorFilter(options.floorIds || []);
+
+    // ── 1. ORDER-LEVEL NC (orders where is_nc = 1 — whole order marked NC) ──
+    let orderConditions = [
+      'o.outlet_id = ?',
+      `${toISTDate('o.created_at')} BETWEEN ? AND ?`,
+      'o.is_nc = 1'
+    ];
+    let orderParams = [outletId, start, end];
+
+    if (ff.sql) {
+      orderConditions.push(ff.sql.replace(/^ AND /, ''));
+      orderParams.push(...ff.params);
+    }
+    if (options.orderType) {
+      orderConditions.push('o.order_type = ?');
+      orderParams.push(options.orderType);
+    }
+    if (options.floorName) {
+      orderConditions.push('f.name LIKE ?');
+      orderParams.push(`%${options.floorName}%`);
+    }
+    if (options.appliedByName) {
+      orderConditions.push('ua.name LIKE ?');
+      orderParams.push(`%${options.appliedByName}%`);
+    }
+    if (options.ncReason) {
+      orderConditions.push('o.nc_reason LIKE ?');
+      orderParams.push(`%${options.ncReason}%`);
+    }
+    if (search) {
+      orderConditions.push('(o.order_number LIKE ? OR o.nc_reason LIKE ?)');
+      orderParams.push(`%${search}%`, `%${search}%`);
+    }
+
+    const orderWhere = 'WHERE ' + orderConditions.join(' AND ');
+
+    // Order-level NC count
+    const [orderCountResult] = await pool.query(
+      `SELECT COUNT(*) as total FROM orders o
+       LEFT JOIN floors f ON o.floor_id = f.id
+       LEFT JOIN users ua ON o.nc_approved_by = ua.id
+       ${orderWhere}`,
+      orderParams
+    );
+    const totalOrderNC = orderCountResult[0]?.total || 0;
+
+    // Order-level NC data (paginated)
+    const validOrderSorts = ['nc_at', 'nc_amount', 'order_number', 'created_at', 'total_amount'];
+    const orderSortCol = validOrderSorts.includes(options.sortBy) ? `o.${options.sortBy}` : 'o.nc_at';
+    const sortDir = (options.sortOrder || '').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    const [orderNCRows] = await pool.query(
+      `SELECT 
+        o.id as order_id, o.order_number, o.order_type, o.status,
+        o.subtotal, o.tax_amount, o.discount_amount, o.total_amount,
+        o.nc_amount, o.nc_reason, o.nc_reason_id,
+        o.paid_amount, o.due_amount, o.guest_count,
+        o.is_nc as order_is_nc,
+        o.nc_at, o.created_at,
+        f.name as floor_name, t.table_number,
+        uc.name as captain_name,
+        ua.name as nc_approved_by_name,
+        nr.name as nc_reason_name
+       FROM orders o
+       LEFT JOIN floors f ON o.floor_id = f.id
+       LEFT JOIN tables t ON o.table_id = t.id
+       LEFT JOIN users uc ON o.created_by = uc.id
+       LEFT JOIN users ua ON o.nc_approved_by = ua.id
+       LEFT JOIN nc_reasons nr ON o.nc_reason_id = nr.id
+       ${orderWhere}
+       ORDER BY ${orderSortCol} ${sortDir}
+       LIMIT ? OFFSET ?`,
+      [...orderParams, limit, offset]
+    );
+
+    // ── 2. ITEM-LEVEL NC (individual items marked NC, but order itself NOT fully NC) ──
+    let itemConditions = [
+      'o.outlet_id = ?',
+      `${toISTDate('o.created_at')} BETWEEN ? AND ?`,
+      'oi.is_nc = 1',
+      'oi.status != ?'
+    ];
+    let itemParams = [outletId, start, end, 'cancelled'];
+
+    if (ff.sql) {
+      itemConditions.push(ff.sql.replace(/^ AND /, ''));
+      itemParams.push(...ff.params);
+    }
+    if (options.orderType) {
+      itemConditions.push('o.order_type = ?');
+      itemParams.push(options.orderType);
+    }
+    if (options.floorName) {
+      itemConditions.push('f.name LIKE ?');
+      itemParams.push(`%${options.floorName}%`);
+    }
+    if (options.appliedByName) {
+      itemConditions.push('unc.name LIKE ?');
+      itemParams.push(`%${options.appliedByName}%`);
+    }
+    if (options.ncReason) {
+      itemConditions.push('oi.nc_reason LIKE ?');
+      itemParams.push(`%${options.ncReason}%`);
+    }
+    if (search) {
+      itemConditions.push('(o.order_number LIKE ? OR oi.item_name LIKE ? OR oi.nc_reason LIKE ?)');
+      itemParams.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
+    const itemWhere = 'WHERE ' + itemConditions.join(' AND ');
+
+    // Item-level NC count
+    const [itemCountResult] = await pool.query(
+      `SELECT COUNT(*) as total FROM order_items oi
+       JOIN orders o ON oi.order_id = o.id
+       LEFT JOIN floors f ON o.floor_id = f.id
+       LEFT JOIN users unc ON oi.nc_by = unc.id
+       ${itemWhere}`,
+      itemParams
+    );
+    const totalItemNC = itemCountResult[0]?.total || 0;
+
+    // Item-level NC data (paginated)
+    const validItemSorts = ['nc_at', 'nc_amount', 'item_name', 'quantity'];
+    let itemSortCol = 'oi.nc_at';
+    if (options.sortBy === 'nc_amount') itemSortCol = 'oi.nc_amount';
+    else if (options.sortBy === 'item_name') itemSortCol = 'oi.item_name';
+    else if (options.sortBy === 'quantity') itemSortCol = 'oi.quantity';
+    else if (options.sortBy === 'order_number') itemSortCol = 'o.order_number';
+
+    const [itemNCRows] = await pool.query(
+      `SELECT 
+        oi.id as order_item_id, oi.order_id,
+        oi.item_name, oi.variant_name,
+        oi.quantity, oi.unit_price, oi.total_price,
+        oi.nc_amount, oi.nc_reason, oi.nc_reason_id,
+        oi.nc_at, oi.is_nc as item_is_nc,
+        o.order_number, o.order_type, o.status as order_status,
+        o.is_nc as order_is_nc,
+        f.name as floor_name, t.table_number,
+        uc.name as captain_name,
+        unc.name as nc_by_name,
+        nr.name as nc_reason_name
+       FROM order_items oi
+       JOIN orders o ON oi.order_id = o.id
+       LEFT JOIN floors f ON o.floor_id = f.id
+       LEFT JOIN tables t ON o.table_id = t.id
+       LEFT JOIN users uc ON o.created_by = uc.id
+       LEFT JOIN users unc ON oi.nc_by = unc.id
+       LEFT JOIN nc_reasons nr ON oi.nc_reason_id = nr.id
+       ${itemWhere}
+       ORDER BY ${itemSortCol} ${sortDir}
+       LIMIT ? OFFSET ?`,
+      [...itemParams, limit, offset]
+    );
+
+    // ── 3. SUMMARY STATS (across ALL filtered data, not paginated) ──
+    const [summaryRows] = await pool.query(
+      `SELECT
+        COUNT(DISTINCT CASE WHEN o.is_nc = 1 THEN o.id END) as total_order_nc,
+        SUM(CASE WHEN o.is_nc = 1 THEN o.nc_amount ELSE 0 END) as order_nc_amount,
+        COUNT(CASE WHEN oi.is_nc = 1 AND oi.status != 'cancelled' AND o.is_nc = 0 THEN 1 END) as total_item_nc,
+        SUM(CASE WHEN oi.is_nc = 1 AND oi.status != 'cancelled' AND o.is_nc = 0 THEN oi.nc_amount ELSE 0 END) as item_nc_amount
+       FROM orders o
+       LEFT JOIN order_items oi ON o.id = oi.order_id
+       WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ?${ff.sql}`,
+      [outletId, start, end, ...ff.params]
+    );
+    const sr = summaryRows[0];
+    const totalOrderNCAmount = parseFloat(sr?.order_nc_amount) || 0;
+    const itemOnlyNCAmount = parseFloat(sr?.item_nc_amount) || 0;
+
+    // ── 4. BREAKDOWNS ──
+
+    // By Reason (order-level NC)
+    const [byReason] = await pool.query(
+      `SELECT 
+        COALESCE(oi.nc_reason, sub.nc_reason, 'Unknown') as reason,
+        COUNT(*) as count,
+        SUM(COALESCE(oi.nc_amount, sub.nc_amount, 0)) as total_amount
+       FROM (
+         SELECT o.id, o.nc_reason, o.nc_amount, o.outlet_id, o.created_at FROM orders o
+         WHERE o.is_nc = 1 AND o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ?${ff.sql}
+       ) sub
+       LEFT JOIN order_items oi ON sub.id = oi.order_id AND oi.is_nc = 1 AND oi.status != 'cancelled'
+       GROUP BY reason
+       ORDER BY total_amount DESC`,
+      [outletId, start, end, ...ff.params]
+    );
+
+    // Items-only NC by reason (items NC'd individually, not whole-order NC)
+    const [itemByReason] = await pool.query(
+      `SELECT 
+        COALESCE(oi.nc_reason, 'Unknown') as reason,
+        COUNT(*) as count,
+        SUM(oi.nc_amount) as total_amount
+       FROM order_items oi
+       JOIN orders o ON oi.order_id = o.id
+       WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ?
+         AND oi.is_nc = 1 AND oi.status != 'cancelled' AND o.is_nc = 0${ff.sql}
+       GROUP BY reason
+       ORDER BY total_amount DESC`,
+      [outletId, start, end, ...ff.params]
+    );
+
+    // Merge reason breakdowns
+    const reasonMap = {};
+    for (const r of byReason) {
+      reasonMap[r.reason] = { reason: r.reason, count: r.count, totalAmount: parseFloat(r.total_amount) || 0, type: 'order' };
+    }
+    for (const r of itemByReason) {
+      if (reasonMap[r.reason]) {
+        reasonMap[r.reason].count += r.count;
+        reasonMap[r.reason].totalAmount += parseFloat(r.total_amount) || 0;
+        reasonMap[r.reason].type = 'mixed';
+      } else {
+        reasonMap[r.reason] = { reason: r.reason, count: r.count, totalAmount: parseFloat(r.total_amount) || 0, type: 'item' };
+      }
+    }
+
+    // By Staff
+    const [byStaff] = await pool.query(
+      `SELECT 
+        u.id as user_id, u.name as user_name,
+        COUNT(*) as count,
+        SUM(nl.nc_amount) as total_amount
+       FROM nc_logs nl
+       JOIN users u ON nl.applied_by = u.id
+       WHERE nl.outlet_id = ? AND DATE(nl.applied_at) BETWEEN ? AND ?
+         AND nl.action_type IN ('item_nc', 'order_nc')
+       GROUP BY u.id, u.name
+       ORDER BY total_amount DESC`,
+      [outletId, start, end]
+    );
+
+    // By Date
+    const [byDate] = await pool.query(
+      `SELECT 
+        ${toISTDate('o.created_at')} as report_date,
+        COUNT(DISTINCT CASE WHEN o.is_nc = 1 THEN o.id END) as order_nc_count,
+        SUM(CASE WHEN o.is_nc = 1 THEN o.nc_amount ELSE 0 END) as order_nc_amount,
+        COUNT(DISTINCT CASE WHEN oi.is_nc = 1 AND oi.status != 'cancelled' AND o.is_nc = 0 THEN oi.id END) as item_nc_count,
+        SUM(CASE WHEN oi.is_nc = 1 AND oi.status != 'cancelled' AND o.is_nc = 0 THEN oi.nc_amount ELSE 0 END) as item_nc_amount
+       FROM orders o
+       LEFT JOIN order_items oi ON o.id = oi.order_id
+       WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ?
+         AND (o.is_nc = 1 OR (oi.is_nc = 1 AND oi.status != 'cancelled'))${ff.sql}
+       GROUP BY ${toISTDate('o.created_at')}
+       ORDER BY report_date DESC`,
+      [outletId, start, end, ...ff.params]
+    );
+
+    // Top NC Items
+    const [topNCItems] = await pool.query(
+      `SELECT 
+        oi.item_name, oi.variant_name,
+        COUNT(*) as nc_count,
+        SUM(oi.nc_amount) as total_nc_amount,
+        SUM(oi.quantity) as total_quantity
+       FROM order_items oi
+       JOIN orders o ON oi.order_id = o.id
+       WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ?
+         AND oi.is_nc = 1 AND oi.status != 'cancelled'${ff.sql}
+       GROUP BY oi.item_name, oi.variant_name
+       ORDER BY total_nc_amount DESC
+       LIMIT 20`,
+      [outletId, start, end, ...ff.params]
+    );
+
+    // ── 5. FORMAT RESPONSE ──
+    const orderNCList = orderNCRows.map(r => ({
+      orderId: r.order_id,
+      orderNumber: r.order_number,
+      orderType: r.order_type,
+      status: r.status,
+      subtotal: parseFloat(r.subtotal) || 0,
+      taxAmount: parseFloat(r.tax_amount) || 0,
+      discountAmount: parseFloat(r.discount_amount) || 0,
+      totalAmount: parseFloat(r.total_amount) || 0,
+      ncAmount: parseFloat(r.nc_amount) || 0,
+      ncReason: r.nc_reason || r.nc_reason_name || null,
+      ncApprovedBy: r.nc_approved_by_name || null,
+      ncAt: r.nc_at,
+      paidAmount: parseFloat(r.paid_amount) || 0,
+      dueAmount: parseFloat(r.due_amount) || 0,
+      guestCount: r.guest_count || 0,
+      floorName: r.floor_name || null,
+      tableNumber: r.table_number || null,
+      captainName: r.captain_name || null,
+      createdAt: r.created_at,
+      isNC: true, // whole order NC
+      ncLevel: 'order'
+    }));
+
+    const itemNCList = itemNCRows.map(r => ({
+      orderItemId: r.order_item_id,
+      orderId: r.order_id,
+      orderNumber: r.order_number,
+      orderType: r.order_type,
+      orderStatus: r.order_status,
+      orderIsNC: !!r.order_is_nc,
+      itemName: r.item_name,
+      variantName: r.variant_name || null,
+      quantity: parseFloat(r.quantity) || 0,
+      unitPrice: parseFloat(r.unit_price) || 0,
+      totalPrice: parseFloat(r.total_price) || 0,
+      ncAmount: parseFloat(r.nc_amount) || 0,
+      ncReason: r.nc_reason || r.nc_reason_name || null,
+      ncBy: r.nc_by_name || null,
+      ncAt: r.nc_at,
+      floorName: r.floor_name || null,
+      tableNumber: r.table_number || null,
+      captainName: r.captain_name || null,
+      isNC: true,
+      ncLevel: 'item'
+    }));
+
+    return {
+      dateRange: { start, end },
+      summary: {
+        totalOrderNC: parseInt(sr?.total_order_nc) || 0,
+        orderNCAmount: parseFloat(totalOrderNCAmount.toFixed(2)),
+        totalItemNC: parseInt(sr?.total_item_nc) || 0,
+        itemNCAmount: parseFloat(itemOnlyNCAmount.toFixed(2)),
+        totalNCAmount: parseFloat((totalOrderNCAmount + itemOnlyNCAmount).toFixed(2)),
+        totalNCEntries: (parseInt(sr?.total_order_nc) || 0) + (parseInt(sr?.total_item_nc) || 0)
+      },
+      orderNC: {
+        data: ncType === 'item' ? [] : orderNCList,
+        pagination: {
+          page, limit,
+          total: totalOrderNC,
+          totalPages: Math.ceil(totalOrderNC / limit)
+        }
+      },
+      itemNC: {
+        data: ncType === 'order' ? [] : itemNCList,
+        pagination: {
+          page, limit,
+          total: totalItemNC,
+          totalPages: Math.ceil(totalItemNC / limit)
+        }
+      },
+      breakdowns: {
+        byReason: Object.values(reasonMap).sort((a, b) => b.totalAmount - a.totalAmount),
+        byStaff: byStaff.map(s => ({
+          userId: s.user_id,
+          userName: s.user_name,
+          count: s.count,
+          totalAmount: parseFloat(s.total_amount) || 0
+        })),
+        byDate: byDate.map(d => ({
+          date: d.report_date,
+          orderNCCount: parseInt(d.order_nc_count) || 0,
+          orderNCAmount: parseFloat(d.order_nc_amount) || 0,
+          itemNCCount: parseInt(d.item_nc_count) || 0,
+          itemNCAmount: parseFloat(d.item_nc_amount) || 0,
+          totalNCAmount: (parseFloat(d.order_nc_amount) || 0) + (parseFloat(d.item_nc_amount) || 0)
+        })),
+        topNCItems: topNCItems.map(i => ({
+          itemName: i.item_name,
+          variantName: i.variant_name || null,
+          ncCount: parseInt(i.nc_count) || 0,
+          totalNCAmount: parseFloat(i.total_nc_amount) || 0,
+          totalQuantity: parseFloat(i.total_quantity) || 0
+        }))
+      }
     };
   }
 };

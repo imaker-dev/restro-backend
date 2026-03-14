@@ -76,7 +76,7 @@ const categoryService = {
   },
 
   async getByOutlet(outletId, filters = {}) {
-    const includeInactive = filters.includeInactive || false;
+    // const includeInactive = filters.includeInactive || false;
     const pool = getPool();
     
     // Base count query
@@ -101,9 +101,9 @@ const categoryService = {
     // Build WHERE conditions
     let whereConditions = '';
     
-    if (!includeInactive) {
-      whereConditions += ' AND c.is_active = 1';
-    }
+    // if (!includeInactive) {
+    //   whereConditions += ' AND c.is_active = 1';
+    // }
     if (filters.search) {
       whereConditions += ' AND (c.name LIKE ? OR c.description LIKE ?)';
       const searchTerm = `%${filters.search}%`;

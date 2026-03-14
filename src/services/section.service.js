@@ -84,9 +84,9 @@ const sectionService = {
       WHERE s.outlet_id = ?
     `;
 
-    if (!includeInactive) {
-      query += ' AND s.is_active = 1';
-    }
+    // if (!includeInactive) {
+    //   query += ' AND s.is_active = 1';
+    // }
 
     query += ' ORDER BY s.display_order, s.name';
 
@@ -110,9 +110,9 @@ const sectionService = {
     `;
     const params = [floorId, floorId];
 
-    if (!includeInactive) {
-      query += ' AND s.is_active = 1';
-    }
+    // if (!includeInactive) {
+    //   query += ' AND s.is_active = 1';
+    // }
 
     query += ' ORDER BY s.display_order, s.name';
 

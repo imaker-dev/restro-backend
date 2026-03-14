@@ -469,19 +469,25 @@ const orderService = {
 
   /**
    * Recalculate order totals
+   * NC items are excluded from subtotal - only chargeable items count
    */
   async recalculateTotals(orderId, connection = null) {
     const pool = connection || getPool();
 
-    // Get all non-cancelled items
+    // Get all non-cancelled items, separating NC and non-NC
     const [items] = await pool.query(
-      `SELECT SUM(total_price) as subtotal, SUM(tax_amount) as tax_total
+      `SELECT 
+        SUM(CASE WHEN is_nc = 1 THEN 0 ELSE total_price END) as subtotal,
+        SUM(CASE WHEN is_nc = 1 THEN 0 ELSE tax_amount END) as tax_total,
+        SUM(CASE WHEN is_nc = 1 THEN COALESCE(nc_amount, total_price) ELSE 0 END) as nc_amount
        FROM order_items WHERE order_id = ? AND status != 'cancelled'`,
       [orderId]
     );
 
+    // Subtotal excludes NC items
     const subtotal = parseFloat(items[0].subtotal) || 0;
     const originalTaxAmount = parseFloat(items[0].tax_total) || 0;
+    const ncAmount = parseFloat(items[0].nc_amount) || 0;
 
     // Get discount
     const [discounts] = await pool.query(
@@ -490,7 +496,7 @@ const orderService = {
     );
     const discountAmount = parseFloat(discounts[0].total) || 0;
 
-    // Calculate taxable amount after discount
+    // Calculate taxable amount after discount (subtotal already excludes NC)
     const taxableAmount = subtotal - discountAmount;
     
     // Apply discount ratio to tax (same as calculateBillDetails in billing.service.js)
@@ -498,17 +504,18 @@ const orderService = {
     const discountRatio = subtotal > 0 ? (taxableAmount / subtotal) : 1;
     const adjustedTaxAmount = parseFloat((originalTaxAmount * discountRatio).toFixed(2));
 
-    // Calculate total: taxableAmount + adjustedTax (matches invoice grand_total calculation)
+    // Calculate total: taxableAmount + adjustedTax (NC already excluded from subtotal)
     const preRoundTotal = taxableAmount + adjustedTaxAmount;
     const totalAmount = Math.round(preRoundTotal);
     const roundOff = totalAmount - preRoundTotal;
 
+    // Update order with NC amount tracked separately
     await pool.query(
       `UPDATE orders SET 
         subtotal = ?, discount_amount = ?, tax_amount = ?,
-        round_off = ?, total_amount = ?, updated_at = NOW()
+        round_off = ?, total_amount = ?, nc_amount = ?, updated_at = NOW()
        WHERE id = ?`,
-      [subtotal, discountAmount, adjustedTaxAmount, roundOff, totalAmount, orderId]
+      [subtotal, discountAmount, adjustedTaxAmount, roundOff, totalAmount, ncAmount, orderId]
     );
   },
 
@@ -624,8 +631,8 @@ const orderService = {
         try {
           taxDetails = typeof item.tax_details === 'string' ? JSON.parse(item.tax_details) : item.tax_details;
           
-          // Aggregate tax breakdown from each item
-          if (Array.isArray(taxDetails)) {
+          // Aggregate tax breakdown — skip NC items (NC items have zero tax)
+          if (Array.isArray(taxDetails) && !item.is_nc) {
             for (const tax of taxDetails) {
               const taxCode = tax.componentCode || tax.code || tax.componentName || tax.name || 'TAX';
               const taxName = tax.componentName || tax.name || taxCode;
@@ -684,6 +691,9 @@ const orderService = {
         counterName: item.counter_name,
         imageUrl: prefixImageUrl(item.image_url),
         addons: addonsMap[item.id] || [],
+        isNC: !!item.is_nc,
+        ncAmount: parseFloat(item.nc_amount) || 0,
+        ncReason: item.nc_reason || null,
         createdAt: item.created_at,
         updatedAt: item.updated_at
       };
@@ -863,7 +873,9 @@ const orderService = {
     // Calculate totals and summary
     const totalDiscount = formattedDiscounts.reduce((sum, d) => sum + d.discountAmount, 0);
     const totalPaid = formattedPayments.filter(p => p.status === 'completed').reduce((sum, p) => sum + p.totalAmount, 0);
-    const balanceDue = (parseFloat(order.total_amount) || 0) - totalPaid;
+    // Use invoice grandTotal (reflects NC deduction) if available, else order total_amount
+    const effectiveTotal = invoice ? parseFloat(invoice.grandTotal) : (parseFloat(order.total_amount) || 0);
+    const balanceDue = effectiveTotal - totalPaid;
 
     // Build comprehensive response
     return {
@@ -904,6 +916,11 @@ const orderService = {
       roundOff: parseFloat(order.round_off) || 0,
       totalAmount: parseFloat(order.total_amount) || 0,
       paidAmount: parseFloat(order.paid_amount) || 0,
+      
+      // NC (No Charge) info
+      isNC: !!order.is_nc,
+      ncAmount: parseFloat(order.nc_amount) || 0,
+      ncReason: order.nc_reason || null,
       
       // Tax breakdown (calculated from items)
       cgstAmount: parseFloat(cgstAmount.toFixed(2)),
@@ -1094,6 +1111,8 @@ const orderService = {
         (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id AND oi.status = 'ready') as ready_count,
         (SELECT GROUP_CONCAT(DISTINCT oi.item_name SEPARATOR ', ')
          FROM order_items oi WHERE oi.order_id = o.id AND oi.status != 'cancelled' LIMIT 1) as item_summary,
+        (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id AND oi.is_nc = 1 AND oi.status != 'cancelled') as nc_item_count,
+        (SELECT COALESCE(SUM(oi.total_price), 0) FROM order_items oi WHERE oi.order_id = o.id AND oi.is_nc = 1 AND oi.status != 'cancelled') as computed_nc_amount,
         i.id as invoice_id, i.invoice_number, i.grand_total as invoice_total, i.payment_status as invoice_payment_status
        FROM orders o
        LEFT JOIN users u ON o.created_by = u.id
@@ -1180,6 +1199,8 @@ const orderService = {
       counterName: it.counter_name || null,
       specialInstructions: it.special_instructions || null,
       taxDetails: it.tax_details ? (typeof it.tax_details === 'string' ? JSON.parse(it.tax_details) : it.tax_details) : null,
+      isNc: !!it.is_nc,
+      ncReason: it.nc_reason || null,
       cancelledBy: it.cancelled_by || null,
       cancelledByName: it.cancelled_by_name || null,
       cancelReason: it.cancel_reason || null,
@@ -1190,6 +1211,13 @@ const orderService = {
 
     const activeItems = formattedItems.filter(i => i.status !== 'cancelled');
     const cancelledItems = formattedItems.filter(i => i.status === 'cancelled');
+
+    // Compute NC from actual item data (orders table is_nc/nc_amount may not be updated)
+    const ncItems = activeItems.filter(i => i.isNc);
+    const computedNcAmount = ncItems.reduce((s, i) => s + i.totalPrice, 0);
+    const computedIsNc = ncItems.length > 0;
+    const ncReasons = [...new Set(ncItems.map(i => i.ncReason).filter(Boolean))];
+    const computedNcReason = ncReasons.length > 0 ? ncReasons.join(', ') : null;
 
     // 3. KOTs with items
     const [kots] = await pool.query(
@@ -1388,6 +1416,10 @@ const orderService = {
         totalAmount: parseFloat(order.total_amount) || 0,
         paidAmount: parseFloat(order.paid_amount) || 0,
         dueAmount: parseFloat(order.due_amount) || 0,
+        isNc: computedIsNc,
+        ncAmount: parseFloat(computedNcAmount.toFixed(2)),
+        ncReason: computedNcReason,
+        ncItemCount: ncItems.length,
         createdBy: order.created_by,
         createdByName: order.created_by_name || null,
         createdAt: order.created_at,
@@ -1938,7 +1970,7 @@ const orderService = {
     } = filters;
 
     // Optimized query with LEFT JOIN aggregations instead of subqueries for better performance
-    // Use paid_amount for completed orders to show actual amount after discount
+    // Calculate subtotal/total excluding NC items on-the-fly from order_items
     let query = `
       SELECT 
         o.id,
@@ -1946,14 +1978,33 @@ const orderService = {
         o.order_type,
         o.status,
         o.payment_status,
-        o.subtotal,
-        o.tax_amount,
+        COALESCE(chargeable_stats.chargeable_subtotal, 0) as subtotal,
+        COALESCE(chargeable_stats.chargeable_tax, 0) as tax_amount,
         o.discount_amount,
-        o.total_amount,
+        ROUND(COALESCE(chargeable_stats.chargeable_subtotal, 0) - o.discount_amount + 
+          COALESCE(chargeable_stats.chargeable_tax, 0) * 
+          (CASE WHEN COALESCE(chargeable_stats.chargeable_subtotal, 0) > 0 
+           THEN (COALESCE(chargeable_stats.chargeable_subtotal, 0) - o.discount_amount) / COALESCE(chargeable_stats.chargeable_subtotal, 0) 
+           ELSE 1 END)
+        ) as total_amount,
         o.paid_amount,
+        CASE WHEN COALESCE(nc_stats.nc_item_count, 0) > 0 THEN 1 ELSE 0 END as is_nc,
+        COALESCE(nc_stats.nc_total, 0) as nc_amount,
         CASE 
-          WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount)
-          ELSE o.total_amount
+          WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, 
+            ROUND(COALESCE(chargeable_stats.chargeable_subtotal, 0) - o.discount_amount + 
+              COALESCE(chargeable_stats.chargeable_tax, 0) * 
+              (CASE WHEN COALESCE(chargeable_stats.chargeable_subtotal, 0) > 0 
+               THEN (COALESCE(chargeable_stats.chargeable_subtotal, 0) - o.discount_amount) / COALESCE(chargeable_stats.chargeable_subtotal, 0) 
+               ELSE 1 END)
+            ))
+          ELSE COALESCE(inv.grand_total, 
+            ROUND(COALESCE(chargeable_stats.chargeable_subtotal, 0) - o.discount_amount + 
+              COALESCE(chargeable_stats.chargeable_tax, 0) * 
+              (CASE WHEN COALESCE(chargeable_stats.chargeable_subtotal, 0) > 0 
+               THEN (COALESCE(chargeable_stats.chargeable_subtotal, 0) - o.discount_amount) / COALESCE(chargeable_stats.chargeable_subtotal, 0) 
+               ELSE 1 END)
+            ))
         END as display_amount,
         o.guest_count,
         o.customer_name,
@@ -1969,7 +2020,13 @@ const orderService = {
         ts.ended_at as session_ended_at,
         COALESCE(item_stats.item_count, 0) as item_count,
         COALESCE(kot_stats.kot_count, 0) as kot_count,
-        u.name as created_by_name
+        COALESCE(nc_stats.nc_item_count, 0) as nc_item_count,
+        COALESCE(nc_stats.nc_total, 0) as nc_items_total,
+        u.name as created_by_name,
+        inv.grand_total as invoice_grand_total,
+        inv.is_nc as invoice_is_nc,
+        inv.nc_amount as invoice_nc_amount,
+        inv.invoice_number
       FROM orders o
       LEFT JOIN tables t ON o.table_id = t.id
       LEFT JOIN floors f ON o.floor_id = f.id
@@ -1981,10 +2038,26 @@ const orderService = {
         GROUP BY order_id
       ) item_stats ON o.id = item_stats.order_id
       LEFT JOIN (
+        SELECT order_id, 
+          SUM(CASE WHEN is_nc = 0 THEN total_price ELSE 0 END) as chargeable_subtotal,
+          SUM(CASE WHEN is_nc = 0 THEN tax_amount ELSE 0 END) as chargeable_tax
+        FROM order_items WHERE status != 'cancelled' 
+        GROUP BY order_id
+      ) chargeable_stats ON o.id = chargeable_stats.order_id
+      LEFT JOIN (
         SELECT order_id, COUNT(*) as kot_count 
         FROM kot_tickets 
         GROUP BY order_id
       ) kot_stats ON o.id = kot_stats.order_id
+      LEFT JOIN (
+        SELECT order_id, COUNT(*) as nc_item_count, SUM(COALESCE(nc_amount, total_price)) as nc_total
+        FROM order_items WHERE is_nc = 1 AND status != 'cancelled'
+        GROUP BY order_id
+      ) nc_stats ON o.id = nc_stats.order_id
+      LEFT JOIN (
+        SELECT order_id, grand_total, is_nc, nc_amount, invoice_number
+        FROM invoices WHERE is_cancelled = 0
+      ) inv ON o.id = inv.order_id
       WHERE o.outlet_id = ?
     `;
     const params = [outletId];
@@ -2127,6 +2200,42 @@ const orderService = {
       [orderId]
     );
     order.items = items;
+
+    // NC breakdown for items
+    const activeItems = items.filter(i => i.status !== 'cancelled');
+    const ncItems = activeItems.filter(i => i.is_nc);
+    const chargeableItems = activeItems.filter(i => !i.is_nc);
+    
+    // Calculate correct subtotal excluding NC items
+    const chargeableSubtotal = chargeableItems.reduce((s, i) => s + (parseFloat(i.total_price) || 0), 0);
+    const chargeableTax = chargeableItems.reduce((s, i) => s + (parseFloat(i.tax_amount) || 0), 0);
+    const ncAmount = ncItems.reduce((s, i) => s + (parseFloat(i.total_price) || 0), 0);
+    
+    order.ncSummary = {
+      isNC: !!order.is_nc || ncItems.length > 0,
+      ncAmount: ncAmount,
+      ncReason: order.nc_reason || null,
+      ncItemCount: ncItems.length,
+      ncItemsTotal: ncAmount,
+      totalItems: activeItems.length,
+      chargeableItems: chargeableItems.length,
+      chargeableTotal: chargeableSubtotal
+    };
+
+    // Override order subtotal/total with correct values (excluding NC items)
+    const discountAmount = parseFloat(order.discount_amount) || 0;
+    const discountRatio = chargeableSubtotal > 0 ? ((chargeableSubtotal - discountAmount) / chargeableSubtotal) : 1;
+    const adjustedTax = parseFloat((chargeableTax * discountRatio).toFixed(2));
+    const taxableAmount = chargeableSubtotal - discountAmount;
+    const preRoundTotal = taxableAmount + adjustedTax;
+    const calculatedTotal = Math.round(preRoundTotal);
+    
+    // Set corrected values on order object
+    order.subtotal = parseFloat(chargeableSubtotal.toFixed(2));
+    order.nc_amount = parseFloat(ncAmount.toFixed(2));
+    order.tax_amount = adjustedTax;
+    order.total_amount = calculatedTotal;
+    order.round_off = parseFloat((calculatedTotal - preRoundTotal).toFixed(2));
 
     // Get KOT history with time logs
     const [kots] = await pool.query(
@@ -2610,6 +2719,9 @@ const orderService = {
       invoicePaymentStatus: order.invoice_payment_status,
       itemCount: order.item_count || 0,
       kotCount: order.kot_count || 0,
+      isNC: !!order.is_nc,
+      ncAmount: parseFloat(order.nc_amount) || 0,
+      ncReason: order.nc_reason || null,
       specialInstructions: order.special_instructions,
       createdAt: order.created_at,
       updatedAt: order.updated_at
@@ -2625,7 +2737,9 @@ const orderService = {
         SUM(CASE WHEN o.order_type = 'dine_in' THEN 1 ELSE 0 END) as dine_in_count,
         SUM(CASE WHEN o.order_type = 'takeaway' THEN 1 ELSE 0 END) as takeaway_count,
         SUM(CASE WHEN o.order_type = 'delivery' THEN 1 ELSE 0 END) as delivery_count,
-        AVG(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE o.total_amount END) as avg_order_value
+        AVG(CASE WHEN o.status IN ('paid', 'completed') THEN COALESCE(o.paid_amount, o.total_amount) ELSE o.total_amount END) as avg_order_value,
+        SUM(CASE WHEN o.is_nc = 1 THEN 1 ELSE 0 END) as nc_count,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.nc_amount, 0) ELSE 0 END) as nc_amount
        FROM orders o
        LEFT JOIN tables t ON o.table_id = t.id
        LEFT JOIN invoices inv ON o.id = inv.order_id
@@ -2649,7 +2763,9 @@ const orderService = {
         dineInCount: summaryResult[0]?.dine_in_count || 0,
         takeawayCount: summaryResult[0]?.takeaway_count || 0,
         deliveryCount: summaryResult[0]?.delivery_count || 0,
-        avgOrderValue: parseFloat(summaryResult[0]?.avg_order_value) || 0
+        avgOrderValue: parseFloat(summaryResult[0]?.avg_order_value) || 0,
+        ncCount: summaryResult[0]?.nc_count || 0,
+        ncAmount: parseFloat(summaryResult[0]?.nc_amount) || 0
       }
     };
   },
@@ -2837,7 +2953,9 @@ const orderService = {
         SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_count,
         SUM(CASE WHEN o.order_type = 'dine_in' THEN 1 ELSE 0 END) as dine_in_count,
         SUM(CASE WHEN o.order_type = 'takeaway' THEN 1 ELSE 0 END) as takeaway_count,
-        SUM(CASE WHEN o.order_type = 'delivery' THEN 1 ELSE 0 END) as delivery_count
+        SUM(CASE WHEN o.order_type = 'delivery' THEN 1 ELSE 0 END) as delivery_count,
+        SUM(CASE WHEN o.is_nc = 1 THEN 1 ELSE 0 END) as nc_count,
+        SUM(CASE WHEN o.status != 'cancelled' THEN COALESCE(o.nc_amount, 0) ELSE 0 END) as nc_amount
        FROM orders o
        LEFT JOIN tables t ON o.table_id = t.id
        LEFT JOIN invoices inv ON o.id = inv.order_id
@@ -2887,6 +3005,9 @@ const orderService = {
         itemsSummary: o.items_summary,
         paymentModes: o.payment_modes,
         splitBreakdown: o.split_breakdown,
+        isNC: !!o.is_nc,
+        ncAmount: parseFloat(o.nc_amount) || 0,
+        ncReason: o.nc_reason || null,
         createdAt: o.created_at,
         updatedAt: o.updated_at
       })),
@@ -2901,7 +3022,9 @@ const orderService = {
         cancelledCount: summaryResult[0]?.cancelled_count || 0,
         dineInCount: summaryResult[0]?.dine_in_count || 0,
         takeawayCount: summaryResult[0]?.takeaway_count || 0,
-        deliveryCount: summaryResult[0]?.delivery_count || 0
+        deliveryCount: summaryResult[0]?.delivery_count || 0,
+        ncCount: summaryResult[0]?.nc_count || 0,
+        ncAmount: parseFloat(summaryResult[0]?.nc_amount) || 0
       }
     };
   },

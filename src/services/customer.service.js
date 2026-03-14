@@ -222,12 +222,25 @@ const customerService = {
           SUM(COALESCE(o.total_amount, 0)) AS total_spent,
           MAX(o.created_at) AS last_order_at,
           MIN(o.created_at) AS first_order_at,
-          AVG(COALESCE(o.total_amount, 0)) AS avg_order_value
+          AVG(COALESCE(o.total_amount, 0)) AS avg_order_value,
+          SUM(COALESCE(o.due_amount, 0)) AS total_due
         FROM orders o
         WHERE o.customer_id IS NOT NULL
           AND o.status != 'cancelled'
         GROUP BY o.customer_id
       ) os ON os.customer_id = c.id
+      LEFT JOIN (
+        SELECT
+          o2.customer_id,
+          COUNT(*) AS nc_item_count,
+          COALESCE(SUM(oi.total_price), 0) AS nc_amount
+        FROM order_items oi
+        JOIN orders o2 ON oi.order_id = o2.id
+        WHERE o2.customer_id IS NOT NULL
+          AND o2.status != 'cancelled'
+          AND oi.is_nc = 1 AND oi.status != 'cancelled'
+        GROUP BY o2.customer_id
+      ) nc ON nc.customer_id = c.id
     `;
 
     const whereParts = ['c.outlet_id = ?'];
@@ -363,7 +376,10 @@ const customerService = {
          COALESCE(os.total_spent, c.total_spent, 0) AS total_spent,
          COALESCE(os.last_order_at, c.last_order_at) AS last_order_at,
          os.first_order_at,
-         COALESCE(os.avg_order_value, 0) AS avg_order_value
+         COALESCE(os.avg_order_value, 0) AS avg_order_value,
+         COALESCE(os.total_due, 0) AS total_due,
+         COALESCE(nc.nc_item_count, 0) AS nc_item_count,
+         COALESCE(nc.nc_amount, 0) AS nc_amount
        FROM customers c
        ${statsJoin}
        WHERE ${whereClause}
@@ -397,7 +413,10 @@ const customerService = {
       customers: rows.map((r) => ({
         ...this.formatCustomer(r),
         firstOrderAt: r.first_order_at || null,
-        avgOrderValue: parseFloat(r.avg_order_value) || 0
+        avgOrderValue: parseFloat(r.avg_order_value) || 0,
+        totalDue: parseFloat(r.total_due) || 0,
+        ncItemCount: parseInt(r.nc_item_count) || 0,
+        ncAmount: parseFloat(r.nc_amount) || 0
       })),
       pagination: {
         page: safePage,
@@ -649,6 +668,7 @@ const customerService = {
            o.id, o.uuid, o.order_number, o.order_type, o.status, o.payment_status,
            o.subtotal, o.discount_amount, o.tax_amount, o.total_amount,
            o.paid_amount, o.due_amount,
+           o.is_nc, o.nc_amount, o.nc_reason,
            o.service_charge, o.packaging_charge, o.delivery_charge, o.round_off,
            o.is_interstate, o.customer_gstin, o.customer_company_name,
            o.customer_gst_state, o.customer_gst_state_code,
@@ -664,6 +684,7 @@ const customerService = {
            o.id, o.uuid, o.order_number, o.order_type, o.status, o.payment_status,
            o.subtotal, o.discount_amount, o.tax_amount, o.total_amount,
            o.paid_amount, o.due_amount,
+           o.is_nc, o.nc_amount, o.nc_reason,
            o.service_charge, o.packaging_charge, o.delivery_charge, o.round_off,
            o.is_interstate, o.customer_gstin, o.customer_company_name,
            o.customer_gst_state, o.customer_gst_state_code,
@@ -690,6 +711,7 @@ const customerService = {
            oi.item_name, oi.variant_name, oi.item_type, oi.status,
            oi.quantity, oi.unit_price, oi.base_price,
            oi.discount_amount, oi.tax_amount, oi.total_price,
+           oi.is_nc, oi.nc_reason,
            oi.special_instructions, oi.created_at
          FROM order_items oi
          WHERE oi.order_id IN (${placeholders})
@@ -715,6 +737,8 @@ const customerService = {
           discountAmount: parseFloat(item.discount_amount) || 0,
           taxAmount: parseFloat(item.tax_amount) || 0,
           totalPrice: parseFloat(item.total_price) || 0,
+          isNc: !!item.is_nc,
+          ncReason: item.nc_reason || null,
           specialInstructions: item.special_instructions || null,
           createdAt: item.created_at
         });
@@ -769,6 +793,9 @@ const customerService = {
         totalAmount: parseFloat(o.total_amount) || 0,
         paidAmount: parseFloat(o.paid_amount) || 0,
         dueAmount: parseFloat(o.due_amount) || 0,
+        isNc: !!o.is_nc,
+        ncAmount: parseFloat(o.nc_amount) || 0,
+        ncReason: o.nc_reason || null,
         serviceCharge: parseFloat(o.service_charge) || 0,
         packagingCharge: parseFloat(o.packaging_charge) || 0,
         deliveryCharge: parseFloat(o.delivery_charge) || 0,
@@ -1294,8 +1321,8 @@ const customerService = {
     const customerConditions = ['c.outlet_id = ?', 'c.is_active = 1'];
     const customerParams = [outletId];
 
-    // Build order subquery conditions for search
-    let orderSearchCondition = 'o.due_amount > 0';
+    // Build order subquery conditions for search (exclude cancelled orders)
+    let orderSearchCondition = "o.due_amount > 0 AND o.status != 'cancelled'";
     const orderSearchParams = [];
 
     // Search by customer name, phone, order number, invoice number
@@ -1309,7 +1336,7 @@ const customerService = {
         EXISTS (
           SELECT 1 FROM orders os 
           LEFT JOIN invoices inv ON os.id = inv.order_id AND inv.is_cancelled = 0
-          WHERE os.customer_id = c.id AND os.due_amount > 0 AND (
+          WHERE os.customer_id = c.id AND os.due_amount > 0 AND os.status != 'cancelled' AND (
             os.order_number LIKE ? OR 
             os.id = ? OR
             inv.invoice_number LIKE ? OR
@@ -1369,7 +1396,9 @@ const customerService = {
               od.total_due_collected as calculated_due_collected,
               od.last_due_date,
               od.first_due_date,
-              od.order_numbers
+              od.order_numbers,
+              od.nc_item_count,
+              od.nc_amount
        FROM customers c
        INNER JOIN (
          SELECT o.customer_id, 
@@ -1378,7 +1407,9 @@ const customerService = {
                 SUM(o.paid_amount) as total_due_collected,
                 MAX(o.created_at) as last_due_date,
                 MIN(o.created_at) as first_due_date,
-                GROUP_CONCAT(o.order_number ORDER BY o.created_at DESC SEPARATOR ', ') as order_numbers
+                GROUP_CONCAT(o.order_number ORDER BY o.created_at DESC SEPARATOR ', ') as order_numbers,
+                (SELECT COUNT(*) FROM order_items oi2 WHERE oi2.order_id IN (SELECT o2.id FROM orders o2 WHERE o2.customer_id = o.customer_id AND o2.due_amount > 0 AND o2.status != 'cancelled') AND oi2.is_nc = 1 AND oi2.status != 'cancelled') as nc_item_count,
+                (SELECT COALESCE(SUM(oi2.total_price), 0) FROM order_items oi2 WHERE oi2.order_id IN (SELECT o2.id FROM orders o2 WHERE o2.customer_id = o.customer_id AND o2.due_amount > 0 AND o2.status != 'cancelled') AND oi2.is_nc = 1 AND oi2.status != 'cancelled') as nc_amount
          FROM orders o
          WHERE ${orderSearchCondition}
          GROUP BY o.customer_id
@@ -1433,7 +1464,9 @@ const customerService = {
         pendingDueOrders: r.pending_due_orders || 0,
         lastDueDate: r.last_due_date || null,
         firstDueDate: r.first_due_date || null,
-        pendingOrderNumbers: r.order_numbers || null
+        pendingOrderNumbers: r.order_numbers || null,
+        ncItemCount: parseInt(r.nc_item_count) || 0,
+        ncAmount: parseFloat(r.nc_amount) || 0
       })),
       pagination: {
         page: safePage,
