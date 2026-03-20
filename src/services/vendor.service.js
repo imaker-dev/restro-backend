@@ -14,12 +14,15 @@ const vendorService = {
 
   async list(outletId, options = {}) {
     const pool = getPool();
-    const { page = 1, limit = 50, search, isActive, sortBy = 'name', sortOrder = 'ASC' } = options;
+    const {
+      page = 1, limit = 50, search, isActive, city, state, hasPurchases,
+      sortBy = 'name', sortOrder = 'ASC'
+    } = options;
     const safePage = Math.max(1, parseInt(page) || 1);
     const safeLimit = Math.min(100, Math.max(1, parseInt(limit) || 50));
     const offset = (safePage - 1) * safeLimit;
 
-    const allowedSort = ['name', 'created_at', 'updated_at'];
+    const allowedSort = ['name', 'created_at', 'updated_at', 'city', 'total_purchase_amount', 'last_purchase_date'];
     const safeSortBy = allowedSort.includes(sortBy) ? sortBy : 'name';
     const safeSortOrder = String(sortOrder).toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
 
@@ -30,14 +33,32 @@ const vendorService = {
       where += ' AND v.is_active = ?';
       params.push(isActive ? 1 : 0);
     }
+    if (city) {
+      where += ' AND v.city LIKE ?';
+      params.push(`%${city}%`);
+    }
+    if (state) {
+      where += ' AND v.state LIKE ?';
+      params.push(`%${state}%`);
+    }
     if (search) {
       where += ' AND (v.name LIKE ? OR v.phone LIKE ? OR v.email LIKE ? OR v.contact_person LIKE ? OR v.gst_number LIKE ?)';
       const s = `%${search}%`;
       params.push(s, s, s, s, s);
     }
 
+    // For hasPurchases filter, we need a subquery
+    let havingClause = '';
+    if (typeof hasPurchases === 'boolean') {
+      havingClause = hasPurchases ? 'HAVING purchase_count > 0' : 'HAVING purchase_count = 0';
+    }
+
     const [[{ total }]] = await pool.query(
-      `SELECT COUNT(*) as total FROM vendors v ${where}`, params
+      `SELECT COUNT(*) as total FROM (
+        SELECT v.id,
+          (SELECT COUNT(*) FROM purchases p WHERE p.vendor_id = v.id AND p.status != 'cancelled') as purchase_count
+        FROM vendors v ${where} ${havingClause}
+      ) as filtered`, params
     );
 
     const [rows] = await pool.query(

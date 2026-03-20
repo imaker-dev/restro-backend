@@ -69,17 +69,22 @@ GET /:outletId/units
 
 **Query Parameters:**
 
-| Param    | Type   | Description                          |
-|----------|--------|--------------------------------------|
-| unitType | string | Filter: `weight`, `volume`, `count`  |
-| isActive | bool   | Filter active/inactive               |
-| search   | string | Search by name or abbreviation       |
+| Param      | Type   | Description                                    |
+|------------|--------|------------------------------------------------|
+| unitType   | string | Filter: `weight`, `volume`, `count`            |
+| isActive   | bool   | Filter active/inactive                         |
+| isBaseUnit | bool   | Filter base units only (g, ml, pcs)            |
+| search     | string | Search by name or abbreviation                 |
+| page       | int    | Page number (default: 1)                       |
+| limit      | int    | Items per page (default: 100, max: 200)        |
+| sortBy     | string | `name`, `abbreviation`, `unit_type`, `conversion_factor`, `created_at` |
+| sortOrder  | string | `ASC` or `DESC` (default: ASC)                 |
 
 **Response:**
 ```json
 {
   "success": true,
-  "data": [
+  "units": [
     {
       "id": 1,
       "outletId": 4,
@@ -182,14 +187,17 @@ GET /:outletId/vendors
 
 **Query Parameters:**
 
-| Param     | Type   | Description                |
-|-----------|--------|----------------------------|
-| page      | int    | Page number (default 1)    |
-| limit     | int    | Per page (default 50)      |
-| search    | string | Search name/phone/email    |
-| isActive  | bool   | Filter active/inactive     |
-| sortBy    | string | `name`, `created_at`       |
-| sortOrder | string | `ASC` or `DESC`            |
+| Param        | Type   | Description                                              |
+|--------------|--------|----------------------------------------------------------|
+| page         | int    | Page number (default 1)                                  |
+| limit        | int    | Per page (default 50, max 100)                           |
+| search       | string | Search name/phone/email/contact/GST                      |
+| isActive     | bool   | Filter active/inactive                                   |
+| city         | string | Filter by city (partial match)                           |
+| state        | string | Filter by state (partial match)                          |
+| hasPurchases | bool   | `true` = vendors with purchases, `false` = no purchases  |
+| sortBy       | string | `name`, `created_at`, `updated_at`, `city`, `total_purchase_amount`, `last_purchase_date` |
+| sortOrder    | string | `ASC` or `DESC` (default: ASC)                           |
 
 **Response:**
 ```json
@@ -282,21 +290,32 @@ PUT /vendors/:id
 GET /:outletId/categories
 ```
 
-**Query:** `?isActive=true&search=veg`
+**Query Parameters:**
+
+| Param     | Type   | Description                                      |
+|-----------|--------|--------------------------------------------------|
+| page      | int    | Page number (default 1)                          |
+| limit     | int    | Per page (default 50, max 100)                   |
+| search    | string | Search by name or description                    |
+| isActive  | bool   | Filter active/inactive                           |
+| sortBy    | string | `name`, `display_order`, `created_at`, `item_count` |
+| sortOrder | string | `ASC` or `DESC` (default: ASC)                   |
 
 **Response:**
 ```json
 {
   "success": true,
-  "data": [
+  "categories": [
     {
       "id": 1,
       "name": "Vegetables",
       "description": "Fresh vegetables",
+      "displayOrder": 1,
       "itemCount": 12,
       "isActive": true
     }
-  ]
+  ],
+  "pagination": { "page": 1, "limit": 50, "total": 5, "totalPages": 1 }
 }
 ```
 
@@ -435,7 +454,21 @@ PUT /items/:id
 GET /items/:itemId/batches
 ```
 
-**Query:** `?activeOnly=true&page=1&limit=50`
+**Query Parameters:**
+
+| Param        | Type   | Description                                              |
+|--------------|--------|----------------------------------------------------------|
+| page         | int    | Page number (default 1)                                  |
+| limit        | int    | Per page (default 50, max 100)                           |
+| activeOnly   | bool   | `true` = only batches with remaining stock               |
+| search       | string | Search by batch code, vendor name, or notes              |
+| vendorId     | int    | Filter by vendor                                         |
+| startDate    | date   | Purchase date from (YYYY-MM-DD)                          |
+| endDate      | date   | Purchase date to (YYYY-MM-DD)                            |
+| expiringSoon | bool   | `true` = batches expiring within 7 days                  |
+| expired      | bool   | `true` = already expired batches                         |
+| sortBy       | string | `purchase_date`, `expiry_date`, `quantity`, `remaining_quantity`, `purchase_price`, `created_at` |
+| sortOrder    | string | `ASC` or `DESC` (default: DESC)                          |
 
 **Response:**
 ```json
@@ -470,15 +503,19 @@ GET /:outletId/movements
 
 **Query Parameters:**
 
-| Param           | Type   | Description                                         |
-|-----------------|--------|-----------------------------------------------------|
-| inventoryItemId | int    | Filter by item (use this instead of separate ledger) |
+| Param           | Type   | Description                                              |
+|-----------------|--------|----------------------------------------------------------|
+| page            | int    | Page number (default 1)                                  |
+| limit           | int    | Per page (default 50, max 100)                           |
+| inventoryItemId | int    | Filter by item (use this for stock ledger)               |
 | movementType    | string | `purchase`, `sale`, `production`, `wastage`, `adjustment` |
-| startDate       | date   | `YYYY-MM-DD`                                        |
-| endDate         | date   | `YYYY-MM-DD`                                        |
-| batchId         | int    | Filter by batch                                     |
-| page            | int    | Page number                                         |
-| limit           | int    | Per page                                            |
+| startDate       | date   | From date (YYYY-MM-DD)                                   |
+| endDate         | date   | To date (YYYY-MM-DD)                                     |
+| batchId         | int    | Filter by batch                                          |
+| createdBy       | int    | Filter by user ID who created the movement               |
+| search          | string | Search by item name, batch code, notes, or user name     |
+| sortBy          | string | `created_at`, `quantity`, `movement_type`, `balance_after` |
+| sortOrder       | string | `ASC` or `DESC` (default: DESC)                          |
 
 **Response:**
 ```json
@@ -522,13 +559,23 @@ POST /:outletId/adjustments
 ```json
 {
   "inventoryItemId": 1,
+  "batchId": 42,
   "quantity": 500,
   "reason": "Physical stock count correction"
 }
 ```
 
-> Use **positive** quantity to add stock, **negative** to reduce.
-> Negative adjustments deduct from batches using FIFO.
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `inventoryItemId` | number | ✅ | ID of the inventory item |
+| `batchId` | number | ✅ | ID of the specific batch to adjust |
+| `quantity` | number | ✅ | Adjustment amount (positive = increase, negative = decrease) |
+| `reason` | string | ❌ | Reason for adjustment |
+
+> **Important:** `batchId` is **required**. You must specify which batch to adjust.
+> - Use **positive** quantity to add stock to the batch.
+> - Use **negative** quantity to reduce stock from the batch.
+> - Both the batch and total item stock are updated atomically.
 
 **Response:**
 ```json
@@ -536,13 +583,19 @@ POST /:outletId/adjustments
   "success": true,
   "data": {
     "inventoryItemId": 1,
+    "batchId": 42,
+    "batchCode": "BATCH-2025-001",
     "adjustment": 500,
-    "balanceBefore": 10000,
-    "balanceAfter": 10500,
+    "batchRemainingBefore": 1000,
+    "batchRemainingAfter": 1500,
+    "stockBefore": 10000,
+    "stockAfter": 10500,
     "movementType": "adjustment"
   }
 }
 ```
+
+> **Tip:** To get available batches for an item, use `GET /inventory/items/:id` which returns all active batches.
 
 ---
 
@@ -586,6 +639,18 @@ POST /:outletId/wastage
 ```
 GET /:outletId/stock-summary
 ```
+
+**Query Parameters:**
+
+| Param        | Type   | Description                                              |
+|--------------|--------|----------------------------------------------------------|
+| categoryId   | int    | Filter by category                                       |
+| search       | string | Search by item name, SKU, or category name               |
+| lowStockOnly | bool   | `true` = only items where stock ≤ minimum                |
+| zeroStock    | bool   | `true` = only items with zero stock                      |
+| hasStock     | bool   | `true` = only items with stock > 0                       |
+| sortBy       | string | `name`, `current_stock`, `stock_value`, `average_price`, `category_name` |
+| sortOrder    | string | `ASC` or `DESC` (default: ASC)                           |
 
 **Response:**
 ```json
@@ -726,10 +791,34 @@ GET /purchases/:id
         "batchCode": "B-3-250315-077",
         "expiryDate": null
       }
+    ],
+    "payments": [
+      {
+        "id": 1,
+        "amount": 2500,
+        "paymentMethod": "cash",
+        "paymentReference": null,
+        "paymentDate": "2025-03-15",
+        "notes": "Initial payment at purchase",
+        "createdByName": "Admin",
+        "createdAt": "2025-03-15T10:00:00.000Z"
+      },
+      {
+        "id": 2,
+        "amount": 1700,
+        "paymentMethod": "upi",
+        "paymentReference": "UPI123456",
+        "paymentDate": "2025-03-20",
+        "notes": "Balance payment",
+        "createdByName": "Manager",
+        "createdAt": "2025-03-20T14:30:00.000Z"
+      }
     ]
   }
 }
 ```
+
+> **Note:** The `payments` array shows all individual payments made against this purchase in chronological order.
 
 ---
 
@@ -829,7 +918,9 @@ POST /purchases/:id/cancel
 
 ---
 
-### 4.5 Update Purchase Payment
+### 4.5 Record Purchase Payment
+
+Records a payment against a purchase. **This ADDS to the existing paid amount** (does not replace).
 
 ```
 PUT /purchases/:id/payment
@@ -838,11 +929,38 @@ PUT /purchases/:id/payment
 **Payload:**
 ```json
 {
-  "paidAmount": 2000
+  "amount": 500,
+  "paymentMethod": "upi",
+  "paymentReference": "UPI123456789",
+  "paymentDate": "2025-03-20",
+  "notes": "Balance payment"
 }
 ```
 
-**Response:** Full purchase object with updated `paidAmount`, `dueAmount`, `paymentStatus`.
+| Field            | Type   | Required | Description                                      |
+|------------------|--------|----------|--------------------------------------------------|
+| amount           | number | Yes      | Payment amount to ADD to existing paid amount    |
+| paymentMethod    | string | No       | `cash`, `upi`, `card`, `bank_transfer`, `cheque`, `other` (default: cash) |
+| paymentReference | string | No       | Reference number (UPI ID, cheque no, etc.)       |
+| paymentDate      | date   | No       | Payment date (default: today)                    |
+| notes            | string | No       | Payment notes                                    |
+
+**Example Flow:**
+```
+Purchase Total: ₹3000
+Initial Payment: ₹2500 (at purchase creation)
+  → paidAmount: 2500, dueAmount: 500, status: partial
+
+Later Payment: PUT /purchases/1/payment { "amount": 500 }
+  → paidAmount: 3000, dueAmount: 0, status: paid
+```
+
+**Response:** Full purchase object with updated `paidAmount`, `dueAmount`, `paymentStatus`, and `payments` array.
+
+**Validation:**
+- `amount` must be > 0
+- `amount` cannot exceed `dueAmount`
+- Cannot pay cancelled purchases
 
 Payment status is auto-calculated:
 - `paidAmount >= totalAmount` → `"paid"`

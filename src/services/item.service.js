@@ -339,13 +339,95 @@ const itemService = {
       [id]
     );
 
+    // Get recipe details with ingredients
+    let recipes = [];
+    const [recipeRows] = await pool.query(
+      `SELECT r.id, r.name, r.variant_id, r.portion_size,
+        r.is_current, r.is_active, r.created_at
+       FROM recipes r
+       WHERE r.menu_item_id = ? AND r.is_active = 1
+       ORDER BY r.is_current DESC, r.created_at DESC`,
+      [id]
+    );
+    for (const recipe of recipeRows) {
+      const [ingredients] = await pool.query(
+        `SELECT ri.id as recipe_ingredient_id, ri.quantity, ri.unit_id,
+          ri.wastage_percentage as ri_wastage_pct,
+          ing.id as ingredient_id, ing.name as ingredient_name,
+          ing.wastage_percentage, ing.yield_percentage,
+          ii.id as inventory_item_id, ii.name as inventory_item_name,
+          ii.current_stock, ii.average_price,
+          COALESCE(pu.abbreviation, bu.abbreviation) as unit_abbreviation,
+          COALESCE(pu.conversion_factor, 1) as purchase_conversion_factor,
+          ru.abbreviation as recipe_unit_abbreviation,
+          ru.conversion_factor as recipe_unit_cf
+         FROM recipe_ingredients ri
+         JOIN ingredients ing ON ri.ingredient_id = ing.id
+         LEFT JOIN inventory_items ii ON ing.inventory_item_id = ii.id
+         LEFT JOIN units bu ON ii.base_unit_id = bu.id
+         LEFT JOIN units pu ON ii.purchase_unit_id = pu.id
+         LEFT JOIN units ru ON ri.unit_id = ru.id
+         WHERE ri.recipe_id = ?
+         ORDER BY ing.name`,
+        [recipe.id]
+      );
+
+      recipes.push({
+        id: recipe.id,
+        name: recipe.name,
+        variantId: recipe.variant_id || null,
+        portionSize: recipe.portion_size || null,
+        isCurrent: !!recipe.is_current,
+        ingredients: ingredients.map(ing => {
+          const cf = parseFloat(ing.purchase_conversion_factor) || 1;
+          const recipeUnitCf = parseFloat(ing.recipe_unit_cf) || 1;
+          const qty = parseFloat(ing.quantity) || 0;
+          const avgPrice = parseFloat(ing.average_price) || 0;
+          const stock = parseFloat(ing.current_stock) || 0;
+          const wastage = parseFloat(ing.ri_wastage_pct) || parseFloat(ing.wastage_percentage) || 0;
+          const yieldPct = parseFloat(ing.yield_percentage) || 100;
+          const effectiveQty = qty * recipeUnitCf * (1 + wastage / 100) * (100 / yieldPct);
+          const costPerPortion = effectiveQty * avgPrice;
+
+          return {
+            ingredientId: ing.ingredient_id,
+            ingredientName: ing.ingredient_name,
+            inventoryItemId: ing.inventory_item_id,
+            inventoryItemName: ing.inventory_item_name,
+            quantity: qty,
+            recipeUnit: ing.recipe_unit_abbreviation || ing.unit_abbreviation,
+            effectiveQtyBase: parseFloat(effectiveQty.toFixed(4)),
+            displayQty: parseFloat((effectiveQty / cf).toFixed(4)),
+            displayUnit: ing.unit_abbreviation,
+            wastagePercentage: wastage,
+            yieldPercentage: yieldPct,
+            costPerPortion: parseFloat(costPerPortion.toFixed(2)),
+            currentStock: parseFloat((stock / cf).toFixed(4)),
+            stockUnit: ing.unit_abbreviation
+          };
+        }),
+        totalCostPerPortion: parseFloat(
+          ingredients.reduce((sum, ing) => {
+            const recipeUnitCf = parseFloat(ing.recipe_unit_cf) || 1;
+            const qty = parseFloat(ing.quantity) || 0;
+            const avgPrice = parseFloat(ing.average_price) || 0;
+            const wastage = parseFloat(ing.ri_wastage_pct) || parseFloat(ing.wastage_percentage) || 0;
+            const yieldPct = parseFloat(ing.yield_percentage) || 100;
+            const effectiveQty = qty * recipeUnitCf * (1 + wastage / 100) * (100 / yieldPct);
+            return sum + effectiveQty * avgPrice;
+          }, 0).toFixed(2)
+        )
+      });
+    }
+
     return {
       ...item,
       variants,
       addonGroups,
       visibility: { floors, sections, timeSlots },
       kitchenStations: stations,
-      counters
+      counters,
+      recipes
     };
   },
 

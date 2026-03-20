@@ -140,6 +140,27 @@ const purchaseService = {
       notes: i.notes || null
     }));
 
+    // Get payment history
+    const [payments] = await pool.query(
+      `SELECT pp.*, u.name as created_by_name
+       FROM purchase_payments pp
+       LEFT JOIN users u ON pp.created_by = u.id
+       WHERE pp.purchase_id = ?
+       ORDER BY pp.payment_date ASC, pp.id ASC`,
+      [id]
+    );
+
+    purchase.payments = payments.map(p => ({
+      id: p.id,
+      amount: parseFloat(p.amount),
+      paymentMethod: p.payment_method,
+      paymentReference: p.payment_reference || null,
+      paymentDate: p.payment_date,
+      notes: p.notes || null,
+      createdByName: p.created_by_name || null,
+      createdAt: p.created_at
+    }));
+
     return purchase;
   },
 
@@ -282,6 +303,23 @@ const purchaseService = {
         });
       }
 
+      // Record initial payment if paidAmount > 0
+      if (paidAmount > 0) {
+        await connection.query(
+          `INSERT INTO purchase_payments 
+           (purchase_id, amount, payment_method, payment_date, notes, created_by)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [
+            purchaseId,
+            paidAmount,
+            data.paymentMethod || 'cash',
+            purchaseDate,
+            'Initial payment at purchase',
+            userId
+          ]
+        );
+      }
+
       await connection.commit();
 
       logger.info(`Purchase ${purchaseNumber} created with ${processedItems.length} items for outlet ${outletId}`);
@@ -383,32 +421,117 @@ const purchaseService = {
   },
 
   /**
-   * Update purchase payment
+   * Record a payment against a purchase
+   * This ADDS to the existing paid amount (not replaces)
    */
-  async updatePayment(purchaseId, data) {
+  async updatePayment(purchaseId, data, userId = null) {
     const pool = getPool();
-    const { paidAmount } = data;
+    const {
+      amount,
+      paymentMethod = 'cash',
+      paymentReference,
+      paymentDate,
+      notes
+    } = data;
+
+    // Support legacy 'paidAmount' field for backward compatibility
+    const paymentAmount = parseFloat(amount || data.paidAmount);
 
     const [[purchase]] = await pool.query('SELECT * FROM purchases WHERE id = ?', [purchaseId]);
     if (!purchase) throw new Error('Purchase not found');
     if (purchase.status === 'cancelled') throw new Error('Cannot update cancelled purchase');
 
+    if (!paymentAmount || paymentAmount <= 0) {
+      throw new Error('Payment amount must be greater than 0');
+    }
+
     const totalAmount = parseFloat(purchase.total_amount);
-    const newPaid = parseFloat(paidAmount);
-    if (newPaid < 0) throw new Error('Paid amount cannot be negative');
-    if (newPaid > totalAmount) throw new Error('Paid amount exceeds total');
+    const currentPaid = parseFloat(purchase.paid_amount) || 0;
+    const currentDue = parseFloat(purchase.due_amount) || totalAmount;
 
-    const dueAmount = parseFloat((totalAmount - newPaid).toFixed(2));
+    // Check if payment exceeds due amount
+    if (paymentAmount > currentDue + 0.01) { // small tolerance for rounding
+      throw new Error(`Payment amount (${paymentAmount}) exceeds due amount (${currentDue})`);
+    }
+
+    // Calculate new totals
+    const newPaidTotal = parseFloat((currentPaid + paymentAmount).toFixed(2));
+    const newDueAmount = parseFloat((totalAmount - newPaidTotal).toFixed(2));
+
     let paymentStatus = 'unpaid';
-    if (newPaid >= totalAmount) paymentStatus = 'paid';
-    else if (newPaid > 0) paymentStatus = 'partial';
+    if (newPaidTotal >= totalAmount - 0.01) paymentStatus = 'paid';
+    else if (newPaidTotal > 0) paymentStatus = 'partial';
 
-    await pool.query(
-      'UPDATE purchases SET paid_amount = ?, due_amount = ?, payment_status = ? WHERE id = ?',
-      [newPaid, dueAmount, paymentStatus, purchaseId]
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      // Record the payment in purchase_payments table
+      await connection.query(
+        `INSERT INTO purchase_payments 
+         (purchase_id, amount, payment_method, payment_reference, payment_date, notes, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          purchaseId,
+          paymentAmount,
+          paymentMethod,
+          paymentReference || null,
+          paymentDate || new Date().toISOString().split('T')[0],
+          notes || null,
+          userId
+        ]
+      );
+
+      // Update purchase totals
+      await connection.query(
+        'UPDATE purchases SET paid_amount = ?, due_amount = ?, payment_status = ? WHERE id = ?',
+        [newPaidTotal, Math.max(0, newDueAmount), paymentStatus, purchaseId]
+      );
+
+      await connection.commit();
+
+      logger.info(`Payment of ${paymentAmount} recorded for purchase ${purchase.purchase_number}. New total paid: ${newPaidTotal}`);
+
+      return this.getById(purchaseId);
+
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  },
+
+  /**
+   * Get payment history for a purchase
+   */
+  async getPaymentHistory(purchaseId) {
+    const pool = getPool();
+
+    const [[purchase]] = await pool.query('SELECT id FROM purchases WHERE id = ?', [purchaseId]);
+    if (!purchase) throw new Error('Purchase not found');
+
+    const [payments] = await pool.query(
+      `SELECT pp.*, u.name as created_by_name
+       FROM purchase_payments pp
+       LEFT JOIN users u ON pp.created_by = u.id
+       WHERE pp.purchase_id = ?
+       ORDER BY pp.payment_date DESC, pp.id DESC`,
+      [purchaseId]
     );
 
-    return this.getById(purchaseId);
+    return payments.map(p => ({
+      id: p.id,
+      purchaseId: p.purchase_id,
+      amount: parseFloat(p.amount),
+      paymentMethod: p.payment_method,
+      paymentReference: p.payment_reference || null,
+      paymentDate: p.payment_date,
+      notes: p.notes || null,
+      createdBy: p.created_by,
+      createdByName: p.created_by_name || null,
+      createdAt: p.created_at
+    }));
   },
 
   /**

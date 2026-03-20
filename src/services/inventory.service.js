@@ -16,7 +16,17 @@ const inventoryService = {
 
   async listCategories(outletId, options = {}) {
     const pool = getPool();
-    const { isActive, search } = options;
+    const {
+      page = 1, limit = 50, search, isActive,
+      sortBy = 'display_order', sortOrder = 'ASC'
+    } = options;
+    const safePage = Math.max(1, parseInt(page) || 1);
+    const safeLimit = Math.min(100, Math.max(1, parseInt(limit) || 50));
+    const offset = (safePage - 1) * safeLimit;
+
+    const allowedSort = ['name', 'display_order', 'created_at', 'item_count'];
+    const safeSortBy = allowedSort.includes(sortBy) ? sortBy : 'display_order';
+    const safeSortOrder = String(sortOrder).toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
 
     let where = 'WHERE ic.outlet_id = ?';
     const params = [outletId];
@@ -26,29 +36,47 @@ const inventoryService = {
       params.push(isActive ? 1 : 0);
     }
     if (search) {
-      where += ' AND ic.name LIKE ?';
-      params.push(`%${search}%`);
+      where += ' AND (ic.name LIKE ? OR ic.description LIKE ?)';
+      const s = `%${search}%`;
+      params.push(s, s);
     }
+
+    const [[{ total }]] = await pool.query(
+      `SELECT COUNT(*) as total FROM inventory_categories ic ${where}`, params
+    );
+
+    const orderClause = safeSortBy === 'item_count'
+      ? `item_count ${safeSortOrder}, ic.name ASC`
+      : `ic.${safeSortBy} ${safeSortOrder}, ic.name ASC`;
 
     const [rows] = await pool.query(
       `SELECT ic.*,
         (SELECT COUNT(*) FROM inventory_items ii WHERE ii.category_id = ic.id AND ii.is_active = 1) as item_count
        FROM inventory_categories ic ${where}
-       ORDER BY ic.display_order, ic.name`,
-      params
+       ORDER BY ${orderClause}
+       LIMIT ? OFFSET ?`,
+      [...params, safeLimit, offset]
     );
 
-    return rows.map(r => ({
-      id: r.id,
-      outletId: r.outlet_id,
-      name: r.name,
-      description: r.description || null,
-      displayOrder: r.display_order || 0,
-      isActive: !!r.is_active,
-      itemCount: parseInt(r.item_count) || 0,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at
-    }));
+    return {
+      categories: rows.map(r => ({
+        id: r.id,
+        outletId: r.outlet_id,
+        name: r.name,
+        description: r.description || null,
+        displayOrder: r.display_order || 0,
+        isActive: !!r.is_active,
+        itemCount: parseInt(r.item_count) || 0,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at
+      })),
+      pagination: {
+        page: safePage,
+        limit: safeLimit,
+        total,
+        totalPages: Math.ceil(total / safeLimit)
+      }
+    };
   },
 
   async createCategory(outletId, data) {
@@ -159,8 +187,35 @@ const inventoryService = {
       [...params, safeLimit, offset]
     );
 
+    // Fetch active batches for all returned items in one query
+    const itemIds = rows.map(r => r.id);
+    let batchMap = {};
+    if (itemIds.length > 0) {
+      const [allBatches] = await pool.query(
+        `SELECT ib.*, v.name as vendor_name,
+          COALESCE(pu.abbreviation, bu.abbreviation) as purchase_unit_abbreviation,
+          COALESCE(pu.conversion_factor, 1) as purchase_conversion_factor
+         FROM inventory_batches ib
+         LEFT JOIN vendors v ON ib.vendor_id = v.id
+         LEFT JOIN inventory_items ii ON ib.inventory_item_id = ii.id
+         LEFT JOIN units bu ON ii.base_unit_id = bu.id
+         LEFT JOIN units pu ON ii.purchase_unit_id = pu.id
+         WHERE ib.inventory_item_id IN (${itemIds.map(() => '?').join(',')})
+           AND ib.is_active = 1 AND ib.remaining_quantity > 0
+         ORDER BY ib.purchase_date ASC, ib.id ASC`,
+        itemIds
+      );
+      for (const b of allBatches) {
+        if (!batchMap[b.inventory_item_id]) batchMap[b.inventory_item_id] = [];
+        batchMap[b.inventory_item_id].push(this.formatBatch(b));
+      }
+    }
+
     return {
-      items: rows.map(r => this.formatItem(r)),
+      items: rows.map(r => ({
+        ...this.formatItem(r),
+        batches: batchMap[r.id] || []
+      })),
       pagination: {
         page: safePage,
         limit: safeLimit,
@@ -175,6 +230,7 @@ const inventoryService = {
     const [rows] = await pool.query(
       `SELECT ii.*, ic.name as category_name,
         bu.name as base_unit_name, bu.abbreviation as base_unit_abbreviation,
+        bu.conversion_factor as base_unit_conversion_factor,
         COALESCE(pu.id, bu.id) as pu_id,
         COALESCE(pu.name, bu.name) as purchase_unit_name,
         COALESCE(pu.abbreviation, bu.abbreviation) as purchase_unit_abbreviation,
@@ -187,7 +243,51 @@ const inventoryService = {
        WHERE ii.id = ?`,
       [id]
     );
-    return rows[0] ? this.formatItem(rows[0]) : null;
+    if (!rows[0]) return null;
+
+    const item = this.formatItem(rows[0]);
+
+    // Include active batches for detail view
+    const [batches] = await pool.query(
+      `SELECT ib.*, v.name as vendor_name,
+        COALESCE(pu.abbreviation, bu.abbreviation) as purchase_unit_abbreviation,
+        COALESCE(pu.conversion_factor, 1) as purchase_conversion_factor
+       FROM inventory_batches ib
+       LEFT JOIN vendors v ON ib.vendor_id = v.id
+       LEFT JOIN inventory_items ii ON ib.inventory_item_id = ii.id
+       LEFT JOIN units bu ON ii.base_unit_id = bu.id
+       LEFT JOIN units pu ON ii.purchase_unit_id = pu.id
+       WHERE ib.inventory_item_id = ? AND ib.is_active = 1
+       ORDER BY ib.purchase_date ASC, ib.id ASC`,
+      [id]
+    );
+
+    const cf = parseFloat(rows[0].purchase_conversion_factor) || 1;
+    const rawStock = parseFloat(rows[0].current_stock) || 0;
+    const rawAvgPrice = parseFloat(rows[0].average_price) || 0;
+
+    item.batches = batches.map(b => this.formatBatch(b));
+
+    // Stock value summary
+    const totalStockValue = parseFloat((rawStock * rawAvgPrice).toFixed(2));
+    item.stockValue = {
+      totalValue: totalStockValue,
+      displayTotalValue: totalStockValue,
+      activeBatches: item.batches.filter(b => !b.isExhausted).length,
+      exhaustedBatches: item.batches.filter(b => b.isExhausted).length
+    };
+
+    // Internal pricing info (per system base unit — gram/ml/pcs)
+    item.internalPricing = {
+      baseUnitName: rows[0].base_unit_name,
+      baseUnitAbbreviation: rows[0].base_unit_abbreviation,
+      averagePricePerBaseUnit: rawAvgPrice,
+      latestPricePerBaseUnit: parseFloat(rows[0].latest_price) || 0,
+      currentStockInBaseUnit: rawStock,
+      purchaseConversionFactor: cf
+    };
+
+    return item;
   },
 
   async createItem(outletId, data) {
@@ -324,10 +424,18 @@ const inventoryService = {
 
   async listBatches(inventoryItemId, options = {}) {
     const pool = getPool();
-    const { activeOnly = false, page = 1, limit = 50 } = options;
+    const {
+      activeOnly = false, page = 1, limit = 50,
+      search, vendorId, startDate, endDate, expiringSoon, expired,
+      sortBy = 'purchase_date', sortOrder = 'DESC'
+    } = options;
     const safePage = Math.max(1, parseInt(page) || 1);
     const safeLimit = Math.min(100, Math.max(1, parseInt(limit) || 50));
     const offset = (safePage - 1) * safeLimit;
+
+    const allowedSort = ['purchase_date', 'expiry_date', 'quantity', 'remaining_quantity', 'purchase_price', 'created_at'];
+    const safeSortBy = allowedSort.includes(sortBy) ? sortBy : 'purchase_date';
+    const safeSortOrder = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
     let where = 'WHERE ib.inventory_item_id = ?';
     const params = [inventoryItemId];
@@ -335,9 +443,35 @@ const inventoryService = {
     if (activeOnly) {
       where += ' AND ib.remaining_quantity > 0 AND ib.is_active = 1';
     }
+    if (vendorId) {
+      where += ' AND ib.vendor_id = ?';
+      params.push(vendorId);
+    }
+    if (search) {
+      where += ' AND (ib.batch_code LIKE ? OR v.name LIKE ? OR ib.notes LIKE ?)';
+      const s = `%${search}%`;
+      params.push(s, s, s);
+    }
+    if (startDate) {
+      where += ' AND ib.purchase_date >= ?';
+      params.push(startDate);
+    }
+    if (endDate) {
+      where += ' AND ib.purchase_date <= ?';
+      params.push(endDate);
+    }
+    if (expiringSoon) {
+      // Batches expiring within 7 days
+      where += ' AND ib.expiry_date IS NOT NULL AND ib.expiry_date <= DATE_ADD(CURDATE(), INTERVAL 7 DAY) AND ib.expiry_date >= CURDATE()';
+    }
+    if (expired) {
+      where += ' AND ib.expiry_date IS NOT NULL AND ib.expiry_date < CURDATE()';
+    }
 
     const [[{ total }]] = await pool.query(
-      `SELECT COUNT(*) as total FROM inventory_batches ib ${where}`, params
+      `SELECT COUNT(*) as total FROM inventory_batches ib
+       LEFT JOIN vendors v ON ib.vendor_id = v.id
+       ${where}`, params
     );
 
     const [rows] = await pool.query(
@@ -351,7 +485,7 @@ const inventoryService = {
        LEFT JOIN units bu ON ii.base_unit_id = bu.id
        LEFT JOIN units pu ON ii.purchase_unit_id = pu.id
        ${where}
-       ORDER BY ib.purchase_date DESC, ib.id DESC
+       ORDER BY ib.${safeSortBy} ${safeSortOrder}, ib.id DESC
        LIMIT ? OFFSET ?`,
       [...params, safeLimit, offset]
     );
@@ -456,11 +590,16 @@ const inventoryService = {
     const pool = getPool();
     const {
       page = 1, limit = 50, inventoryItemId, movementType,
-      startDate, endDate, batchId
+      startDate, endDate, batchId, search, createdBy,
+      sortBy = 'created_at', sortOrder = 'DESC'
     } = options;
     const safePage = Math.max(1, parseInt(page) || 1);
     const safeLimit = Math.min(100, Math.max(1, parseInt(limit) || 50));
     const offset = (safePage - 1) * safeLimit;
+
+    const allowedSort = ['created_at', 'quantity', 'movement_type', 'balance_after'];
+    const safeSortBy = allowedSort.includes(sortBy) ? sortBy : 'created_at';
+    const safeSortOrder = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
     let where = 'WHERE im.outlet_id = ?';
     const params = [outletId];
@@ -485,9 +624,22 @@ const inventoryService = {
       where += ' AND DATE(im.created_at) <= ?';
       params.push(endDate);
     }
+    if (createdBy) {
+      where += ' AND im.created_by = ?';
+      params.push(createdBy);
+    }
+    if (search) {
+      where += ' AND (ii.name LIKE ? OR ib.batch_code LIKE ? OR im.notes LIKE ? OR usr.name LIKE ?)';
+      const s = `%${search}%`;
+      params.push(s, s, s, s);
+    }
 
     const [[{ total }]] = await pool.query(
-      `SELECT COUNT(*) as total FROM inventory_movements im ${where}`, params
+      `SELECT COUNT(*) as total FROM inventory_movements im
+       LEFT JOIN inventory_items ii ON im.inventory_item_id = ii.id
+       LEFT JOIN inventory_batches ib ON im.inventory_batch_id = ib.id
+       LEFT JOIN users usr ON im.created_by = usr.id
+       ${where}`, params
     );
 
     const [rows] = await pool.query(
@@ -502,7 +654,7 @@ const inventoryService = {
        LEFT JOIN inventory_batches ib ON im.inventory_batch_id = ib.id
        LEFT JOIN users usr ON im.created_by = usr.id
        ${where}
-       ORDER BY im.created_at DESC, im.id DESC
+       ORDER BY im.${safeSortBy} ${safeSortOrder}, im.id DESC
        LIMIT ? OFFSET ?`,
       [...params, safeLimit, offset]
     );
@@ -514,8 +666,9 @@ const inventoryService = {
   },
 
   /**
-   * Record a stock adjustment (increase or decrease)
-   * Positive quantity = increase, negative = decrease
+   * Record a stock adjustment (increase or decrease) on a SPECIFIC batch
+   * Positive quantity = increase batch, negative = decrease batch
+   * batchId is REQUIRED — user must specify which batch to adjust
    */
   async recordAdjustment(outletId, data, userId) {
     const pool = getPool();
@@ -524,9 +677,12 @@ const inventoryService = {
     try {
       await connection.beginTransaction();
 
-      const { inventoryItemId, quantity, reason } = data;
+      const { inventoryItemId, batchId, quantity, reason } = data;
       if (!inventoryItemId || quantity === undefined || quantity === 0) {
         throw new Error('inventoryItemId and non-zero quantity are required');
+      }
+      if (!batchId) {
+        throw new Error('batchId is required — you must specify which batch to adjust');
       }
 
       // Get item with purchase unit conversion factor
@@ -540,25 +696,43 @@ const inventoryService = {
       );
       if (!item) throw new Error('Inventory item not found');
 
+      // Verify batch belongs to this item
+      const [[batch]] = await connection.query(
+        `SELECT id, remaining_quantity, batch_code FROM inventory_batches
+         WHERE id = ? AND inventory_item_id = ? AND is_active = 1 FOR UPDATE`,
+        [batchId, inventoryItemId]
+      );
+      if (!batch) throw new Error('Batch not found or does not belong to this inventory item');
+
       const cf = parseFloat(item.purchase_cf) || 1;
       // User sends quantity in purchase unit (e.g., 5 KG) → convert to base (5000 g)
       const qtyInBase = quantity * cf;
 
+      const batchRemaining = parseFloat(batch.remaining_quantity);
+      const newBatchRemaining = batchRemaining + qtyInBase;
+
+      // Validate batch won't go negative
+      if (newBatchRemaining < 0) {
+        const displayRemaining = parseFloat((batchRemaining / cf).toFixed(4));
+        throw new Error(`Adjustment would result in negative batch quantity (batch ${batch.batch_code} has ${displayRemaining}, adjustment: ${quantity})`);
+      }
+
       const balanceBefore = parseFloat(item.current_stock);
       const balanceAfter = balanceBefore + qtyInBase;
 
+      // Validate total stock won't go negative
       if (balanceAfter < 0) {
         const displayBefore = parseFloat((balanceBefore / cf).toFixed(4));
         throw new Error(`Adjustment would result in negative stock (current: ${displayBefore}, adjustment: ${quantity})`);
       }
 
-      // If decreasing, deduct from batches (FIFO)
-      let batchId = null;
-      if (qtyInBase < 0) {
-        batchId = await this._deductFromBatches(connection, inventoryItemId, Math.abs(qtyInBase));
-      }
+      // Update batch remaining quantity
+      await connection.query(
+        'UPDATE inventory_batches SET remaining_quantity = ? WHERE id = ?',
+        [newBatchRemaining, batchId]
+      );
 
-      // Update stock (base unit)
+      // Update item total stock (base unit)
       await connection.query(
         'UPDATE inventory_items SET current_stock = ? WHERE id = ?',
         [balanceAfter, inventoryItemId]
@@ -579,9 +753,13 @@ const inventoryService = {
       // Return in purchase unit
       return {
         inventoryItemId,
+        batchId,
+        batchCode: batch.batch_code,
         adjustment: quantity,
-        balanceBefore: parseFloat((balanceBefore / cf).toFixed(4)),
-        balanceAfter: parseFloat((balanceAfter / cf).toFixed(4)),
+        batchRemainingBefore: parseFloat((batchRemaining / cf).toFixed(4)),
+        batchRemainingAfter: parseFloat((newBatchRemaining / cf).toFixed(4)),
+        stockBefore: parseFloat((balanceBefore / cf).toFixed(4)),
+        stockAfter: parseFloat((balanceAfter / cf).toFixed(4)),
         movementType: 'adjustment'
       };
     } catch (error) {
@@ -734,8 +912,41 @@ const inventoryService = {
   // STOCK SUMMARY / REPORTS
   // ========================
 
-  async getStockSummary(outletId) {
+  async getStockSummary(outletId, options = {}) {
     const pool = getPool();
+    const {
+      categoryId, search, lowStockOnly, zeroStock, hasStock,
+      sortBy = 'name', sortOrder = 'ASC'
+    } = options;
+
+    const allowedSort = ['name', 'current_stock', 'stock_value', 'average_price', 'category_name'];
+    const safeSortBy = allowedSort.includes(sortBy) ? sortBy : 'name';
+    const safeSortOrder = String(sortOrder).toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+
+    let where = 'WHERE ii.outlet_id = ? AND ii.is_active = 1';
+    const params = [outletId];
+
+    if (categoryId) {
+      where += ' AND ii.category_id = ?';
+      params.push(categoryId);
+    }
+    if (search) {
+      where += ' AND (ii.name LIKE ? OR ii.sku LIKE ? OR ic.name LIKE ?)';
+      const s = `%${search}%`;
+      params.push(s, s, s);
+    }
+    if (zeroStock) {
+      where += ' AND ii.current_stock = 0';
+    }
+    if (hasStock) {
+      where += ' AND ii.current_stock > 0';
+    }
+
+    const orderClause = safeSortBy === 'category_name'
+      ? `ic.name ${safeSortOrder}, ii.name ASC`
+      : safeSortBy === 'stock_value'
+        ? `(ii.current_stock * ii.average_price) ${safeSortOrder}`
+        : `ii.${safeSortBy} ${safeSortOrder}`;
 
     const [rows] = await pool.query(
       `SELECT ii.*, ic.name as category_name,
@@ -750,15 +961,24 @@ const inventoryService = {
        LEFT JOIN inventory_categories ic ON ii.category_id = ic.id
        LEFT JOIN units bu ON ii.base_unit_id = bu.id
        LEFT JOIN units pu ON ii.purchase_unit_id = pu.id
-       WHERE ii.outlet_id = ? AND ii.is_active = 1
-       ORDER BY ic.name, ii.name`,
-      [outletId]
+       ${where}
+       ORDER BY ${orderClause}`,
+      params
     );
 
-    const totalItems = rows.length;
-    // stock_value = current_stock(base) * average_price(per base) = total ₹ value (unit-independent)
-    const totalStockValue = rows.reduce((s, r) => s + (parseFloat(r.stock_value) || 0), 0);
-    // lowStock: compare display stock vs min stock (both in purchase unit)
+    // Filter low stock items (needs conversion factor check)
+    let filteredRows = rows;
+    if (lowStockOnly) {
+      filteredRows = rows.filter(r => {
+        const cf = parseFloat(r.purchase_conversion_factor) || 1;
+        const displayStock = (parseFloat(r.current_stock) || 0) / cf;
+        const minStock = parseFloat(r.minimum_stock) || 0;
+        return minStock > 0 && displayStock <= minStock;
+      });
+    }
+
+    const totalItems = filteredRows.length;
+    const totalStockValue = filteredRows.reduce((s, r) => s + (parseFloat(r.stock_value) || 0), 0);
     const lowStockItems = rows.filter(r => {
       const cf = parseFloat(r.purchase_conversion_factor) || 1;
       const displayStock = (parseFloat(r.current_stock) || 0) / cf;
@@ -767,7 +987,7 @@ const inventoryService = {
     });
 
     return {
-      items: rows.map(r => ({
+      items: filteredRows.map(r => ({
         ...this.formatItem(r),
         stockValue: parseFloat((parseFloat(r.stock_value) || 0).toFixed(2))
       })),

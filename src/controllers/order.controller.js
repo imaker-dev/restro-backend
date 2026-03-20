@@ -13,6 +13,8 @@ const { getUserFloorIds } = require('../utils/helpers');
 const logger = require('../utils/logger');
 const csvExport = require('../utils/csv-export');
 
+const costSnapshotService = require('../services/costSnapshot.service');
+
 const orderController = {
   // ========================
   // ORDER MANAGEMENT
@@ -1978,6 +1980,21 @@ const orderController = {
       res.send(csv);
     } catch (error) {
       logger.error('Export NC report error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  // ========================
+  // COST SNAPSHOT
+  // ========================
+
+  async getOrderCosts(req, res) {
+    try {
+      const { orderId } = req.params;
+      const result = await costSnapshotService.getOrderCosts(orderId);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      logger.error('Get order costs error:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   }

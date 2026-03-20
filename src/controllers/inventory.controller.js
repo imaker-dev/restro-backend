@@ -26,12 +26,15 @@ const inventoryController = {
       const oid = parseInt(req.params.outletId);
       // Auto-seed default units on first access
       await unitService.seedDefaults(oid);
-      const units = await unitService.list(oid, {
-        unitType: req.query.unitType || undefined,
-        isActive: parseBool(req.query.isActive),
-        search: req.query.search || undefined
+      const { unitType, isActive, isBaseUnit, search, page, limit, sortBy, sortOrder } = req.query;
+      const result = await unitService.list(oid, {
+        unitType: unitType || undefined,
+        isActive: parseBool(isActive),
+        isBaseUnit: parseBool(isBaseUnit),
+        search: search || undefined,
+        page, limit, sortBy, sortOrder
       });
-      res.json({ success: true, data: units });
+      res.json({ success: true, ...result });
     } catch (error) {
       logger.error('List units error:', error);
       res.status(500).json({ success: false, message: error.message });
@@ -63,9 +66,11 @@ const inventoryController = {
 
   async listVendors(req, res) {
     try {
-      const { page, limit, search, isActive, sortBy, sortOrder } = req.query;
+      const { page, limit, search, isActive, city, state, hasPurchases, sortBy, sortOrder } = req.query;
       const result = await vendorService.list(parseInt(req.params.outletId), {
-        page, limit, search, isActive: parseBool(isActive), sortBy, sortOrder
+        page, limit, search, isActive: parseBool(isActive),
+        city, state, hasPurchases: parseBool(hasPurchases),
+        sortBy, sortOrder
       });
       res.json({ success: true, ...result });
     } catch (error) {
@@ -110,10 +115,11 @@ const inventoryController = {
 
   async listCategories(req, res) {
     try {
-      const categories = await inventoryService.listCategories(parseInt(req.params.outletId), {
-        isActive: parseBool(req.query.isActive), search: req.query.search
+      const { page, limit, search, isActive, sortBy, sortOrder } = req.query;
+      const result = await inventoryService.listCategories(parseInt(req.params.outletId), {
+        page, limit, search, isActive: parseBool(isActive), sortBy, sortOrder
       });
-      res.json({ success: true, data: categories });
+      res.json({ success: true, ...result });
     } catch (error) {
       logger.error('List inventory categories error:', error);
       res.status(500).json({ success: false, message: error.message });
@@ -189,9 +195,17 @@ const inventoryController = {
 
   async listBatches(req, res) {
     try {
-      const { activeOnly, page, limit } = req.query;
+      const {
+        activeOnly, page, limit, search, vendorId,
+        startDate, endDate, expiringSoon, expired, sortBy, sortOrder
+      } = req.query;
       const result = await inventoryService.listBatches(parseInt(req.params.itemId), {
-        activeOnly: parseBool(activeOnly), page, limit
+        activeOnly: parseBool(activeOnly), page, limit, search,
+        vendorId: vendorId ? parseInt(vendorId) : undefined,
+        startDate, endDate,
+        expiringSoon: parseBool(expiringSoon),
+        expired: parseBool(expired),
+        sortBy, sortOrder
       });
       res.json({ success: true, ...result });
     } catch (error) {
@@ -202,12 +216,18 @@ const inventoryController = {
 
   async listMovements(req, res) {
     try {
-      const { page, limit, inventoryItemId, movementType, startDate, endDate, batchId } = req.query;
+      const {
+        page, limit, inventoryItemId, movementType, startDate, endDate,
+        batchId, search, createdBy, sortBy, sortOrder
+      } = req.query;
       const result = await inventoryService.listMovements(parseInt(req.params.outletId), {
         page, limit,
         inventoryItemId: inventoryItemId ? parseInt(inventoryItemId) : undefined,
         movementType, startDate, endDate,
-        batchId: batchId ? parseInt(batchId) : undefined
+        batchId: batchId ? parseInt(batchId) : undefined,
+        search,
+        createdBy: createdBy ? parseInt(createdBy) : undefined,
+        sortBy, sortOrder
       });
       res.json({ success: true, ...result });
     } catch (error) {
@@ -242,7 +262,15 @@ const inventoryController = {
 
   async getStockSummary(req, res) {
     try {
-      const result = await inventoryService.getStockSummary(parseInt(req.params.outletId));
+      const { categoryId, search, lowStockOnly, zeroStock, hasStock, sortBy, sortOrder } = req.query;
+      const result = await inventoryService.getStockSummary(parseInt(req.params.outletId), {
+        categoryId: categoryId ? parseInt(categoryId) : undefined,
+        search,
+        lowStockOnly: parseBool(lowStockOnly),
+        zeroStock: parseBool(zeroStock),
+        hasStock: parseBool(hasStock),
+        sortBy, sortOrder
+      });
       res.json({ success: true, ...result });
     } catch (error) {
       logger.error('Get stock summary error:', error);
@@ -301,7 +329,11 @@ const inventoryController = {
 
   async updatePurchasePayment(req, res) {
     try {
-      const purchase = await purchaseService.updatePayment(parseInt(req.params.id), req.body);
+      const purchase = await purchaseService.updatePayment(
+        parseInt(req.params.id),
+        req.body,
+        req.user?.userId
+      );
       res.json({ success: true, data: purchase });
     } catch (error) {
       logger.error('Update purchase payment error:', error);

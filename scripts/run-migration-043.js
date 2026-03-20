@@ -1,0 +1,75 @@
+/**
+ * Run migration 043 — Stock Deduction, Wastage, Reporting
+ * Usage: node scripts/run-migration-043.js
+ */
+require('dotenv').config();
+const mysql = require('mysql2/promise');
+
+async function main() {
+  const pool = await mysql.createPool({
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME
+  });
+
+  const queries = [
+    {
+      label: "Update movement_type ENUM (add sale_reversal)",
+      sql: `ALTER TABLE inventory_movements MODIFY COLUMN movement_type ENUM('purchase','sale','production','wastage','adjustment','production_in','production_out','production_reversal','sale_reversal') NOT NULL`
+    },
+    {
+      label: "Create wastage_logs table",
+      sql: `CREATE TABLE IF NOT EXISTS wastage_logs (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        outlet_id BIGINT UNSIGNED NOT NULL,
+        inventory_item_id BIGINT UNSIGNED NOT NULL,
+        inventory_batch_id BIGINT UNSIGNED,
+        quantity DECIMAL(15, 4) NOT NULL,
+        quantity_in_base DECIMAL(15, 4) NOT NULL,
+        unit_id BIGINT UNSIGNED,
+        unit_cost DECIMAL(12, 4) NOT NULL DEFAULT 0,
+        total_cost DECIMAL(12, 2) NOT NULL DEFAULT 0,
+        wastage_type ENUM('spoilage', 'expired', 'damaged', 'cooking_loss', 'other') NOT NULL DEFAULT 'spoilage',
+        reason TEXT,
+        reported_by BIGINT UNSIGNED,
+        approved_by BIGINT UNSIGNED,
+        wastage_date DATE NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_wastage_outlet (outlet_id),
+        INDEX idx_wastage_item (inventory_item_id),
+        INDEX idx_wastage_batch (inventory_batch_id),
+        INDEX idx_wastage_type (wastage_type),
+        INDEX idx_wastage_date (wastage_date),
+        INDEX idx_wastage_created (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
+    },
+    {
+      label: "Add stock_deducted to order_items",
+      sql: "ALTER TABLE order_items ADD COLUMN stock_deducted TINYINT(1) DEFAULT 0"
+    },
+    {
+      label: "Add stock_reversed to orders",
+      sql: "ALTER TABLE orders ADD COLUMN stock_reversed TINYINT(1) DEFAULT 0"
+    }
+  ];
+
+  for (const q of queries) {
+    try {
+      await pool.query(q.sql);
+      console.log(`✅ ${q.label}`);
+    } catch (e) {
+      if (e.message.includes('Duplicate column') || e.message.includes('already exists')) {
+        console.log(`⏭️  ${q.label} — already exists`);
+      } else {
+        console.log(`❌ ${q.label}: ${e.message}`);
+      }
+    }
+  }
+
+  await pool.end();
+  console.log('\nDone.');
+}
+
+main().catch(err => { console.error(err); process.exit(1); });

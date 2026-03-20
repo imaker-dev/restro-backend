@@ -12,6 +12,8 @@ const tableService = require('./table.service');
 const menuEngineService = require('./menuEngine.service');
 const taxService = require('./tax.service');
 const { prefixImageUrl } = require('../utils/helpers');
+const costSnapshotService = require('./costSnapshot.service');
+const stockDeductionService = require('./stockDeduction.service');
 
 // Order status flow
 const ORDER_STATUS = {
@@ -433,6 +435,16 @@ const orderService = {
             [orderItemId, addon.id, addon.addon_group_id, addon.name, addon.group_name, 1, addon.price, addon.price]
           );
         }
+
+        // Snapshot making cost at order time (for accurate historical reports)
+        await costSnapshotService.snapshotOrderItemCost(connection, {
+          orderId, orderItemId, itemId, variantId, quantity, outletId: order.outlet_id
+        });
+
+        // Deduct stock from inventory (FIFO batch deduction + movements)
+        await stockDeductionService.deductForOrderItem(connection, {
+          orderId, orderItemId, itemId, variantId, quantity, outletId: order.outlet_id, userId: createdBy
+        });
 
         addedItems.push({
           id: orderItemId,
@@ -1666,6 +1678,38 @@ const orderService = {
         }
       }
 
+      // Reverse stock deduction if stock was deducted for this item
+      if (item.stock_deducted) {
+        if (isFullCancel) {
+          await stockDeductionService.reverseForOrderItem(connection, {
+            orderItemId, outletId: item.outlet_id, userId, reason: reason || 'Item cancelled'
+          });
+        } else {
+          // Partial cancel — reverse proportional stock
+          await stockDeductionService.partialReverseForOrderItem(connection, {
+            orderItemId, outletId: item.outlet_id, userId,
+            reason: reason || 'Quantity reduced',
+            cancelQuantity, originalQuantity: item.quantity
+          });
+        }
+      }
+
+      // Update cost snapshot for quantity change
+      if (item.stock_deducted || !isFullCancel) {
+        const newQty = isFullCancel ? 0 : (item.quantity - cancelQuantity);
+        if (newQty > 0) {
+          // Recalculate cost snapshot for reduced quantity
+          await connection.query(
+            `UPDATE order_item_costs SET 
+              making_cost = ROUND(making_cost * ? / ?, 2),
+              selling_price = ROUND(selling_price * ? / ?, 2),
+              profit = ROUND(selling_price * ? / ? - making_cost * ? / ?, 2)
+             WHERE order_item_id = ?`,
+            [newQty, item.quantity, newQty, item.quantity, newQty, item.quantity, newQty, item.quantity, orderItemId]
+          );
+        }
+      }
+
       // Recalculate order totals
       await this.recalculateTotals(item.order_id, connection);
 
@@ -1838,6 +1882,11 @@ const orderService = {
           [userId, reason || 'Order cancelled', orderId]
         );
       }
+
+      // Reverse all stock deductions for this order
+      await stockDeductionService.reverseForOrder(connection, {
+        orderId, outletId: order.outlet_id, userId, reason: reason || 'Order cancelled'
+      });
 
       // Release table if dine-in - end session and set to available
       if (order.table_id) {

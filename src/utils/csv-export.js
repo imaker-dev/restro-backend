@@ -189,6 +189,11 @@ function dailySalesCSV(data, filters) {
     { key: 'cash_collection', header: 'Cash (₹)', type: 'currency' },
     { key: 'card_collection', header: 'Card (₹)', type: 'currency' },
     { key: 'upi_collection', header: 'UPI (₹)', type: 'currency' },
+    { key: 'making_cost', header: 'Making Cost (₹)', type: 'currency' },
+    { key: 'profit', header: 'Profit (₹)', type: 'currency' },
+    { key: 'food_cost_percentage', header: 'Food Cost %', format: (v) => v ? `${parseFloat(v).toFixed(2)}%` : '0%' },
+    { key: 'wastage_count', header: 'Wastage Incidents', type: 'number' },
+    { key: 'wastage_cost', header: 'Wastage Cost (₹)', type: 'currency' },
     { key: 'average_order_value', header: 'Avg Order (₹)', type: 'currency' }
   ];
   
@@ -214,7 +219,12 @@ function dailySalesCSV(data, filters) {
       'NC Amount': formatCurrency(summary.nc_amount),
       'Due Amount': formatCurrency(summary.due_amount),
       'Paid Amount': formatCurrency(summary.paid_amount),
-      'Total Collection': formatCurrency(summary.total_collection)
+      'Total Collection': formatCurrency(summary.total_collection),
+      'Making Cost': formatCurrency(summary.making_cost),
+      'Profit': formatCurrency(summary.profit),
+      'Food Cost %': summary.food_cost_percentage ? `${summary.food_cost_percentage}%` : '0%',
+      'Wastage Count': summary.wastage_count || 0,
+      'Wastage Cost': formatCurrency(summary.wastage_cost)
     }
   });
 }
@@ -286,6 +296,9 @@ function itemSalesCSV(data, filters) {
     { key: 'net_revenue', header: 'Net Revenue (₹)', type: 'currency' },
     { key: 'nc_quantity', header: 'NC Qty', type: 'number' },
     { key: 'nc_amount', header: 'NC Amount (₹)', type: 'currency' },
+    { key: 'making_cost', header: 'Making Cost (₹)', type: 'currency' },
+    { key: 'item_profit', header: 'Profit (₹)', type: 'currency' },
+    { key: 'avg_cost_per_unit', header: 'Avg Cost/Unit (₹)', type: 'currency' },
     { key: 'order_count', header: 'Orders', type: 'number' }
   ];
   
@@ -310,6 +323,9 @@ function itemSalesCSV(data, filters) {
       'NC Amount': formatCurrency(summary.nc_amount),
       'Due Amount': formatCurrency(summary.due_amount),
       'Paid Amount': formatCurrency(summary.paid_amount),
+      'Making Cost': formatCurrency(summary.making_cost),
+      'Profit': formatCurrency(summary.profit),
+      'Food Cost %': summary.food_cost_percentage ? `${summary.food_cost_percentage}%` : '0%',
       'Top Seller': summary.top_seller
     }
   });
@@ -872,6 +888,11 @@ function shiftHistoryCSV(data, filters) {
     { key: 'totalRefunds', header: 'Refunds (₹)', type: 'currency' },
     { key: 'ncOrders', header: 'NC Orders', type: 'number' },
     { key: 'ncAmount', header: 'NC Amount (₹)', type: 'currency' },
+    { key: 'makingCost', header: 'Making Cost (₹)', type: 'currency' },
+    { key: 'profit', header: 'Profit (₹)', type: 'currency' },
+    { key: 'foodCostPercentage', header: 'Food Cost %', format: (v) => v ? `${parseFloat(v).toFixed(2)}%` : '0%' },
+    { key: 'wastageCount', header: 'Wastage Incidents', type: 'number' },
+    { key: 'wastageCost', header: 'Wastage Cost (₹)', type: 'currency' },
     { key: 'openedByName', header: 'Opened By' },
     { key: 'closedByName', header: 'Closed By' }
   ];
@@ -887,8 +908,12 @@ function shiftHistoryCSV(data, filters) {
     acc.totalVariance += parseFloat(s.cashVariance) || 0;
     acc.ncOrders += parseInt(s.ncOrders) || 0;
     acc.ncAmount += parseFloat(s.ncAmount) || 0;
+    acc.makingCost += parseFloat(s.makingCost) || 0;
+    acc.profit += parseFloat(s.profit) || 0;
+    acc.wastageCount += parseInt(s.wastageCount) || 0;
+    acc.wastageCost += parseFloat(s.wastageCost) || 0;
     return acc;
-  }, { totalSales: 0, totalCash: 0, totalCard: 0, totalUpi: 0, totalVariance: 0, ncOrders: 0, ncAmount: 0 });
+  }, { totalSales: 0, totalCash: 0, totalCard: 0, totalUpi: 0, totalVariance: 0, ncOrders: 0, ncAmount: 0, makingCost: 0, profit: 0, wastageCount: 0, wastageCost: 0 });
   
   return toCSV(rows, columns, {
     title: 'Shift History Report',
@@ -905,7 +930,12 @@ function shiftHistoryCSV(data, filters) {
       'Total UPI': formatCurrency(summary.totalUpi),
       'Total Variance': formatCurrency(summary.totalVariance),
       'Total NC Orders': summary.ncOrders,
-      'Total NC Amount': formatCurrency(summary.ncAmount)
+      'Total NC Amount': formatCurrency(summary.ncAmount),
+      'Making Cost': formatCurrency(summary.makingCost),
+      'Profit': formatCurrency(summary.profit),
+      'Food Cost %': summary.totalSales > 0 ? `${((summary.makingCost / summary.totalSales) * 100).toFixed(2)}%` : '0%',
+      'Wastage Count': summary.wastageCount || 0,
+      'Wastage Cost': formatCurrency(summary.wastageCost)
     }
   });
 }
@@ -1009,6 +1039,11 @@ function dayEndSummaryCSV(data, filters) {
     { key: 'ncOrders', header: 'NC Orders', type: 'number' },
     { key: 'ncAmount', header: 'NC Amount (₹)', type: 'currency' },
     { key: 'totalSales', header: 'Net Sales (₹)', type: 'currency' },
+    { key: 'makingCost', header: 'Making Cost (₹)', type: 'currency' },
+    { key: 'profit', header: 'Profit (₹)', type: 'currency' },
+    { key: 'foodCostPercentage', header: 'Food Cost %', format: (v) => v ? `${parseFloat(v).toFixed(2)}%` : '0%' },
+    { key: 'wastageCount', header: 'Wastage Incidents', type: 'number' },
+    { key: 'wastageCost', header: 'Wastage Cost (₹)', type: 'currency' },
     { key: 'avgOrderValue', header: 'Avg Order (₹)', type: 'currency' },
     { key: 'cashPayment', header: 'Cash (₹)', type: 'currency', format: (v, row) => row.payments?.cash || 0 },
     { key: 'cardPayment', header: 'Card (₹)', type: 'currency', format: (v, row) => row.payments?.card || 0 },
@@ -1033,7 +1068,12 @@ function dayEndSummaryCSV(data, filters) {
       'Total Discount': formatCurrency(grandTotal.totalDiscount),
       'Total Tax': formatCurrency(grandTotal.totalTax),
       'NC Orders': grandTotal.ncOrders || 0,
-      'NC Amount': formatCurrency(grandTotal.ncAmount)
+      'NC Amount': formatCurrency(grandTotal.ncAmount),
+      'Making Cost': formatCurrency(grandTotal.makingCost),
+      'Profit': formatCurrency(grandTotal.profit),
+      'Food Cost %': grandTotal.foodCostPercentage ? `${grandTotal.foodCostPercentage}%` : '0%',
+      'Wastage Count': grandTotal.wastageCount || 0,
+      'Wastage Cost': formatCurrency(grandTotal.wastageCost)
     }
   });
 }

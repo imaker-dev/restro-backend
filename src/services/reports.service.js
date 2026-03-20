@@ -423,11 +423,49 @@ const reportsService = {
       }
     });
 
+    // Cost/Profit data from order_item_costs grouped by date
+    const [costRows] = await pool.query(
+      `SELECT ${toISTDate('o.created_at')} as report_date,
+        COALESCE(SUM(oic.making_cost), 0) as making_cost,
+        COALESCE(SUM(oic.profit), 0) as profit
+       FROM order_item_costs oic
+       JOIN orders o ON oic.order_id = o.id
+       WHERE o.outlet_id = ? AND o.status IN ('paid','completed')
+         AND ${toISTDate('o.created_at')} BETWEEN ? AND ?${ff.sql}
+       GROUP BY ${toISTDate('o.created_at')}`,
+      [outletId, start, end, ...ff.params]
+    );
+    const costMap = {};
+    costRows.forEach(r => {
+      const dk = r.report_date instanceof Date ? r.report_date.toISOString().slice(0, 10) : r.report_date;
+      costMap[dk] = { making_cost: parseFloat(r.making_cost) || 0, profit: parseFloat(r.profit) || 0 };
+    });
+
+    // Wastage data grouped by date
+    const [wastageRows] = await pool.query(
+      `SELECT wl.wastage_date as report_date,
+        COUNT(*) as wastage_count,
+        COALESCE(SUM(wl.total_cost), 0) as wastage_cost
+       FROM wastage_logs wl
+       WHERE wl.outlet_id = ? AND wl.wastage_date BETWEEN ? AND ?
+       GROUP BY wl.wastage_date`,
+      [outletId, start, end]
+    );
+    const wastageMap = {};
+    wastageRows.forEach(r => {
+      const dk = r.report_date instanceof Date ? r.report_date.toISOString().slice(0, 10) : r.report_date;
+      wastageMap[dk] = { wastage_count: parseInt(r.wastage_count) || 0, wastage_cost: parseFloat(r.wastage_cost) || 0 };
+    });
+
     const daily = rows.map(r => {
       const dateKey = r.report_date instanceof Date ? r.report_date.toISOString().slice(0, 10) : r.report_date;
       const pay = payMap[dateKey] || {};
+      const cost = costMap[dateKey] || { making_cost: 0, profit: 0 };
+      const wst = wastageMap[dateKey] || { wastage_count: 0, wastage_cost: 0 };
       const avgOrderValue = r.total_orders > 0 ? (parseFloat(r.net_sales) / r.total_orders).toFixed(2) : '0.00';
       const avgGuestSpend = r.total_guests > 0 ? (parseFloat(r.net_sales) / r.total_guests).toFixed(2) : '0.00';
+      const netSalesVal = parseFloat(r.net_sales) || 0;
+      const foodCostPct = netSalesVal > 0 ? parseFloat(((cost.making_cost / netSalesVal) * 100).toFixed(2)) : 0;
       return {
         ...r,
         total_collection: pay.total_collection || 0,
@@ -437,6 +475,11 @@ const reportsService = {
         wallet_collection: pay.wallet_collection || 0,
         credit_collection: pay.credit_collection || 0,
         tip_amount: pay.tip_amount || 0,
+        making_cost: cost.making_cost,
+        profit: cost.profit,
+        food_cost_percentage: foodCostPct,
+        wastage_count: wst.wastage_count,
+        wastage_cost: wst.wastage_cost,
         average_order_value: avgOrderValue,
         average_guest_spend: avgGuestSpend
       };
@@ -492,6 +535,11 @@ const reportsService = {
         wallet_collection: walletCollection.toFixed(2),
         credit_collection: creditCollection.toFixed(2),
         tip_amount: totalTips.toFixed(2),
+        making_cost: daily.reduce((s, r) => s + (r.making_cost || 0), 0).toFixed(2),
+        profit: daily.reduce((s, r) => s + (r.profit || 0), 0).toFixed(2),
+        food_cost_percentage: netSales > 0 ? ((daily.reduce((s, r) => s + (r.making_cost || 0), 0) / netSales) * 100).toFixed(2) : '0.00',
+        wastage_count: daily.reduce((s, r) => s + (r.wastage_count || 0), 0),
+        wastage_cost: daily.reduce((s, r) => s + (r.wastage_cost || 0), 0).toFixed(2),
         average_order_value: totalOrders > 0 ? (netSales / totalOrders).toFixed(2) : '0.00',
         average_guest_spend: totalGuests > 0 ? (netSales / totalGuests).toFixed(2) : '0.00',
         average_daily_sales: daily.length > 0 ? (netSales / daily.length).toFixed(2) : '0.00'
@@ -557,11 +605,15 @@ const reportsService = {
         COUNT(DISTINCT oi.order_id) as order_count,
         AVG(CASE WHEN oi.status != 'cancelled' THEN oi.unit_price ELSE NULL END) as avg_price,
         SUM(CASE WHEN oi.status != 'cancelled' AND oi.is_nc = 1 THEN oi.quantity ELSE 0 END) as nc_quantity,
-        SUM(CASE WHEN oi.status != 'cancelled' AND oi.is_nc = 1 THEN oi.total_price ELSE 0 END) as nc_amount
+        SUM(CASE WHEN oi.status != 'cancelled' AND oi.is_nc = 1 THEN oi.total_price ELSE 0 END) as nc_amount,
+        COALESCE(SUM(oic.making_cost), 0) as making_cost,
+        COALESCE(SUM(oic.profit), 0) as item_profit,
+        COALESCE(AVG(oic.making_cost / NULLIF(oi.quantity, 0)), 0) as avg_cost_per_unit
        FROM order_items oi
        JOIN orders o ON oi.order_id = o.id
        LEFT JOIN items i ON oi.item_id = i.id
        LEFT JOIN categories c ON i.category_id = c.id
+       LEFT JOIN order_item_costs oic ON oic.order_item_id = oi.id
        WHERE o.outlet_id = ? AND ${toISTDate('o.created_at')} BETWEEN ? AND ?${ff.sql}${stf.sql}
        GROUP BY oi.item_id, oi.item_name, oi.variant_name, c.name, i.category_id, c.service_type
        ORDER BY total_quantity DESC
@@ -597,6 +649,9 @@ const reportsService = {
         discount_amount: discountAmount.toFixed(2),
         tax_amount: taxAmount.toFixed(2),
         net_revenue: netRevenue.toFixed(2),
+        making_cost: rows.reduce((s, r) => s + parseFloat(r.making_cost || 0), 0).toFixed(2),
+        profit: rows.reduce((s, r) => s + parseFloat(r.item_profit || 0), 0).toFixed(2),
+        food_cost_percentage: netRevenue > 0 ? ((rows.reduce((s, r) => s + parseFloat(r.making_cost || 0), 0) / netRevenue) * 100).toFixed(2) : '0.00',
         average_item_revenue: rows.length > 0 ? (netRevenue / rows.length).toFixed(2) : '0.00',
         top_seller: rows.length > 0 ? rows[0].item_name : null,
         top_seller_quantity: rows.length > 0 ? rows[0].total_quantity : 0
@@ -2567,12 +2622,15 @@ const reportsService = {
         oi.created_at,
         u.name as cancelled_by_name,
         c.name as category_name,
-        ks.name as station_name
+        ks.name as station_name,
+        oic.making_cost, oic.profit as item_profit,
+        oic.food_cost_percentage as item_food_cost_pct
        FROM order_items oi
        LEFT JOIN users u ON oi.cancelled_by = u.id
        LEFT JOIN items i ON oi.item_id = i.id
        LEFT JOIN categories c ON i.category_id = c.id
        LEFT JOIN kitchen_stations ks ON i.kitchen_station_id = ks.id
+       LEFT JOIN order_item_costs oic ON oic.order_item_id = oi.id
        WHERE oi.order_id IN (?)
        ORDER BY oi.order_id, oi.created_at`,
       [orderIds]
@@ -2665,6 +2723,9 @@ const reportsService = {
         discountAmount: parseFloat(it.discount_amount) || 0,
         taxAmount: parseFloat(it.tax_amount) || 0,
         totalPrice: parseFloat(it.total_price) || 0,
+        makingCost: parseFloat(it.making_cost) || 0,
+        itemProfit: parseFloat(it.item_profit) || 0,
+        foodCostPercentage: parseFloat(it.item_food_cost_pct) || 0,
         status: it.status,
         specialInstructions: it.special_instructions || null,
         taxDetails,
@@ -2757,6 +2818,9 @@ const reportsService = {
       const itemSubtotal = activeItems.reduce((s, i) => s + i.totalPrice, 0);
       const itemTax = activeItems.reduce((s, i) => s + i.taxAmount, 0);
       const itemDiscount = activeItems.reduce((s, i) => s + i.discountAmount, 0);
+      const orderMakingCost = activeItems.reduce((s, i) => s + i.makingCost, 0);
+      const orderProfit = activeItems.reduce((s, i) => s + i.itemProfit, 0);
+      const orderFoodCostPct = itemSubtotal > 0 ? parseFloat(((orderMakingCost / itemSubtotal) * 100).toFixed(2)) : 0;
 
       // Compute NC from actual item data (orders table is_nc/nc_amount may not be updated)
       const ncItems = activeItems.filter(i => i.isNC);
@@ -2831,6 +2895,11 @@ const reportsService = {
 
         // Payments
         payments: orderPayments,
+
+        // Cost & Profit
+        makingCost: parseFloat(orderMakingCost.toFixed(2)),
+        profit: parseFloat(orderProfit.toFixed(2)),
+        foodCostPercentage: orderFoodCostPct,
 
         // Invoice
         invoice: orderInvoice
@@ -2926,7 +2995,8 @@ const reportsService = {
        LEFT JOIN items i ON oi.item_id = i.id
        LEFT JOIN categories c ON i.category_id = c.id
        LEFT JOIN kitchen_stations ks ON i.kitchen_station_id = ks.id
-       LEFT JOIN tax_groups tg ON oi.tax_group_id = tg.id`;
+       LEFT JOIN tax_groups tg ON oi.tax_group_id = tg.id
+       LEFT JOIN order_item_costs oic ON oic.order_item_id = oi.id`;
 
     let conditions = ['o.outlet_id = ?', `${toISTDate('o.created_at')} BETWEEN ? AND ?`];
     let params = [outletId, start, end];
@@ -2976,7 +3046,9 @@ const reportsService = {
         u_item_creator.name as item_created_by_name,
         c.name as category_name, c.id as category_id,
         ks.name as station_name,
-        tg.name as tax_group_name, tg.total_rate as tax_rate
+        tg.name as tax_group_name, tg.total_rate as tax_rate,
+        oic.making_cost as oic_making_cost, oic.profit as oic_profit,
+        oic.food_cost_percentage as oic_food_cost_pct
        ${baseFrom} ${whereClause}
        ORDER BY oi.item_name, oi.variant_name, oi.created_at DESC`,
       params
@@ -3100,6 +3172,11 @@ const reportsService = {
         cancelledByName: r.item_cancelled_by_name || null,
         cancelledAt: r.cancelled_at || null,
 
+        // Cost & Profit
+        makingCost: parseFloat(r.oic_making_cost) || 0,
+        itemProfit: parseFloat(r.oic_profit) || 0,
+        foodCostPercentage: parseFloat(r.oic_food_cost_pct) || 0,
+
         // Timestamps
         itemCreatedAt: r.item_created_at,
         orderCreatedAt: r.order_created_at,
@@ -3124,6 +3201,8 @@ const reportsService = {
           taxAmount: 0,
           netRevenue: 0,
           addonRevenue: 0,
+          makingCost: 0,
+          profit: 0,
           complimentaryCount: 0,
           ncCount: 0,
           ncQuantity: 0,
@@ -3152,6 +3231,8 @@ const reportsService = {
         item.taxAmount += ta;
         item.netRevenue += (tp - da);
         item.addonRevenue += addonTotal;
+        item.makingCost += parseFloat(r.oic_making_cost) || 0;
+        item.profit += parseFloat(r.oic_profit) || 0;
 
         globalTotalQty += qty;
         globalGrossRevenue += tp;
@@ -3221,6 +3302,9 @@ const reportsService = {
         taxAmount: parseFloat(item.taxAmount.toFixed(2)),
         netRevenue: parseFloat(item.netRevenue.toFixed(2)),
         addonRevenue: parseFloat(item.addonRevenue.toFixed(2)),
+        makingCost: parseFloat(item.makingCost.toFixed(2)),
+        profit: parseFloat(item.profit.toFixed(2)),
+        foodCostPercentage: item.netRevenue > 0 ? parseFloat(((item.makingCost / item.netRevenue) * 100).toFixed(2)) : 0,
         avgUnitPrice: item.totalQuantity > 0
           ? parseFloat((item.grossRevenue / item.totalQuantity).toFixed(2))
           : 0,
@@ -4902,11 +4986,48 @@ const reportsService = {
         (paymentByDate[dateKey].breakdown[sp.payment_mode] || 0) + (parseFloat(sp.amount) || 0);
     }
 
+    // Cost/Profit data from order_item_costs grouped by date
+    const [costByDate] = await pool.query(
+      `SELECT ${toISTDate('o.created_at')} as report_date,
+        COALESCE(SUM(oic.making_cost), 0) as making_cost,
+        COALESCE(SUM(oic.profit), 0) as profit
+       FROM order_item_costs oic
+       JOIN orders o ON oic.order_id = o.id
+       ${whereClause} AND o.status IN ('paid','completed')
+       GROUP BY ${toISTDate('o.created_at')}`,
+      params
+    );
+    const costByDateMap = {};
+    costByDate.forEach(r => {
+      const dk = r.report_date instanceof Date ? r.report_date.toISOString().slice(0, 10) : r.report_date;
+      costByDateMap[dk] = { making_cost: parseFloat(r.making_cost) || 0, profit: parseFloat(r.profit) || 0 };
+    });
+
+    // Wastage data grouped by date
+    const [wastageByDate] = await pool.query(
+      `SELECT wl.wastage_date as report_date,
+        COUNT(*) as wastage_count,
+        COALESCE(SUM(wl.total_cost), 0) as wastage_cost
+       FROM wastage_logs wl
+       WHERE wl.outlet_id = ? AND wl.wastage_date BETWEEN ? AND ?
+       GROUP BY wl.wastage_date`,
+      [outletId, start, end]
+    );
+    const wastageByDateMap = {};
+    wastageByDate.forEach(r => {
+      const dk = r.report_date instanceof Date ? r.report_date.toISOString().slice(0, 10) : r.report_date;
+      wastageByDateMap[dk] = { wastage_count: parseInt(r.wastage_count) || 0, wastage_cost: parseFloat(r.wastage_cost) || 0 };
+    });
+
     const summary = rows.map(r => {
       const dateKey = r.report_date instanceof Date ? r.report_date.toISOString().slice(0, 10) : r.report_date;
       const payments = paymentByDate[dateKey] || { breakdown: {}, splitBreakdown: {} };
+      const cost = costByDateMap[dateKey] || { making_cost: 0, profit: 0 };
+      const wst = wastageByDateMap[dateKey] || { wastage_count: 0, wastage_cost: 0 };
       // Total collection = sum of all payment mode amounts for this date
       const totalCollection = Object.values(payments.breakdown).reduce((sum, v) => sum + (v || 0), 0);
+      const totalSalesVal = parseFloat(r.total_sales) || 0;
+      const foodCostPct = totalSalesVal > 0 ? parseFloat(((cost.making_cost / totalSalesVal) * 100).toFixed(2)) : 0;
       return {
         date: dateKey,
         totalOrders: parseInt(r.total_orders) || 0,
@@ -4917,7 +5038,7 @@ const reportsService = {
           takeaway: parseInt(r.takeaway_orders) || 0,
           delivery: parseInt(r.delivery_orders) || 0
         },
-        totalSales: parseFloat(r.total_sales) || 0,
+        totalSales: totalSalesVal,
         grossSales: parseFloat(r.gross_sales) || 0,
         totalDiscount: parseFloat(r.total_discount) || 0,
         totalTax: parseFloat(r.total_tax) || 0,
@@ -4928,6 +5049,11 @@ const reportsService = {
         dueAmount: parseFloat(r.due_amount) || 0,
         paidAmount: parseFloat(r.paid_amount) || 0,
         totalCollection: parseFloat(totalCollection.toFixed(2)),
+        makingCost: cost.making_cost,
+        profit: cost.profit,
+        foodCostPercentage: foodCostPct,
+        wastageCount: wst.wastage_count,
+        wastageCost: wst.wastage_cost,
         avgOrderValue: r.completed_orders > 0 ? parseFloat((r.total_sales / r.completed_orders).toFixed(2)) : 0,
         payments: payments.breakdown,
         splitPaymentBreakdown: payments.splitBreakdown
@@ -4935,6 +5061,8 @@ const reportsService = {
     });
 
     // Grand totals
+    const grandTotalSales = parseFloat(summary.reduce((s, r) => s + r.totalSales, 0).toFixed(2));
+    const grandMakingCost = parseFloat(summary.reduce((s, r) => s + r.makingCost, 0).toFixed(2));
     const grandTotal = {
       totalOrders: summary.reduce((s, r) => s + r.totalOrders, 0),
       completedOrders: summary.reduce((s, r) => s + r.completedOrders, 0),
@@ -4944,7 +5072,7 @@ const reportsService = {
         takeaway: summary.reduce((s, r) => s + r.ordersByType.takeaway, 0),
         delivery: summary.reduce((s, r) => s + r.ordersByType.delivery, 0)
       },
-      totalSales: parseFloat(summary.reduce((s, r) => s + r.totalSales, 0).toFixed(2)),
+      totalSales: grandTotalSales,
       grossSales: parseFloat(summary.reduce((s, r) => s + r.grossSales, 0).toFixed(2)),
       totalDiscount: parseFloat(summary.reduce((s, r) => s + r.totalDiscount, 0).toFixed(2)),
       totalTax: parseFloat(summary.reduce((s, r) => s + r.totalTax, 0).toFixed(2)),
@@ -4954,7 +5082,12 @@ const reportsService = {
       ncAmount: parseFloat(summary.reduce((s, r) => s + r.ncAmount, 0).toFixed(2)),
       dueAmount: parseFloat(summary.reduce((s, r) => s + r.dueAmount, 0).toFixed(2)),
       paidAmount: parseFloat(summary.reduce((s, r) => s + r.paidAmount, 0).toFixed(2)),
-      totalCollection: parseFloat(summary.reduce((s, r) => s + r.totalCollection, 0).toFixed(2))
+      totalCollection: parseFloat(summary.reduce((s, r) => s + r.totalCollection, 0).toFixed(2)),
+      makingCost: grandMakingCost,
+      profit: parseFloat(summary.reduce((s, r) => s + r.profit, 0).toFixed(2)),
+      foodCostPercentage: grandTotalSales > 0 ? parseFloat(((grandMakingCost / grandTotalSales) * 100).toFixed(2)) : 0,
+      wastageCount: summary.reduce((s, r) => s + r.wastageCount, 0),
+      wastageCost: parseFloat(summary.reduce((s, r) => s + r.wastageCost, 0).toFixed(2))
     };
 
     return {

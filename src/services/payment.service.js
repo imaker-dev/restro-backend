@@ -2125,6 +2125,30 @@ const paymentService = {
         [shift.outlet_id, shiftStartTime, shiftEndTime, ...ncFloorParams]
       );
 
+      // Cost/Profit for this shift time range
+      const [shiftCostRows] = await pool.query(
+        `SELECT COALESCE(SUM(oic.making_cost), 0) as making_cost,
+                COALESCE(SUM(oic.profit), 0) as profit
+         FROM order_item_costs oic
+         JOIN orders o ON oic.order_id = o.id
+         LEFT JOIN tables t ON o.table_id = t.id
+         WHERE o.outlet_id = ? AND o.created_at >= ? AND o.created_at <= ?
+           AND o.status IN ('paid','completed')${floorCondition}`,
+        [shift.outlet_id, shiftStartTime, shiftEndTime, ...floorParams]
+      );
+      const shiftMakingCost = parseFloat(shiftCostRows[0]?.making_cost) || 0;
+      const shiftProfit = parseFloat(shiftCostRows[0]?.profit) || 0;
+
+      // Wastage for this shift date
+      const sessionDateStr2 = formatLocalDate(shift.session_date);
+      const [shiftWastageRows] = await pool.query(
+        `SELECT COUNT(*) as wastage_count, COALESCE(SUM(total_cost), 0) as wastage_cost
+         FROM wastage_logs WHERE outlet_id = ? AND wastage_date = ?`,
+        [shift.outlet_id, sessionDateStr2]
+      );
+      const shiftWastageCount = parseInt(shiftWastageRows[0]?.wastage_count) || 0;
+      const shiftWastageCost = parseFloat(shiftWastageRows[0]?.wastage_cost) || 0;
+
       const openingCash = parseFloat(shift.opening_cash) || 0;
       const closingCash = parseFloat(shift.closing_cash) || 0;
       const expectedAmount = openingCash + totalSales;
@@ -2162,6 +2186,11 @@ const paymentService = {
         totalCancellations: parseFloat(shift.total_cancellations) || 0,
         ncOrders: parseInt(ncStats[0]?.nc_orders) || 0,
         ncAmount: parseFloat(ncStats[0]?.nc_amount) || 0,
+        makingCost: shiftMakingCost,
+        profit: shiftProfit,
+        foodCostPercentage: totalSales > 0 ? parseFloat(((shiftMakingCost / totalSales) * 100).toFixed(2)) : 0,
+        wastageCount: shiftWastageCount,
+        wastageCost: shiftWastageCost,
         status: shift.status,
         openedBy: shift.opened_by,
         openedByName: shift.opened_by_name,
@@ -2494,6 +2523,35 @@ const paymentService = {
     }
     const shiftOrders = Array.from(ordersMap.values());
 
+    // Cost/Profit data for this shift
+    let costQuery = `
+      SELECT COALESCE(SUM(oic.making_cost), 0) as making_cost,
+        COALESCE(SUM(oic.profit), 0) as profit
+       FROM order_item_costs oic
+       JOIN orders o ON oic.order_id = o.id
+       WHERE o.outlet_id = ? AND o.status IN ('paid','completed')
+         AND o.created_at >= ? AND o.created_at <= ?`;
+    const costParams = [shift.outlet_id, shiftStartTime, shiftEndTime];
+    if (floorId) {
+      costQuery += ` AND (o.floor_id = ? OR (o.floor_id IS NULL AND o.order_type IN ('takeaway', 'delivery')))`;
+      costParams.push(floorId);
+    }
+    const [costRows] = await pool.query(costQuery, costParams);
+    const shiftMakingCost = parseFloat(costRows[0]?.making_cost) || 0;
+    const shiftProfit = parseFloat(costRows[0]?.profit) || 0;
+    const shiftFoodCostPct = calculatedTotalSales > 0
+      ? parseFloat(((shiftMakingCost / calculatedTotalSales) * 100).toFixed(2)) : 0;
+
+    // Wastage data for this shift
+    let wastageQuery = `
+      SELECT COUNT(*) as wastage_count, COALESCE(SUM(total_cost), 0) as wastage_cost
+       FROM wastage_logs
+       WHERE outlet_id = ? AND created_at >= ? AND created_at <= ?`;
+    const wastageParams = [shift.outlet_id, shiftStartTime, shiftEndTime];
+    const [wastageRows] = await pool.query(wastageQuery, wastageParams);
+    const shiftWastageCount = parseInt(wastageRows[0]?.wastage_count) || 0;
+    const shiftWastageCost = parseFloat(wastageRows[0]?.wastage_cost) || 0;
+
     // Format transactions
     const formattedTransactions = transactions.map(tx => ({
       id: tx.id,
@@ -2554,6 +2612,12 @@ const paymentService = {
       totalDiscounts: parseFloat(shift.total_discounts) || 0,
       totalRefunds: parseFloat(shift.total_refunds) || 0,
       totalCancellations: parseFloat(shift.total_cancellations) || 0,
+      // Cost & Profit
+      makingCost: shiftMakingCost,
+      profit: shiftProfit,
+      foodCostPercentage: shiftFoodCostPct,
+      wastageCount: shiftWastageCount,
+      wastageCost: shiftWastageCost,
       status: shift.status,
       openedBy: shift.opened_by,
       openedByName: shift.opened_by_name,

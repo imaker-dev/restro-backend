@@ -65,7 +65,17 @@ const unitService = {
 
   async list(outletId, options = {}) {
     const pool = getPool();
-    const { unitType, isActive, search } = options;
+    const {
+      unitType, isActive, search, isBaseUnit,
+      page = 1, limit = 100, sortBy = 'unit_type', sortOrder = 'ASC'
+    } = options;
+    const safePage = Math.max(1, parseInt(page) || 1);
+    const safeLimit = Math.min(200, Math.max(1, parseInt(limit) || 100));
+    const offset = (safePage - 1) * safeLimit;
+
+    const allowedSort = ['name', 'abbreviation', 'unit_type', 'conversion_factor', 'created_at'];
+    const safeSortBy = allowedSort.includes(sortBy) ? sortBy : 'unit_type';
+    const safeSortOrder = String(sortOrder).toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
 
     let where = 'WHERE u.outlet_id = ?';
     const params = [outletId];
@@ -78,18 +88,36 @@ const unitService = {
       where += ' AND u.is_active = ?';
       params.push(isActive ? 1 : 0);
     }
+    if (typeof isBaseUnit === 'boolean') {
+      where += ' AND u.is_base_unit = ?';
+      params.push(isBaseUnit ? 1 : 0);
+    }
     if (search) {
       where += ' AND (u.name LIKE ? OR u.abbreviation LIKE ?)';
       const s = `%${search}%`;
       params.push(s, s);
     }
 
-    const [rows] = await pool.query(
-      `SELECT u.* FROM units u ${where} ORDER BY u.unit_type, u.is_base_unit DESC, u.name`,
-      params
+    const [[{ total }]] = await pool.query(
+      `SELECT COUNT(*) as total FROM units u ${where}`, params
     );
 
-    return rows.map(r => this.format(r));
+    const [rows] = await pool.query(
+      `SELECT u.* FROM units u ${where}
+       ORDER BY u.${safeSortBy} ${safeSortOrder}, u.is_base_unit DESC, u.name
+       LIMIT ? OFFSET ?`,
+      [...params, safeLimit, offset]
+    );
+
+    return {
+      units: rows.map(r => this.format(r)),
+      pagination: {
+        page: safePage,
+        limit: safeLimit,
+        total,
+        totalPages: Math.ceil(total / safeLimit)
+      }
+    };
   },
 
   async getById(id) {

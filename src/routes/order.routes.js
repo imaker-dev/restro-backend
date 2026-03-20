@@ -887,4 +887,15 @@ router.delete('/:orderId/items/nc/bulk', authorize('super_admin', 'admin', 'mana
  */
 router.get('/reports/:outletId/nc', authorize('super_admin', 'admin', 'manager'), ncController.getNCReport);
 
+// ========================
+// COST SNAPSHOT
+// ========================
+
+/**
+ * @route   GET /api/v1/orders/:orderId/costs
+ * @desc    Get making cost snapshot for an order (frozen at order time)
+ * @access  Private (admin, manager)
+ */
+router.get('/:orderId/costs', authorize('super_admin', 'admin', 'manager'), orderController.getOrderCosts);
+
 module.exports = router;
