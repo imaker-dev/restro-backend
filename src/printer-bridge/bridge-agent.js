@@ -27,7 +27,7 @@ const BINARY_CONTENT_PREFIX = 'b64:';
 const CONFIG = {
   // Cloud server URL (your backend API)
   // CLOUD_URL: process.env.CLOUD_URL || 'http://localhost:3005',
-  CLOUD_URL: process.env.CLOUD_URL || 'https://gathering-african-bonds-prevent.trycloudflare.com',
+  CLOUD_URL: process.env.CLOUD_URL || 'https://sacrifice-canal-founded-poet.trycloudflare.com',
   
   // Outlet ID from your system
   OUTLET_ID: process.env.OUTLET_ID || '43',
@@ -88,7 +88,7 @@ function sendToPrinter(printerIp, printerPort, data) {
     const client = new net.Socket();
     let connected = false;
     
-    // Set timeout
+    // Set timeout — 5s is enough for local network printers; faster failure detection
     client.setTimeout(10000);
     
     client.connect(printerPort, printerIp, () => {
@@ -169,10 +169,18 @@ if (CONFIG.API_KEY) {
   apiHeaders['Authorization'] = `Bearer ${CONFIG.API_KEY}`;
 }
 
+// Use HTTP keep-alive to reuse TCP/TLS connections (saves ~100-200ms per request)
+const http = require('http');
+const https = require('https');
+const keepAliveHttpAgent = new http.Agent({ keepAlive: true, maxSockets: 4 });
+const keepAliveHttpsAgent = new https.Agent({ keepAlive: true, maxSockets: 4 });
+
 const api = axios.create({
   baseURL: CONFIG.CLOUD_URL,
   headers: apiHeaders,
-  timeout: 30000 // Increased timeout for slower connections
+  timeout: 10000,
+  httpAgent: keepAliveHttpAgent,
+  httpsAgent: keepAliveHttpsAgent
 });
 
 /**
@@ -218,17 +226,29 @@ async function pollForJob() {
 }
 
 /**
- * Acknowledge job completion
+ * Acknowledge job completion.
+ * Fire-and-forget by default — caller doesn't wait for the HTTP round-trip.
+ * Retries once on failure to avoid lost acks.
  */
-async function acknowledgeJob(jobId, status, error = null) {
-  try {
-    await api.post(
-      `/api/v1/printers/bridge/${CONFIG.OUTLET_ID}/${CONFIG.BRIDGE_CODE}/jobs/${jobId}/ack`,
-      { status, error }
-    );
-  } catch (err) {
-    console.error(`  Failed to acknowledge job ${jobId}:`, err.message);
-  }
+function acknowledgeJob(jobId, status, error = null) {
+  const doAck = async (attempt) => {
+    try {
+      await api.post(
+        `/api/v1/printers/bridge/${CONFIG.OUTLET_ID}/${CONFIG.BRIDGE_CODE}/jobs/${jobId}/ack`,
+        { status, error },
+        { timeout: 8000 }
+      );
+    } catch (err) {
+      if (attempt < 2) {
+        // Retry once after 1s
+        setTimeout(() => doAck(attempt + 1), 1000);
+      } else {
+        console.error(`  Failed to acknowledge job ${jobId} after ${attempt} attempts:`, err.message);
+      }
+    }
+  };
+  // Fire and forget — don't block caller
+  doAck(1);
 }
 
 function testPrinterConnection(printerIp, printerPort) {
@@ -335,93 +355,113 @@ async function refreshPrinterConfigFromCloud() {
 }
 
 // ========================
-// MAIN LOOP
+// MAIN LOOP — Long-polling + batch processing
 // ========================
 
-let isProcessing = false;
 let jobsProcessed = 0;
 let jobsFailed = 0;
-let consecutiveEmpty = 0; // Track consecutive empty polls for adaptive interval
-let currentPollInterval = CONFIG.POLL_INTERVAL;
-const MIN_POLL_INTERVAL = 1000;  // 1 second when busy
-const MAX_POLL_INTERVAL = 10000; // 10 seconds when idle
-const BACKOFF_THRESHOLD = 5;     // Start slowing down after 5 empty polls
+// How long the server holds the connection when no jobs are pending (ms).
+// The server will respond instantly if a job arrives during this window.
+const LONG_POLL_WAIT = 25000;
+// How many jobs to fetch per poll (reduces round-trips for multi-printer KOTs)
+const BATCH_SIZE = 10;
+// Delay before reconnecting after an error (avoids tight error loops)
+const ERROR_RETRY_DELAY = 5000;
 
-async function processNextJob() {
-  if (isProcessing) return;
-  isProcessing = true;
-  
+/**
+ * Process a single print job: resolve printer → send TCP → acknowledge (fire-and-forget)
+ */
+async function processJob(job) {
+  const t0 = Date.now();
+  console.log(`  📄 Job #${job.id}: ${job.job_type} for ${job.station} (ref: ${job.reference_number || 'N/A'})`);
+
+  // Resolve printer: prefer job's assigned printer IP, fall back to local config
+  let printer;
+  if (job.ip_address) {
+    printer = { ip: job.ip_address, port: job.port || 9100 };
+  } else {
+    printer = getPrinterForStation(job.station);
+  }
+
+  if (!printer || !printer.ip) {
+    console.log(`     ❌ No printer for station "${job.station}"`);
+    acknowledgeJob(job.id, 'failed', `No printer configured for station: ${job.station}`);
+    jobsFailed++;
+    return;
+  }
+
   try {
-    const result = await pollForJob();
-    
-    if (!result.success || !result.data) {
-      // No pending jobs - increase interval (adaptive backoff)
-      consecutiveEmpty++;
-      if (consecutiveEmpty > BACKOFF_THRESHOLD) {
-        currentPollInterval = Math.min(currentPollInterval * 1.5, MAX_POLL_INTERVAL);
-      }
-      isProcessing = false;
-      return;
-    }
-    
-    // Job found - reset to fast polling
-    consecutiveEmpty = 0;
-    currentPollInterval = MIN_POLL_INTERVAL;
-    
-    const job = result.data;
-    console.log(`\n📄 Processing job #${job.id}: ${job.job_type} for ${job.station}`);
-    console.log(`   Reference: ${job.reference_number || 'N/A'}`);
-    
-    // Get printer - prefer job's assigned printer (from DB), fall back to local config
-    let printer;
-    if (job.ip_address) {
-      // Use printer info from the job itself (database lookup)
-      printer = { ip: job.ip_address, port: job.port || 9100 };
-      console.log(`   Printer (from job): ${printer.ip}:${printer.port}`);
-    } else {
-      // Fall back to local config lookup by station
-      printer = getPrinterForStation(job.station);
-      if (printer && printer.ip) {
-        console.log(`   Printer (from config): ${printer.ip}:${printer.port}`);
-      } else {
-        console.log(`   ❌ No printer found for station "${job.station}"`);
-        await acknowledgeJob(job.id, 'failed', `No printer configured for station: ${job.station}`);
-        isProcessing = false;
-        return;
-      }
-    }
-    
+    const printableContent = decodeJobContent(job.content);
+    await sendToPrinter(printer.ip, printer.port, printableContent);
+    acknowledgeJob(job.id, 'printed'); // fire-and-forget — don't wait for HTTP round-trip
+    jobsProcessed++;
+    console.log(`     ✅ Printed to ${printer.ip}:${printer.port} in ${Date.now() - t0}ms (total: ${jobsProcessed})`);
+  } catch (printError) {
+    acknowledgeJob(job.id, 'failed', printError.message); // fire-and-forget
+    jobsFailed++;
+    console.log(`     ❌ Failed: ${printError.message} in ${Date.now() - t0}ms (failed: ${jobsFailed})`);
+  }
+}
+
+/**
+ * Main polling loop — uses long polling with batch fetching.
+ * Server holds the connection for up to LONG_POLL_WAIT ms when idle,
+ * responds instantly when a new job is created.
+ * Result: near-zero latency when jobs arrive, ~2 requests/min when idle.
+ */
+async function pollLoop() {
+  while (true) {
     try {
-      const printableContent = decodeJobContent(job.content);
-      // Send to printer
-      await sendToPrinter(printer.ip, printer.port, printableContent);
-      
-      // Report success
-      await acknowledgeJob(job.id, 'printed');
-      
-      jobsProcessed++;
-      console.log(`   ✅ Printed successfully (Total: ${jobsProcessed})`);
-      
-    } catch (printError) {
-      // Report failure
-      await acknowledgeJob(job.id, 'failed', printError.message);
-      
-      jobsFailed++;
-      console.log(`   ❌ Print failed: ${printError.message} (Failed: ${jobsFailed})`);
-    }
-    
-  } catch (error) {
-    // Handle rate limiting (429)
-    if (error.response?.status === 429) {
-      console.warn('⚠️  Rate limited (429) - backing off...');
-      currentPollInterval = MAX_POLL_INTERVAL;
-      consecutiveEmpty = BACKOFF_THRESHOLD + 1;
-    } else if (error.code !== 'ECONNREFUSED') {
-      console.error('Poll error:', error.message);
+      const response = await api.get(
+        `/api/v1/printers/bridge/${CONFIG.OUTLET_ID}/${CONFIG.BRIDGE_CODE}/poll`,
+        {
+          params: { wait: LONG_POLL_WAIT, batch: BATCH_SIZE },
+          timeout: LONG_POLL_WAIT + 10000 // HTTP timeout > server hold time
+        }
+      );
+
+      const result = response.data;
+      const jobs = result.data;
+
+      // Batch mode: data is an array
+      if (Array.isArray(jobs) && jobs.length > 0) {
+        console.log(`\n📦 Received ${jobs.length} job(s)`);
+        // Process all jobs in parallel for speed (each goes to a different printer)
+        await Promise.all(jobs.map(job => processJob(job)));
+        // Immediately poll again — there may be more jobs
+        continue;
+      }
+
+      // Single-job mode (backward compat): data is an object or null
+      if (jobs && typeof jobs === 'object' && !Array.isArray(jobs) && jobs.id) {
+        console.log(`\n📦 Received 1 job`);
+        await processJob(jobs);
+        continue;
+      }
+
+      // No jobs — server already waited LONG_POLL_WAIT ms, reconnect immediately
+    } catch (error) {
+      if (error.response?.status === 429) {
+        console.warn('⚠️  Rate limited (429) — waiting 30s');
+        await sleep(30000);
+      } else if (error.response?.status === 401) {
+        console.error('❌ Auth failed. Check bridge code/API key. Retrying in 30s...');
+        await sleep(30000);
+      } else if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+        // Normal: long-poll timeout, just reconnect
+      } else if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
+        console.error(`❌ Server unreachable (${error.code}). Retrying in ${ERROR_RETRY_DELAY / 1000}s...`);
+        await sleep(ERROR_RETRY_DELAY);
+      } else {
+        console.error('Poll error:', error.message);
+        await sleep(ERROR_RETRY_DELAY);
+      }
     }
   }
-  
-  isProcessing = false;
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // ========================
@@ -436,7 +476,7 @@ function printBanner() {
   console.log(`║  Server:      ${CONFIG.CLOUD_URL.padEnd(43)}║`);
   console.log(`║  Outlet ID:   ${CONFIG.OUTLET_ID.padEnd(43)}║`);
   console.log(`║  Bridge Code: ${CONFIG.BRIDGE_CODE.padEnd(43)}║`);
-  console.log(`║  Poll Interval: ${(CONFIG.POLL_INTERVAL + 'ms').padEnd(41)}║`);
+  console.log(`║  Mode:        Long-poll (${LONG_POLL_WAIT / 1000}s hold, batch=${BATCH_SIZE})`.padEnd(59) + '║');
   console.log('╠══════════════════════════════════════════════════════════╣');
   console.log('║  Configured Printers:                                    ║');
   
@@ -447,7 +487,7 @@ function printBanner() {
   
   console.log('╚══════════════════════════════════════════════════════════╝');
   console.log('');
-  console.log('🟢 Bridge agent started. Polling for print jobs...');
+  console.log('🟢 Bridge agent started. Waiting for print jobs...');
   console.log('   Press Ctrl+C to stop.\n');
 }
 
@@ -499,22 +539,18 @@ async function startAgent() {
     console.log('\nStarting polling...\n');
   }
 
-  // Start polling loops
+  // Refresh printer config from cloud
   refreshPrinterConfigFromCloud();
   setInterval(refreshPrinterConfigFromCloud, CONFIG.PRINTER_CONFIG_REFRESH_INTERVAL);
-  
-  // Adaptive polling - uses dynamic interval based on job activity
-  const adaptivePoll = () => {
-    processNextJob();
-    setTimeout(adaptivePoll, currentPollInterval);
-  };
-  adaptivePoll();
   
   // Status reporting at longer intervals to reduce requests
   setInterval(reportPrinterStatuses, CONFIG.STATUS_REPORT_INTERVAL);
   reportPrinterStatuses();
   
-  console.log('🟢 Polling started (adaptive interval: 1-10 seconds). Waiting for print jobs...\n');
+  console.log(`🟢 Long-poll loop starting (hold=${LONG_POLL_WAIT / 1000}s, batch=${BATCH_SIZE}). ~2 req/min when idle, instant on new job.\n`);
+
+  // Start the long-polling loop (runs forever)
+  pollLoop();
 }
 
 startAgent();

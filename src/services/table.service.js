@@ -310,9 +310,9 @@ const tableService = {
             // Get order items with variants, addons, NC details, and full pricing
             const [items] = await pool.query(
               `SELECT oi.*, 
-                i.name as item_name, i.short_name, i.image_url, i.item_type,
-                i.base_price as menu_base_price,
-                v.name as variant_name, v.price as variant_menu_price,
+                i.name as catalog_name, i.short_name as catalog_short_name, i.image_url, i.item_type as catalog_item_type,
+                i.base_price as menu_base_price, i.is_open_item as catalog_is_open_item,
+                v.name as catalog_variant_name, v.price as variant_menu_price,
                 ks.name as kitchen_station_name, ks.station_type,
                 tg.name as tax_group_name, tg.total_rate as tax_total_rate,
                 uc.name as cancelled_by_name,
@@ -344,16 +344,28 @@ const tableService = {
               try { taxDetails = item.tax_details ? (typeof item.tax_details === 'string' ? JSON.parse(item.tax_details) : item.tax_details) : null; } catch (e) {}
 
               const addonTotal = item.addons.reduce((sum, a) => sum + parseFloat(a.unit_price || 0) * (a.quantity || 1), 0);
-              const menuPrice = item.variant_id
-                ? parseFloat(item.variant_menu_price || item.menu_base_price || 0)
-                : parseFloat(item.menu_base_price || 0);
+              const isOpenItem = !!(item.is_open_item || item.catalog_is_open_item);
+
+              // For open items: use oi.item_name (custom name) and oi.unit_price (custom price)
+              // For normal items: use catalog values as before
+              const displayName = item.item_name || item.catalog_name;
+              const displayShortName = isOpenItem ? (item.item_name || item.catalog_short_name) : item.catalog_short_name;
+              const displayVariantName = item.variant_name || item.catalog_variant_name;
+              const displayItemType = item.item_type || item.catalog_item_type;
+
+              const menuPrice = isOpenItem
+                ? parseFloat(item.unit_price || item.base_price || 0)
+                : (item.variant_id
+                  ? parseFloat(item.variant_menu_price || item.menu_base_price || 0)
+                  : parseFloat(item.menu_base_price || 0));
 
               return {
                 id: item.id, itemId: item.item_id,
-                name: item.item_name, shortName: item.short_name,
+                name: displayName, shortName: displayShortName,
                 imageUrl: prefixImageUrl(item.image_url),
-                variantId: item.variant_id, variantName: item.variant_name,
-                quantity: parseFloat(item.quantity), itemType: item.item_type,
+                variantId: item.variant_id, variantName: displayVariantName,
+                quantity: parseFloat(item.quantity), itemType: displayItemType,
+                isOpenItem,
                 menuPrice,
                 addonTotal: parseFloat(addonTotal.toFixed(2)),
                 unitPrice: parseFloat(item.unit_price),
@@ -404,6 +416,7 @@ const tableService = {
               specialInstructions: item.specialInstructions,
               isComplimentary: item.isComplimentary,
               complimentaryReason: item.complimentaryReason,
+              isOpenItem: item.isOpenItem,
               // NC (No Charge) badge and details
               isNC: item.isNC,
               ncReason: item.ncReason,

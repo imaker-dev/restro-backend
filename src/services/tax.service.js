@@ -532,7 +532,7 @@ const taxService = {
         rate: totalRate,
         amount: parseFloat(((taxableAmount * totalRate) / 100).toFixed(2))
       }];
-    } else {
+    } else if (taxGroup.components && taxGroup.components.length > 0) {
       breakdown = taxGroup.components.map(comp => ({
         componentId: comp.id,
         componentName: comp.name,
@@ -540,6 +540,21 @@ const taxService = {
         rate: parseFloat(comp.rate),
         amount: parseFloat(((taxableAmount * comp.rate) / 100).toFixed(2))
       }));
+    } else {
+      // Fallback: tax group has total_rate but no components linked (misconfigured).
+      // Use total_rate directly so tax is still calculated correctly.
+      const totalRate = parseFloat(taxGroup.total_rate);
+      if (totalRate > 0) {
+        breakdown = [{
+          componentId: null,
+          componentName: taxGroup.name || 'Tax',
+          componentCode: taxGroup.code || 'TAX',
+          rate: totalRate,
+          amount: parseFloat(((taxableAmount * totalRate) / 100).toFixed(2))
+        }];
+      } else {
+        breakdown = [];
+      }
     }
 
     const taxAmount = breakdown.reduce((sum, b) => sum + b.amount, 0);

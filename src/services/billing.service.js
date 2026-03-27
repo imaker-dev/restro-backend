@@ -54,6 +54,7 @@ function formatInvoiceItem(item) {
     isNC: !!(item.is_nc || item.isNc || item.isNC),
     ncAmount: parseFloat(item.nc_amount || item.ncAmount) || 0,
     ncReason: item.nc_reason || item.ncReason || null,
+    isOpenItem: !!(item.is_open_item || item.isOpenItem),
   };
 }
 
@@ -1435,6 +1436,16 @@ const billingService = {
       whereClause += ` AND (t.table_number LIKE ? OR i.customer_name LIKE ? OR o.order_number LIKE ? OR i.invoice_number LIKE ?)`;
       const like = `%${search}%`;
       params.push(like, like, like, like);
+    }
+
+    // Open item filter - show only orders that contain open items
+    if (filters.hasOpenItems === 'true' || filters.hasOpenItems === true) {
+      whereClause += ` AND EXISTS (SELECT 1 FROM order_items oi_f WHERE oi_f.order_id = o.id AND oi_f.is_open_item = 1 AND oi_f.status != 'cancelled')`;
+    }
+
+    // NC item filter - show only orders that contain NC items
+    if (filters.hasNcItems === 'true' || filters.hasNcItems === true) {
+      whereClause += ` AND EXISTS (SELECT 1 FROM order_items oi_f WHERE oi_f.order_id = o.id AND oi_f.is_nc = 1 AND oi_f.status != 'cancelled')`;
     }
 
     const fromClause = `FROM invoices i

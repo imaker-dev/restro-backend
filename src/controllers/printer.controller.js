@@ -4,6 +4,7 @@
  */
 
 const printerService = require('../services/printer.service');
+const { printJobNotifier } = require('../services/printer.service');
 const logger = require('../utils/logger');
 
 function extractBridgeApiKey(headers = {}) {
@@ -231,43 +232,93 @@ const printerController = {
       const { outletId, bridgeCode } = req.params;
       const apiKey = extractBridgeApiKey(req.headers);
 
-      // API key is now optional - if not provided, uses simple bridge code lookup
       const bridge = await printerService.validateBridgeApiKey(outletId, bridgeCode, apiKey);
       if (!bridge) {
         return res.status(401).json({ success: false, message: 'Bridge not found or inactive' });
       }
-      // Get assigned stations
-      const stations = bridge.assigned_stations ? JSON.parse(bridge.assigned_stations) : [];
-      
-      // Check if bridge uses dynamic polling ('*' means poll for ANY pending job)
-      const isDynamicPolling = stations.includes('*') || stations.length === 0;
-      
-      let job = null;
-      if (isDynamicPolling) {
-        // Dynamic polling - get any pending job for this outlet
-        logger.debug(`Bridge ${bridgeCode} polling dynamically for ANY station`);
-        job = await printerService.getNextPendingJobAny(outletId);
-      } else {
-        // Fixed station polling - iterate through assigned stations
-        logger.debug(`Bridge ${bridgeCode} polling for stations: [${stations.join(', ')}]`);
-        for (const station of stations) {
-          job = await printerService.getNextPendingJob(outletId, station);
-          if (job) break;
+
+      // Long-polling: ?wait=25000 (ms) — hold connection until job arrives or timeout
+      const waitMs = Math.min(Math.max(parseInt(req.query.wait) || 0, 0), 30000);
+      // Batch mode: ?batch=10 — return multiple jobs at once
+      const batchSize = Math.min(Math.max(parseInt(req.query.batch) || 1, 1), 20);
+
+      // Helper: fetch pending jobs based on bridge config
+      const fetchJobs = async () => {
+        if (batchSize > 1) {
+          return printerService.getNextPendingJobsBatch(outletId, batchSize);
         }
+        // Single job (backward compatible)
+        const stations = bridge.assigned_stations ? JSON.parse(bridge.assigned_stations) : [];
+        const isDynamic = stations.includes('*') || stations.length === 0;
+        if (isDynamic) {
+          return printerService.getNextPendingJobAny(outletId);
+        }
+        for (const station of stations) {
+          const job = await printerService.getNextPendingJob(outletId, station);
+          if (job) return job;
+        }
+        return null;
+      };
+
+      // Immediate check
+      let result = await fetchJobs();
+      const hasResult = batchSize > 1 ? (Array.isArray(result) && result.length > 0) : !!result;
+
+      if (hasResult || waitMs <= 0) {
+        // Update bridge status (don't await — fire and forget for speed)
+        printerService.updateBridgeStatus(bridge.id, true, req.ip).catch(() => {});
+        return res.json({
+          success: true,
+          data: batchSize > 1 ? result : (result || null),
+          bridgeId: bridge.id
+        });
       }
 
+      // Long poll: wait for new job notification or timeout
+      let responded = false;
 
-      // Update bridge status
-      await printerService.updateBridgeStatus(bridge.id, true, req.ip);
+      const respond = (data) => {
+        if (responded || res.headersSent) return;
+        responded = true;
+        clearTimeout(timer);
+        printJobNotifier.removeListener(`outlet:${outletId}`, onNewJob);
+        printerService.updateBridgeStatus(bridge.id, true, req.ip).catch(() => {});
+        res.json({
+          success: true,
+          data: batchSize > 1 ? (Array.isArray(data) ? data : []) : (data || null),
+          bridgeId: bridge.id
+        });
+      };
 
-      res.json({ 
-        success: true, 
-        data: job,
-        bridgeId: bridge.id 
+      const onNewJob = async () => {
+        if (responded) return;
+        try {
+          const jobs = await fetchJobs();
+          const found = batchSize > 1 ? (Array.isArray(jobs) && jobs.length > 0) : !!jobs;
+          if (found) respond(jobs);
+        } catch (err) {
+          logger.error('Long poll fetchJobs error:', err.message);
+        }
+      };
+
+      const timer = setTimeout(() => respond(batchSize > 1 ? [] : null), waitMs);
+
+      printJobNotifier.on(`outlet:${outletId}`, onNewJob);
+
+      // Cleanup on client disconnect
+      req.on('close', () => {
+        if (!responded) {
+          responded = true;
+          clearTimeout(timer);
+          printJobNotifier.removeListener(`outlet:${outletId}`, onNewJob);
+        }
       });
+
     } catch (error) {
       logger.error('Bridge poll error:', error);
-      res.status(500).json({ success: false, message: error.message });
+      if (!res.headersSent) {
+        res.status(500).json({ success: false, message: error.message });
+      }
     }
   },
 

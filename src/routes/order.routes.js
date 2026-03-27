@@ -106,6 +106,21 @@ router.get('/table/:tableId', orderController.getOrdersByTable);
  */
 router.get('/cancel-reasons/:outletId', orderController.getCancelReasons);
 
+/**
+ * @route   GET /api/v1/orders/open-item-templates/:outletId
+ * @desc    Get open item templates for outlet (cashier/manager/admin)
+ * @access  Private (cashier, manager, admin)
+ */
+router.get('/open-item-templates/:outletId', authorize('super_admin', 'admin', 'manager', 'cashier'), orderController.getOpenItemTemplates);
+
+/**
+ * @route   GET /api/v1/orders/open-item-ingredients/:outletId
+ * @desc    Get available ingredients for open items (cashier picks to deduct stock)
+ * @access  Private (cashier, manager, admin)
+ * @query   search - Filter by ingredient name
+ */
+router.get('/open-item-ingredients/:outletId', authorize('super_admin', 'admin', 'manager', 'cashier'), orderController.getIngredientsForOpenItem);
+
 // ========================
 // PAYMENTS (before :id routes to prevent conflict)
 // ========================

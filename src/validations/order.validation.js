@@ -36,8 +36,20 @@ module.exports = {
       addons: Joi.array().items(Joi.number().integer().positive()).default([]),
       specialInstructions: Joi.string().max(255).allow('', null),
       isComplimentary: Joi.boolean().default(false),
-      complimentaryReason: Joi.string().max(255).allow('', null)
-    })).min(1).required()
+      complimentaryReason: Joi.string().max(255).allow('', null),
+      isOpenItem: Joi.boolean().default(false),
+      openItemName: Joi.string().max(150).when('isOpenItem', { is: true, then: Joi.required(), otherwise: Joi.allow('', null) }),
+      openItemPrice: Joi.number().min(0).when('isOpenItem', { is: true, then: Joi.required(), otherwise: Joi.allow(null) }),
+      ingredients: Joi.array().items(Joi.object({
+        ingredientId: Joi.number().integer().positive().required(),
+        quantity: Joi.number().positive().required(),
+        unitId: Joi.number().integer().positive().required()
+      })).allow(null).default(null)
+    })).min(1).required(),
+    cashierAuth: Joi.object({
+      cashierId: Joi.number().integer().positive().required(),
+      password: Joi.string().required()
+    }).allow(null)
   }),
 
   updateItemQuantity: Joi.object({
@@ -49,7 +61,11 @@ module.exports = {
     reasonId: Joi.number().integer().positive().allow(null),
     quantity: Joi.number().min(0.5).allow(null),
     approvedBy: Joi.number().integer().positive().allow(null),
-    stockAction: Joi.string().valid('reverse', 'wastage').allow(null)
+    stockAction: Joi.string().valid('reverse', 'wastage').allow(null),
+    cashierAuth: Joi.object({
+      cashierId: Joi.number().integer().positive().required(),
+      password: Joi.string().required()
+    }).allow(null)
   }),
 
   cancelOrder: Joi.object({

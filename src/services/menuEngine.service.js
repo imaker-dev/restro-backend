@@ -140,7 +140,8 @@ const menuEngineService = {
           allowSpecialNotes: item.allow_special_notes,
           taxGroupId: item.tax_group_id,
           taxRate: item.tax_rate,
-          taxInclusive: item.tax_inclusive
+          taxInclusive: item.tax_inclusive,
+          isOpenItem: !!item.is_open_item
         };
 
         // Include variants if item has variants
@@ -279,7 +280,8 @@ const menuEngineService = {
             prepTime: item.preparationTime || null,
             taxGroupId: item.taxGroupId || null,
             taxRate: item.taxRate || null,
-            taxInclusive: item.taxInclusive || false
+            taxInclusive: item.taxInclusive || false,
+            isOpenItem: item.isOpenItem || false
           };
 
           // Add badges
@@ -534,7 +536,7 @@ const menuEngineService = {
       SELECT DISTINCT i.id, i.name, i.short_name, i.description, i.base_price,
         i.image_url, i.item_type, i.has_variants, i.has_addons,
         i.is_bestseller, i.is_recommended, i.is_new, i.spice_level,
-        i.preparation_time_mins, i.category_id, i.tax_group_id,
+        i.preparation_time_mins, i.category_id, i.tax_group_id, i.is_open_item,
         c.name as category_name, c.id as cat_id
       FROM items i
       JOIN categories c ON i.category_id = c.id
@@ -614,7 +616,8 @@ const menuEngineService = {
         img: prefixImageUrl(item.image_url),
         categoryId: item.category_id,
         categoryName: item.category_name,
-        taxGroupId: item.tax_group_id
+        taxGroupId: item.tax_group_id,
+        isOpenItem: !!item.is_open_item
       };
 
       // Add badges
@@ -671,7 +674,7 @@ const menuEngineService = {
         SELECT i.id, i.name, i.short_name, i.description, i.base_price,
           i.image_url, i.item_type, i.has_variants, i.has_addons,
           i.is_bestseller, i.is_recommended, i.is_new, i.spice_level,
-          i.preparation_time_mins, i.tax_group_id
+          i.preparation_time_mins, i.tax_group_id, i.is_open_item
         FROM items i
         WHERE i.category_id = ? AND i.is_active = 1 AND i.is_available = 1 AND i.deleted_at IS NULL
       `;
@@ -710,7 +713,8 @@ const menuEngineService = {
           price: parseFloat(item.base_price),
           type: item.item_type,
           img: prefixImageUrl(item.image_url),
-          taxGroupId: item.tax_group_id
+          taxGroupId: item.tax_group_id,
+          isOpenItem: !!item.is_open_item
         };
 
         if (item.is_bestseller) result.bestseller = true;

@@ -7,6 +7,7 @@
 const { getPool } = require('../database');
 const { cache } = require('../config/redis');
 const { v4: uuidv4 } = require('uuid');
+const bcrypt = require('bcryptjs');
 const logger = require('../utils/logger');
 const tableService = require('./table.service');
 const menuEngineService = require('./menuEngine.service');
@@ -85,6 +86,108 @@ const orderService = {
     }
     
     return true;
+  },
+
+  /**
+   * Verify cashier password for post-bill order modifications.
+   * Only users with cashier/manager/admin role can modify billed orders.
+   * @param {object} cashierAuth - { cashierId, password }
+   * @param {number} outletId - Outlet ID for validation
+   * @param {object} [conn] - Optional DB connection
+   * @returns {object} - { verified: true, cashierId, cashierName }
+   */
+  async _verifyCashierAuth(cashierAuth, outletId, conn = null) {
+    const pool = conn || getPool();
+
+    if (!cashierAuth || !cashierAuth.cashierId || !cashierAuth.password) {
+      throw new Error('Cashier authentication required to modify a billed order. Provide cashierId and password.');
+    }
+
+    const { cashierId, password } = cashierAuth;
+
+    // Get user with password hash and verify they belong to this outlet
+    const [users] = await pool.query(
+      `SELECT u.id, u.name, u.password_hash, u.is_active
+       FROM users u
+       WHERE u.id = ? AND u.is_active = 1`,
+      [cashierId]
+    );
+
+    if (!users[0]) {
+      throw new Error('Cashier not found or inactive');
+    }
+
+    const user = users[0];
+
+    if (!user.password_hash) {
+      throw new Error('Cashier password not set. Contact administrator.');
+    }
+
+    // Verify password
+    const isValid = await bcrypt.compare(password, user.password_hash);
+    if (!isValid) {
+      logger.warn(`Post-bill modification: Invalid password attempt for cashier ${cashierId} (${user.name})`);
+      throw new Error('Invalid cashier password');
+    }
+
+    // Verify cashier role (cashier, manager, admin, super_admin)
+    const [roles] = await pool.query(
+      `SELECT r.slug FROM user_roles ur
+       JOIN roles r ON ur.role_id = r.id
+       WHERE ur.user_id = ? AND ur.is_active = 1`,
+      [cashierId]
+    );
+
+    const allowedRoles = ['cashier', 'manager', 'admin', 'super_admin'];
+    const hasRole = roles.some(r => allowedRoles.includes(r.slug));
+    if (!hasRole) {
+      throw new Error('Only cashier, manager or admin can modify a billed order');
+    }
+
+    logger.info(`Post-bill modification authorized: cashier ${cashierId} (${user.name}) for outlet ${outletId}`);
+    return { verified: true, cashierId: user.id, cashierName: user.name };
+  },
+
+  /**
+   * Auto-void existing invoice for a billed order so it can be modified.
+   * Called internally when cashier authenticates to modify a billed order.
+   * @returns {number|null} - Cancelled invoice ID or null
+   */
+  async _voidInvoiceForModification(orderId, cashierId, conn) {
+    // Find active (non-cancelled, unpaid) invoice
+    const [invoices] = await conn.query(
+      `SELECT i.id, i.invoice_number, i.payment_status
+       FROM invoices i
+       WHERE i.order_id = ? AND i.is_cancelled = 0
+       ORDER BY i.id DESC LIMIT 1`,
+      [orderId]
+    );
+
+    if (!invoices[0]) return null;
+
+    const invoice = invoices[0];
+
+    if (invoice.payment_status === 'paid') {
+      throw new Error('Cannot modify order — invoice is already paid');
+    }
+
+    // Cancel the invoice
+    await conn.query(
+      `UPDATE invoices SET
+        is_cancelled = 1, cancelled_at = NOW(), cancelled_by = ?,
+        cancel_reason = 'Auto-voided for post-bill order modification'
+       WHERE id = ?`,
+      [cashierId, invoice.id]
+    );
+
+    // Revert order status to 'served' so modifications can proceed
+    await conn.query(
+      `UPDATE orders SET status = 'served' WHERE id = ? AND status = 'billed'`,
+      [orderId]
+    );
+
+    logger.info(`Invoice ${invoice.invoice_number} (id=${invoice.id}) auto-voided for order ${orderId} modification by cashier ${cashierId}`);
+    return invoice.id;
   },
 
   // ========================
@@ -296,7 +399,7 @@ const orderService = {
    * Add items to order (before sending KOT)
    * Items are staged locally, this stores them in DB with pending status
    */
-  async addItems(orderId, items, createdBy) {
+  async addItems(orderId, items, createdBy, cashierAuth = null) {
     const pool = getPool();
     const connection = await pool.getConnection();
 
@@ -318,7 +421,14 @@ const orderService = {
       );
       const order = orderRows[0] || null;
       if (!order) throw new Error('Order not found');
-      if (order.status === 'billed' || order.status === 'paid' || order.status === 'completed' || order.status === 'cancelled') {
+
+      // Post-bill modification: require cashier password to modify billed orders
+      if (order.status === 'billed') {
+        await this._verifyCashierAuth(cashierAuth, order.outlet_id, connection);
+        await this._voidInvoiceForModification(orderId, cashierAuth.cashierId, connection);
+        // Order status is now 'served' — proceed normally
+        order.status = 'served';
+      } else if (order.status === 'paid' || order.status === 'completed' || order.status === 'cancelled') {
         throw new Error('Cannot add items to this order');
       }
 
@@ -354,15 +464,116 @@ const orderService = {
       for (const item of items) {
         const {
           itemId, variantId, quantity, addons = [],
-          specialInstructions, isComplimentary = false, complimentaryReason
+          specialInstructions, isComplimentary = false, complimentaryReason,
+          isOpenItem = false, openItemName, openItemPrice,
+          ingredients: openItemIngredients  // Optional: ad-hoc ingredients for stock deduction
         } = item;
 
+        // ── OPEN ITEM FLOW ──────────────────────────
+        if (isOpenItem) {
+          // Role check: only cashier/manager/admin can add open items
+          const [creatorRoles] = await connection.query(
+            `SELECT r.slug FROM user_roles ur
+             JOIN roles r ON ur.role_id = r.id
+             WHERE ur.user_id = ? AND ur.is_active = 1`,
+            [createdBy]
+          );
+          const allowedOpenItemRoles = ['cashier', 'manager', 'admin', 'super_admin'];
+          if (!creatorRoles.some(r => allowedOpenItemRoles.includes(r.slug))) {
+            throw new Error('Only cashier, manager or admin can add open items');
+          }
+
+          if (!openItemName || !openItemName.trim()) {
+            throw new Error('Open item name is required');
+          }
+          if (openItemPrice === undefined || openItemPrice === null || parseFloat(openItemPrice) < 0) {
+            throw new Error('Open item price must be 0 or greater');
+          }
+
+          // Fetch template item (for tax_group_id, item_type, category)
+          const [templateRows] = await connection.query(
+            `SELECT i.id, i.name, i.item_type, i.tax_group_id, i.category_id, i.is_open_item,
+                    c.name as category_name
+             FROM items i
+             JOIN categories c ON i.category_id = c.id
+             WHERE i.id = ? AND i.is_active = 1 AND i.deleted_at IS NULL`,
+            [itemId]
+          );
+          if (!templateRows[0]) throw new Error(`Open item template ${itemId} not found`);
+          const template = templateRows[0];
+
+          const oiPrice = parseFloat(openItemPrice);
+          const oiTotalPrice = oiPrice * quantity;
+          const taxGroupId = template.tax_group_id;
+
+          // Calculate tax using template's tax group (locked)
+          let taxAmount = 0;
+          let taxDetails = null;
+          if (taxGroupId) {
+            const taxResult = await taxService.calculateTax(
+              [{ price: oiPrice, quantity }],
+              taxGroupId
+            );
+            taxAmount = taxResult.taxAmount;
+            taxDetails = taxResult.breakdown;
+          }
+
+          // Insert open item into order_items
+          const [itemResult] = await connection.query(
+            `INSERT INTO order_items (
+              order_id, item_id, variant_id, item_name, variant_name, item_type,
+              quantity, unit_price, base_price, tax_amount, total_price,
+              tax_group_id, tax_details, special_instructions,
+              status, is_complimentary, complimentary_reason, is_open_item, created_by
+            ) VALUES (?, ?, NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, 1, ?)`,
+            [
+              orderId, itemId, openItemName.trim(), template.item_type,
+              quantity, oiPrice, oiPrice, taxAmount, oiTotalPrice,
+              taxGroupId, JSON.stringify(taxDetails), specialInstructions,
+              isComplimentary, complimentaryReason, createdBy
+            ]
+          );
+
+          const orderItemId = itemResult.insertId;
+
+          // Optional stock deduction: if cashier provided ingredients, deduct stock
+          let stockResult = null;
+          if (openItemIngredients && Array.isArray(openItemIngredients) && openItemIngredients.length > 0) {
+            stockResult = await stockDeductionService.deductForOpenItemIngredients(connection, {
+              orderId, orderItemId, outletId: order.outlet_id, userId: createdBy,
+              orderQuantity: quantity, ingredients: openItemIngredients
+            });
+          }
+
+          logger.info(`[OPEN-ITEM] Added: "${openItemName.trim()}" price=${oiPrice} qty=${quantity} template=${template.name}(id=${itemId}) taxGroup=${taxGroupId} ingredients=${openItemIngredients?.length || 0} stockDeducted=${!!stockResult} by user ${createdBy} to order ${orderId}`);
+
+          addedItems.push({
+            id: orderItemId,
+            itemId,
+            itemName: openItemName.trim(),
+            variantId: null,
+            variantName: null,
+            quantity,
+            unitPrice: oiPrice,
+            totalPrice: oiTotalPrice,
+            taxAmount,
+            status: 'pending',
+            isOpenItem: true,
+            templateName: template.name,
+            addons: [],
+            stockDeducted: !!stockResult,
+            ingredientCount: stockResult?.ingredientCount || 0
+          });
+          continue;
+        }
+
+        // ── REGULAR ITEM FLOW ───────────────────────
         // Get item details with effective price
         const itemDetails = await menuEngineService.getItemForOrder(itemId, context);
         if (!itemDetails) throw new Error(`Item ${itemId} not found`);
 
         // Determine price
-        let unitPrice, basePric;
+        let unitPrice, basePrice;
         let variantName = null;
         let taxGroupId = itemDetails.tax_group_id;
 
@@ -706,6 +917,7 @@ const orderService = {
         isNC: !!item.is_nc,
         ncAmount: parseFloat(item.nc_amount) || 0,
         ncReason: item.nc_reason || null,
+        isOpenItem: !!item.is_open_item,
         createdAt: item.created_at,
         updatedAt: item.updated_at
       };
@@ -1584,14 +1796,19 @@ const orderService = {
       if (!items[0]) throw new Error('Order item not found');
 
       const item = items[0];
-      const { reason, reasonId, quantity, approvedBy, stockAction } = data;
+      const { reason, reasonId, quantity, approvedBy, stockAction, cashierAuth } = data;
 
-      // Block cancellation if order is billed, billing, paid, completed or cancelled
-      if (['billing', 'billed', 'paid', 'completed', 'cancelled'].includes(item.order_status)) {
+      // Post-bill modification: require cashier password to cancel items on billed orders
+      if (item.order_status === 'billed') {
+        await this._verifyCashierAuth(cashierAuth, item.outlet_id, connection);
+        await this._voidInvoiceForModification(item.order_id, cashierAuth.cashierId, connection);
+        item.order_status = 'served';
+        item.has_invoice = 0;
+      } else if (['billing', 'paid', 'completed', 'cancelled'].includes(item.order_status)) {
         throw new Error('Cannot cancel items after bill is generated or order is completed');
       }
 
-      // Extra safety: Block if invoice exists for this order
+      // Extra safety: Block if invoice exists (skip if we just voided it above)
       if (item.has_invoice > 0) {
         throw new Error('Cannot cancel items after bill has been generated');
       }
@@ -2077,7 +2294,9 @@ const orderService = {
       limit = 20,
       sortBy = 'created_at',
       sortOrder = 'DESC',
-      viewAllFloorOrders = false  // Cashiers see all floor orders
+      viewAllFloorOrders = false,  // Cashiers see all floor orders
+      hasOpenItems,  // 'true' to show only orders with open items
+      hasNcItems     // 'true' to show only orders with NC items
     } = filters;
 
     // Optimized query with LEFT JOIN aggregations instead of subqueries for better performance
@@ -2133,6 +2352,8 @@ const orderService = {
         COALESCE(kot_stats.kot_count, 0) as kot_count,
         COALESCE(nc_stats.nc_item_count, 0) as nc_item_count,
         COALESCE(nc_stats.nc_total, 0) as nc_items_total,
+        COALESCE(oi_stats.open_item_count, 0) as open_item_count,
+        CASE WHEN COALESCE(oi_stats.open_item_count, 0) > 0 THEN 1 ELSE 0 END as has_open_items,
         u.name as created_by_name,
         inv.grand_total as invoice_grand_total,
         inv.is_nc as invoice_is_nc,
@@ -2165,6 +2386,11 @@ const orderService = {
         FROM order_items WHERE is_nc = 1 AND status != 'cancelled'
         GROUP BY order_id
       ) nc_stats ON o.id = nc_stats.order_id
+      LEFT JOIN (
+        SELECT order_id, COUNT(*) as open_item_count
+        FROM order_items WHERE is_open_item = 1 AND status != 'cancelled'
+        GROUP BY order_id
+      ) oi_stats ON o.id = oi_stats.order_id
       LEFT JOIN (
         SELECT order_id, grand_total, is_nc, nc_amount, invoice_number
         FROM invoices WHERE is_cancelled = 0
@@ -2221,6 +2447,16 @@ const orderService = {
     if (endDate) {
       query += ` AND DATE(o.created_at) <= ?`;
       params.push(endDate);
+    }
+
+    // Open item filter
+    if (hasOpenItems === 'true' || hasOpenItems === true) {
+      query += ` AND EXISTS (SELECT 1 FROM order_items oi_f WHERE oi_f.order_id = o.id AND oi_f.is_open_item = 1 AND oi_f.status != 'cancelled')`;
+    }
+
+    // NC item filter
+    if (hasNcItems === 'true' || hasNcItems === true) {
+      query += ` AND EXISTS (SELECT 1 FROM order_items oi_f WHERE oi_f.order_id = o.id AND oi_f.is_nc = 1 AND oi_f.status != 'cancelled')`;
     }
 
     // Get total count for pagination
@@ -2297,10 +2533,12 @@ const orderService = {
     }
 
     // Get order items with details
+    // For open items, use oi.item_name (custom name) instead of i.name (template name)
     const [items] = await pool.query(
       `SELECT oi.*, 
-        i.name as item_name, i.short_name,
-        v.name as variant_name,
+        CASE WHEN oi.is_open_item = 1 THEN oi.item_name ELSE COALESCE(i.name, oi.item_name) END as item_name,
+        i.short_name,
+        CASE WHEN oi.is_open_item = 1 THEN oi.variant_name ELSE COALESCE(v.name, oi.variant_name) END as variant_name,
         uc.name as cancelled_by_name
        FROM order_items oi
        LEFT JOIN items i ON oi.item_id = i.id
@@ -2310,6 +2548,10 @@ const orderService = {
        ORDER BY oi.created_at`,
       [orderId]
     );
+    // Add isOpenItem flag to each item
+    for (const item of items) {
+      item.isOpenItem = !!item.is_open_item;
+    }
     order.items = items;
 
     // NC breakdown for items
@@ -2608,12 +2850,79 @@ const orderService = {
   async getCancelReasons(outletId, type = 'item_cancel') {
     const pool = getPool();
     const [reasons] = await pool.query(
-      `SELECT * FROM cancel_reasons 
-       WHERE (outlet_id = ? OR outlet_id IS NULL) AND reason_type = ? AND is_active = 1
-       ORDER BY display_order`,
-      [outletId, type]
+      `SELECT cr.* FROM cancel_reasons cr
+       INNER JOIN (
+         SELECT reason,
+                COALESCE(
+                  MAX(CASE WHEN outlet_id = ? THEN id END),
+                  MAX(CASE WHEN outlet_id IS NULL THEN id END)
+                ) as pick_id
+         FROM cancel_reasons
+         WHERE (outlet_id = ? OR outlet_id IS NULL) AND reason_type = ? AND is_active = 1
+         GROUP BY reason
+       ) dedup ON cr.id = dedup.pick_id
+       ORDER BY cr.display_order, cr.id`,
+      [outletId, outletId, type]
     );
     return reasons;
+  },
+
+  async getOpenItemTemplates(outletId) {
+    const pool = getPool();
+    const [templates] = await pool.query(
+      `SELECT i.id, i.name, i.short_name, i.item_type, i.base_price,
+              i.tax_group_id, i.category_id, i.kitchen_station_id,
+              c.name as category_name, c.service_type as category_service_type,
+              tg.name as tax_group_name, tg.total_rate as tax_rate, tg.is_inclusive as tax_inclusive
+       FROM items i
+       JOIN categories c ON i.category_id = c.id
+       LEFT JOIN tax_groups tg ON i.tax_group_id = tg.id
+       WHERE i.outlet_id = ? AND i.is_open_item = 1 AND i.is_active = 1 AND i.deleted_at IS NULL
+       ORDER BY c.display_order, i.display_order, i.name`,
+      [outletId]
+    );
+    return templates;
+  },
+
+  /**
+   * Get available ingredients for open items (cashier picks to deduct stock)
+   * Returns a lightweight list: id, name, inventory item name, unit info, current stock
+   */
+  async getIngredientsForOpenItem(outletId, options = {}) {
+    const pool = getPool();
+    const { search } = options;
+
+    let where = 'WHERE ing.outlet_id = ? AND ing.is_active = 1 AND ii.is_active = 1';
+    const params = [outletId];
+
+    if (search && search.trim()) {
+      where += ' AND (ing.name LIKE ? OR ii.name LIKE ?)';
+      const s = `%${search.trim()}%`;
+      params.push(s, s);
+    }
+
+    const [rows] = await pool.query(
+      `SELECT ing.id as ingredientId, ing.name,
+              ii.id as inventoryItemId, ii.name as inventoryItemName,
+              ii.current_stock as currentStock,
+              bu.id as baseUnitId, bu.name as baseUnitName, bu.abbreviation as baseUnitAbbreviation,
+              ing.yield_percentage as yieldPercentage,
+              ing.wastage_percentage as wastagePercentage
+       FROM ingredients ing
+       JOIN inventory_items ii ON ing.inventory_item_id = ii.id
+       JOIN units bu ON ii.base_unit_id = bu.id
+       ${where}
+       ORDER BY ing.name ASC
+       LIMIT 200`,
+      params
+    );
+
+    // Also fetch all available units for the dropdown
+    const [units] = await pool.query(
+      `SELECT id, name, abbreviation, conversion_factor FROM units WHERE is_active = 1 ORDER BY name`
+    );
+
+    return { ingredients: rows, units };
   },
 
   // ========================
@@ -2641,6 +2950,8 @@ const orderService = {
       floorId = null,
       minAmount = null,
       maxAmount = null,
+      hasOpenItems = null,
+      hasNcItems = null,
       page = 1,
       limit = 20,
       sortBy = 'created_at',
@@ -2730,6 +3041,16 @@ const orderService = {
       )`);
       const searchPattern = `%${search}%`;
       queryParams.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
+    }
+
+    // Open item filter
+    if (hasOpenItems === 'true' || hasOpenItems === true) {
+      conditions.push(`EXISTS (SELECT 1 FROM order_items oi_f WHERE oi_f.order_id = o.id AND oi_f.is_open_item = 1 AND oi_f.status != 'cancelled')`);
+    }
+
+    // NC item filter
+    if (hasNcItems === 'true' || hasNcItems === true) {
+      conditions.push(`EXISTS (SELECT 1 FROM order_items oi_f WHERE oi_f.order_id = o.id AND oi_f.is_nc = 1 AND oi_f.status != 'cancelled')`);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';

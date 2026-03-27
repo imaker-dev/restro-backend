@@ -37,10 +37,10 @@ const sensitiveLimiter = createRateLimiter({
   },
 });
 
-// Bridge agent limiter - higher limits for system-to-system polling
+// Bridge agent limiter - long polling means fewer requests (~2-4/min idle, bursts when busy)
 const bridgeLimiter = createRateLimiter({
   windowMs: 1 * 60 * 1000, // 1 minute
-  max: 120, // 120 requests per minute (2 per second)
+  max: 60, // 60 requests per minute (long-poll reduces actual requests to ~2-4/min)
   message: {
     success: false,
     message: 'Bridge rate limit exceeded, slow down polling',

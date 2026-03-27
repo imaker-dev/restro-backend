@@ -12,7 +12,43 @@ const crypto = require('crypto');
 const net = require('net');
 const fs = require('fs');
 const path = require('path');
+const EventEmitter = require('events');
 const { loadOutletLogo } = require('../utils/escpos-image');
+
+// In-memory event emitter for long-polling bridge notification.
+// When a print job is created, we emit so waiting bridgePoll requests respond instantly.
+const printJobNotifier = new EventEmitter();
+printJobNotifier.setMaxListeners(50);
+
+// Direct TCP print: only works when the server is on the SAME NETWORK as printers.
+// In production (cloud server), printers are behind restaurant NAT — direct TCP cannot reach them.
+// Set DIRECT_PRINT_ENABLED=true only for on-premise / local server deployments.
+const DIRECT_PRINT_ENABLED = process.env.DIRECT_PRINT_ENABLED === 'true';
+
+// Health cache: tracks which printer IPs are unreachable.
+// If direct TCP fails for an IP, skip it for DIRECT_TCP_COOLDOWN_MS to avoid
+// blocking KOT/bill printing with repeated 2-second timeouts.
+const DIRECT_TCP_COOLDOWN_MS = 60000; // 60 seconds
+const directTcpFailures = new Map(); // key: "ip:port" → value: timestamp of last failure
+
+function isDirectTcpHealthy(ip, port) {
+  const key = `${ip}:${port || 9100}`;
+  const lastFail = directTcpFailures.get(key);
+  if (!lastFail) return true; // never failed → try it
+  if (Date.now() - lastFail > DIRECT_TCP_COOLDOWN_MS) {
+    directTcpFailures.delete(key); // cooldown expired → retry
+    return true;
+  }
+  return false; // recently failed → skip
+}
+
+function markDirectTcpFailed(ip, port) {
+  directTcpFailures.set(`${ip}:${port || 9100}`, Date.now());
+}
+
+function markDirectTcpOk(ip, port) {
+  directTcpFailures.delete(`${ip}:${port || 9100}`);
+}
 
 const BRIDGE_STATUS_STALE_SECONDS = parseInt(process.env.BRIDGE_STATUS_STALE_SECONDS, 10) || 90;
 const BRIDGE_ONLINE_WINDOW_SECONDS = parseInt(process.env.BRIDGE_ONLINE_WINDOW_SECONDS, 10) || 90;
@@ -378,6 +414,67 @@ const printerService = {
     return this.getPrinterByStation(outletId, station);
   },
 
+  /**
+   * Get ALL printers that should receive a KOT for a given station.
+   * Unlike getPrinterByStationWithId (returns 1), this returns ALL matching printers
+   * so KOTs can be sent to multiple printers per station.
+   *
+   * Lookup:
+   *  1. Station's directly assigned printer (kitchen_stations.printer_id or counters.printer_id)
+   *  2. All active printers with matching station column for the outlet
+   *  Deduplicates by printer ID.
+   */
+  async getAllPrintersForStation(outletId, station, stationId = null, isCounter = false) {
+    const pool = getPool();
+    const printerMap = new Map();
+
+    // 1. Direct assignment from kitchen_station or counter
+    if (stationId && isCounter) {
+      const [rows] = await pool.query(
+        `SELECT p.* FROM printers p
+         JOIN counters c ON c.printer_id = p.id
+         WHERE c.id = ? AND c.outlet_id = ? AND p.is_active = 1`,
+        [stationId, outletId]
+      );
+      for (const p of rows) printerMap.set(p.id, p);
+    } else if (stationId) {
+      const [rows] = await pool.query(
+        `SELECT p.* FROM printers p
+         JOIN kitchen_stations ks ON ks.printer_id = p.id
+         WHERE ks.id = ? AND ks.outlet_id = ? AND p.is_active = 1`,
+        [stationId, outletId]
+      );
+      for (const p of rows) printerMap.set(p.id, p);
+    }
+
+    // 2. All printers with matching station column for this outlet
+    const stationMatches = [station];
+    const kotVariantMap = {
+      'kitchen': 'kot_kitchen',
+      'main_kitchen': 'kot_kitchen',
+      'bar': 'kot_bar',
+      'main_bar': 'kot_bar',
+      'dessert': 'kot_dessert'
+    };
+    if (kotVariantMap[station]) {
+      stationMatches.push(kotVariantMap[station]);
+    }
+
+    const [stationPrinters] = await pool.query(
+      `SELECT * FROM printers
+       WHERE outlet_id = ? AND station IN (?) AND is_active = 1
+       ORDER BY id`,
+      [outletId, stationMatches]
+    );
+    for (const p of stationPrinters) printerMap.set(p.id, p);
+
+    const result = Array.from(printerMap.values());
+    if (result.length > 1) {
+      logger.info(`getAllPrintersForStation: outlet=${outletId}, station="${station}", stationId=${stationId} → ${result.length} printers: [${result.map(p => p.id + ':' + p.name).join(', ')}]`);
+    }
+    return result;
+  },
+
   async updatePrinter(id, data) {
     const pool = getPool();
     const updates = [];
@@ -424,15 +521,22 @@ const printerService = {
     const pool = getPool();
     
     // Prevent duplicate pending jobs for same reference (invoice/KOT number)
+    // When printerId is provided (multi-printer KOT), include it in the check so
+    // the same KOT going to different printers is NOT considered a duplicate.
     if (data.referenceNumber) {
-      const [existing] = await pool.query(
-        `SELECT id FROM print_jobs 
-         WHERE outlet_id = ? AND reference_number = ? AND job_type = ? AND status = 'pending'
-         LIMIT 1`,
-        [data.outletId, data.referenceNumber, data.jobType]
-      );
+      let dupQuery = `SELECT id FROM print_jobs 
+         WHERE outlet_id = ? AND reference_number = ? AND job_type = ? AND status = 'pending'`;
+      const dupParams = [data.outletId, data.referenceNumber, data.jobType];
+
+      if (data.printerId) {
+        dupQuery += ' AND printer_id = ?';
+        dupParams.push(data.printerId);
+      }
+      dupQuery += ' LIMIT 1';
+
+      const [existing] = await pool.query(dupQuery, dupParams);
       if (existing[0]) {
-        logger.info(`Print job already pending for ${data.referenceNumber} (${data.jobType}), skipping duplicate`);
+        logger.info(`Print job already pending for ${data.referenceNumber} (${data.jobType}, printer: ${data.printerId || 'any'}), skipping duplicate`);
         return { id: existing[0].id, duplicate: true };
       }
     }
@@ -483,6 +587,9 @@ const printerService = {
       jobType: data.jobType,
       referenceNumber: data.referenceNumber
     });
+
+    // Notify any long-polling bridge requests instantly
+    printJobNotifier.emit(`outlet:${data.outletId}`);
 
     logger.info(`Print job created: id=${jobId}, uuid=${uuid}, station=${data.station}, type=${data.jobType}, ref=${data.referenceNumber || 'N/A'}`);
     return { id: jobId, uuid };
@@ -564,6 +671,40 @@ const printerService = {
     }
 
     return jobs[0] || null;
+  },
+
+  /**
+   * Get a batch of pending jobs for ANY station (long-polling bridge).
+   * Marks all returned jobs as 'processing' atomically.
+   * @param {number} outletId
+   * @param {number} limit - max jobs to return (default 10)
+   */
+  async getNextPendingJobsBatch(outletId, limit = 10) {
+    const pool = getPool();
+
+    const [jobs] = await pool.query(
+      `SELECT pj.*, p.name as printer_name, p.ip_address, p.port
+       FROM print_jobs pj
+       LEFT JOIN printers p ON pj.printer_id = p.id
+       WHERE pj.outlet_id = ?
+         AND pj.status = 'pending'
+         AND pj.attempts < pj.max_attempts
+       ORDER BY pj.priority DESC, pj.created_at ASC
+       LIMIT ?`,
+      [outletId, limit]
+    );
+
+    if (jobs.length === 0) return [];
+
+    // Mark all as processing in one query
+    const ids = jobs.map(j => j.id);
+    await pool.query(
+      `UPDATE print_jobs SET status = 'processing', processed_at = NOW(), attempts = attempts + 1 WHERE id IN (?)`,
+      [ids]
+    );
+    logger.debug(`Bridge batch poll: ${jobs.length} jobs for outlet ${outletId} [${ids.join(',')}]`);
+
+    return jobs;
   },
 
   async markJobPrinted(jobId, bridgeId = null) {
@@ -939,9 +1080,15 @@ const printerService = {
       };
       
       // Add by printer.station (e.g., 'bar', 'kitchen', 'bill')
+      // If two printers share the same station, use station:printerId as key for the duplicate
+      // so ALL printers appear in the bridge config (needed for status reporting)
       const station = typeof row.station === 'string' ? row.station.trim() : '';
-      if (station && !printers[station]) {
-        printers[station] = printerConfig;
+      if (station) {
+        if (!printers[station]) {
+          printers[station] = printerConfig;
+        } else if (printers[station].printerId !== row.printer_id) {
+          printers[`${station}:${row.printer_id}`] = printerConfig;
+        }
       }
       
       // Add by kitchen_station.station_type (e.g., 'main_kitchen', 'tandoor')
@@ -1441,24 +1588,95 @@ const printerService = {
 
   async printKot(kotData, userId) {
     const content = this.formatKotContent(kotData);
-    // Use station name as-is from KOT (dynamic - matches kitchen_stations.station_type)
     const station = kotData.station || 'kitchen';
+    const wrappedContent = this.wrapWithEscPos(content, { beep: true });
+    const jobType = station === 'bar' || station === 'main_bar' ? 'bot' : 'kot';
 
-    return this.createPrintJob({
-      outletId: kotData.outletId,
-      jobType: station === 'bar' || station === 'main_bar' ? 'bot' : 'kot',
-      station,
-      stationId: kotData.stationId || null,
-      isCounter: kotData.isCounter || false,
-      kotId: kotData.kotId,
-      orderId: kotData.orderId,
-      content: this.wrapWithEscPos(content, { beep: true }),
-      contentType: 'escpos',
-      referenceNumber: kotData.kotNumber,
-      tableNumber: kotData.tableNumber,
-      priority: 10, // KOTs are high priority
-      createdBy: userId
-    });
+    // Find ALL printers for this station (multi-printer support)
+    const printers = await this.getAllPrintersForStation(
+      kotData.outletId, station, kotData.stationId || null, kotData.isCounter || false
+    );
+
+    if (printers.length === 0) {
+      // No printers found — create bridge job without explicit printerId (fallback)
+      logger.warn(`printKot: No printers found for station "${station}" (stationId: ${kotData.stationId}), creating bridge job`);
+      return this.createPrintJob({
+        outletId: kotData.outletId,
+        jobType,
+        station,
+        stationId: kotData.stationId || null,
+        isCounter: kotData.isCounter || false,
+        kotId: kotData.kotId,
+        orderId: kotData.orderId,
+        content: wrappedContent,
+        contentType: 'escpos',
+        referenceNumber: kotData.kotNumber,
+        tableNumber: kotData.tableNumber,
+        priority: 10,
+        createdBy: userId
+      });
+    }
+
+    // Step 1: Try direct TCP in PARALLEL for all printers with healthy IPs
+    // Only when server is on same network as printers (DIRECT_PRINT_ENABLED=true)
+    const directResults = new Map(); // printerId → true/false
+    const directCandidates = DIRECT_PRINT_ENABLED
+      ? printers.filter(p => p.ip_address && isDirectTcpHealthy(p.ip_address, p.port))
+      : [];
+
+    if (directCandidates.length > 0) {
+      const directAttempts = directCandidates.map(async (printer) => {
+        try {
+          await this.printDirect(printer.ip_address, printer.port || 9100, wrappedContent, 2000);
+          markDirectTcpOk(printer.ip_address, printer.port);
+          logger.info(`KOT ${kotData.kotNumber} printed DIRECT to ${printer.name} (${printer.ip_address}:${printer.port || 9100})`);
+          directResults.set(printer.id, true);
+        } catch (directErr) {
+          markDirectTcpFailed(printer.ip_address, printer.port);
+          logger.warn(`KOT ${kotData.kotNumber} direct print failed for ${printer.name} (${printer.ip_address}): ${directErr.message}, falling back to bridge`);
+          directResults.set(printer.id, false);
+        }
+      });
+      await Promise.all(directAttempts);
+    }
+
+    // Step 2: Create bridge jobs for printers that didn't print directly
+    const results = [];
+    for (const printer of printers) {
+      if (directResults.get(printer.id) === true) {
+        results.push({ printerId: printer.id, method: 'direct' });
+        continue;
+      }
+      // Bridge fallback
+      try {
+        const result = await this.createPrintJob({
+          outletId: kotData.outletId,
+          printerId: printer.id,
+          jobType,
+          station,
+          stationId: kotData.stationId || null,
+          isCounter: kotData.isCounter || false,
+          kotId: kotData.kotId,
+          orderId: kotData.orderId,
+          content: wrappedContent,
+          contentType: 'escpos',
+          referenceNumber: kotData.kotNumber,
+          tableNumber: kotData.tableNumber,
+          priority: 10,
+          createdBy: userId
+        });
+        results.push({ ...result, printerId: printer.id, method: 'bridge' });
+      } catch (err) {
+        logger.error(`printKot: Failed to create bridge job for printer ${printer.id} (${printer.name}):`, err.message);
+      }
+    }
+
+    const directCount = results.filter(r => r.method === 'direct').length;
+    const bridgeCount = results.filter(r => r.method === 'bridge').length;
+    if (printers.length > 1 || bridgeCount > 0) {
+      logger.info(`printKot: ${kotData.kotNumber} → ${results.length} prints (${directCount} direct, ${bridgeCount} bridge) for ${printers.length} printers`);
+    }
+    return results[0] || null;
   },
 
   async printBill(billData, userId, resolvedPrinter = null) {
@@ -1475,11 +1693,26 @@ const printerService = {
       }
     }
 
-    // Use resolved printer's ID and station if available (from getBillPrinter routing).
     const printerId = resolvedPrinter?.id || null;
     const station = resolvedPrinter?.station || 'bill';
+    const wrappedContent = this.wrapWithEscPos(content, { openDrawer: billData.openDrawer, logo });
     logger.info(`[BILL-PRINT] printBill: resolvedPrinter=${resolvedPrinter ? `id=${resolvedPrinter.id} name=${resolvedPrinter.name} ip=${resolvedPrinter.ip_address}` : 'NULL'}, using printerId=${printerId}, station=${station}`);
 
+    // Try direct TCP first if enabled and printer has IP configured and is healthy
+    // DIRECT_PRINT_ENABLED must be true (server on same network as printers)
+    if (DIRECT_PRINT_ENABLED && resolvedPrinter?.ip_address && isDirectTcpHealthy(resolvedPrinter.ip_address, resolvedPrinter.port)) {
+      try {
+        await this.printDirect(resolvedPrinter.ip_address, resolvedPrinter.port || 9100, wrappedContent, 2000);
+        markDirectTcpOk(resolvedPrinter.ip_address, resolvedPrinter.port);
+        logger.info(`[BILL-PRINT] Bill ${billData.invoiceNumber || 'N/A'} printed DIRECT to ${resolvedPrinter.name} (${resolvedPrinter.ip_address}:${resolvedPrinter.port || 9100})`);
+        return { method: 'direct', printerId };
+      } catch (directErr) {
+        markDirectTcpFailed(resolvedPrinter.ip_address, resolvedPrinter.port);
+        logger.warn(`[BILL-PRINT] Direct print failed for ${billData.invoiceNumber || 'N/A'}: ${directErr.message}, falling back to bridge`);
+      }
+    }
+
+    // Fallback: create bridge job
     return this.createPrintJob({
       outletId: billData.outletId,
       jobType: billData.isDuplicate ? 'duplicate_bill' : 'bill',
@@ -1487,7 +1720,7 @@ const printerService = {
       printerId,
       orderId: billData.orderId,
       invoiceId: billData.invoiceId,
-      content: this.wrapWithEscPos(content, { openDrawer: billData.openDrawer, logo }),
+      content: wrappedContent,
       contentType: 'escpos',
       referenceNumber: billData.invoiceNumber,
       tableNumber: billData.tableNumber,
@@ -1890,3 +2123,4 @@ const printerService = {
 };
 
 module.exports = printerService;
+module.exports.printJobNotifier = printJobNotifier;

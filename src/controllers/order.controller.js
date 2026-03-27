@@ -113,12 +113,14 @@ const orderController = {
       const result = await orderService.addItems(
         req.params.id,
         req.body.items,
-        req.user.userId
+        req.user.userId,
+        req.body.cashierAuth || null
       );
       res.json({ success: true, message: 'Items added', data: result });
     } catch (error) {
       logger.error('Add items error:', error);
-      res.status(500).json({ success: false, message: error.message });
+      const status = error.message.includes('password') || error.message.includes('Cashier authentication') ? 403 : 500;
+      res.status(status).json({ success: false, message: error.message });
     }
   },
 
@@ -146,7 +148,8 @@ const orderController = {
       res.json({ success: true, message: 'Item cancelled', data: order });
     } catch (error) {
       logger.error('Cancel item error:', error);
-      res.status(500).json({ success: false, message: error.message });
+      const status = error.message.includes('password') || error.message.includes('Cashier authentication') ? 403 : 500;
+      res.status(status).json({ success: false, message: error.message });
     }
   },
 
@@ -200,6 +203,29 @@ const orderController = {
       res.json({ success: true, data: reasons });
     } catch (error) {
       logger.error('Get cancel reasons error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  async getOpenItemTemplates(req, res) {
+    try {
+      const { outletId } = req.params;
+      const templates = await orderService.getOpenItemTemplates(outletId);
+      res.json({ success: true, data: templates });
+    } catch (error) {
+      logger.error('Get open item templates error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  async getIngredientsForOpenItem(req, res) {
+    try {
+      const { outletId } = req.params;
+      const { search } = req.query;
+      const ingredients = await orderService.getIngredientsForOpenItem(outletId, { search });
+      res.json({ success: true, data: ingredients });
+    } catch (error) {
+      logger.error('Get ingredients for open item error:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   },
@@ -578,7 +604,9 @@ const orderController = {
         status: req.query.status,
         fromDate: req.query.fromDate,
         toDate: req.query.toDate,
-        orderType: req.query.orderType
+        orderType: req.query.orderType,
+        hasOpenItems: req.query.hasOpenItems,
+        hasNcItems: req.query.hasNcItems
       };
       const result = await billingService.getPendingBills(outletId, filters, {
         userId: req.user.userId,
@@ -1190,7 +1218,9 @@ const orderController = {
         sortOrder: req.query.sortOrder,
         floorIds: floorIds.length > 0 ? floorIds : undefined,
         // Cashiers see all orders for their assigned floors, captains see only their own
-        viewAllFloorOrders: isCashier && !isCaptain
+        viewAllFloorOrders: isCashier && !isCaptain,
+        hasOpenItems: req.query.hasOpenItems,
+        hasNcItems: req.query.hasNcItems
       };
       
       const result = await orderService.getCaptainOrderHistory(
@@ -1416,6 +1446,8 @@ const orderController = {
         floorId,
         minAmount,
         maxAmount,
+        hasOpenItems,
+        hasNcItems,
         page = 1,
         limit = 20,
         sortBy = 'created_at',
@@ -1436,6 +1468,8 @@ const orderController = {
         floorId: floorId || null,
         minAmount: minAmount ? parseFloat(minAmount) : null,
         maxAmount: maxAmount ? parseFloat(maxAmount) : null,
+        hasOpenItems: hasOpenItems || null,
+        hasNcItems: hasNcItems || null,
         page: parseInt(page),
         limit: parseInt(limit),
         sortBy,

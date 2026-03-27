@@ -29,7 +29,7 @@ const itemService = {
         isCustomizable = false, hasVariants = false, hasAddons = false,
         allowSpecialNotes = true, minQuantity = 1, maxQuantity, stepQuantity = 1,
         isAvailable = true, isRecommended = false, isBestseller = false, isNew = false,
-        displayOrder = 0, isActive = true, isGlobal = false,
+        displayOrder = 0, isActive = true, isGlobal = false, isOpenItem = false,
         kitchenStationId, counterId,
         // Visibility rules
         floorIds = [], sectionIds = [], timeSlotIds = [],
@@ -50,8 +50,8 @@ const itemService = {
           is_customizable, has_variants, has_addons, allow_special_notes,
           min_quantity, max_quantity, step_quantity,
           is_available, is_recommended, is_bestseller, is_new,
-          display_order, is_active, is_global, kitchen_station_id, counter_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          display_order, is_active, is_global, is_open_item, kitchen_station_id, counter_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           outletId, categoryId, itemSku, name, shortName, itemSlug, description,
           itemType, basePrice, costPrice, taxGroupId,
@@ -59,7 +59,7 @@ const itemService = {
           isCustomizable, hasVariants, hasAddons, allowSpecialNotes,
           minQuantity, maxQuantity, stepQuantity,
           isAvailable, isRecommended, isBestseller, isNew,
-          displayOrder, isActive, isGlobal, kitchenStationId, counterId
+          displayOrder, isActive, isGlobal, isOpenItem, kitchenStationId, counterId
         ]
       );
 
@@ -155,6 +155,9 @@ const itemService = {
     query += ' ORDER BY i.display_order, i.name';
 
     const [items] = await pool.query(query, params);
+    for (const item of items) {
+      item.isOpenItem = !!item.is_open_item;
+    }
     return items;
   },
 
@@ -253,9 +256,10 @@ const itemService = {
       }
     }
 
-    // Attach variants to each item
+    // Attach variants and computed fields to each item
     for (const item of items) {
       item.variants = variantMap[item.id] || [];
+      item.isOpenItem = !!item.is_open_item;
     }
 
     // Return with pagination metadata
@@ -284,7 +288,9 @@ const itemService = {
        WHERE i.id = ? AND i.deleted_at IS NULL`,
       [id]
     );
-    return rows[0] || null;
+    const item = rows[0] || null;
+    if (item) item.isOpenItem = !!item.is_open_item;
+    return item;
   },
 
   async getFullDetails(id) {
@@ -476,7 +482,7 @@ const itemService = {
         isAvailable: 'is_available', isRecommended: 'is_recommended',
         isBestseller: 'is_bestseller', isNew: 'is_new',
         displayOrder: 'display_order', isActive: 'is_active', isGlobal: 'is_global',
-        kitchenStationId: 'kitchen_station_id', counterId: 'counter_id'
+        isOpenItem: 'is_open_item', kitchenStationId: 'kitchen_station_id', counterId: 'counter_id'
       };
 
       for (const [key, column] of Object.entries(fieldMap)) {

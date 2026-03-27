@@ -206,6 +206,187 @@ const stockDeductionService = {
   },
 
   /**
+   * Deduct stock for ad-hoc ingredients on an open item (called inside transaction)
+   * Cashier optionally provides ingredients when ordering an open item.
+   * Uses the SAME movement pattern (reference_type='order_item') so existing reversal code works automatically.
+   * @param {object} connection - MySQL transaction connection
+   * @param {object} params - { orderId, orderItemId, outletId, userId, orderQuantity, ingredients: [{ ingredientId, quantity, unitId }] }
+   * @returns {object|null} - deduction summary or null on failure
+   */
+  async deductForOpenItemIngredients(connection, { orderId, orderItemId, outletId, userId, orderQuantity, ingredients }) {
+    try {
+      if (!ingredients || ingredients.length === 0) return null;
+
+      // Check if auto_deduct_stock is enabled (default: enabled)
+      try {
+        const [[setting]] = await connection.query(
+          "SELECT `value` FROM outlet_settings WHERE outlet_id = ? AND `key` = 'auto_deduct_stock'",
+          [outletId]
+        );
+        if (setting && setting.value === 'false') {
+          return null; // Stock deduction disabled
+        }
+      } catch (settingErr) {
+        logger.debug('outlet_settings not available, defaulting to auto_deduct_stock=true');
+      }
+
+      const deductions = [];
+      let totalCostDeducted = 0;
+
+      for (const ing of ingredients) {
+        const { ingredientId, quantity: ingQty, unitId } = ing;
+
+        // Fetch ingredient details (inventory link, yield, wastage)
+        const [[ingredient]] = await connection.query(
+          `SELECT ing.id, ing.name, ing.inventory_item_id, ing.yield_percentage, ing.wastage_percentage
+           FROM ingredients ing
+           WHERE ing.id = ? AND ing.outlet_id = ? AND ing.is_active = 1`,
+          [ingredientId, outletId]
+        );
+        if (!ingredient) {
+          logger.warn(`Open item stock: ingredient ${ingredientId} not found for outlet ${outletId}, skipping`);
+          continue;
+        }
+
+        // Get unit conversion factor
+        let conversionFactor = 1;
+        if (unitId) {
+          const [[unit]] = await connection.query(
+            'SELECT conversion_factor FROM units WHERE id = ?',
+            [unitId]
+          );
+          if (unit) {
+            conversionFactor = parseFloat(unit.conversion_factor) || 1;
+          }
+        }
+
+        const recipeQty = parseFloat(ingQty) || 0;
+        if (recipeQty <= 0) continue;
+
+        // Convert to base units
+        const qtyInBase = recipeQty * conversionFactor;
+
+        // Apply wastage + yield (same formula as deductForOrderItem)
+        const wastage = parseFloat(ingredient.wastage_percentage) || 0;
+        const yieldPct = parseFloat(ingredient.yield_percentage) || 100;
+        const effectiveQtyPerPortion = qtyInBase * (1 + wastage / 100) * (100 / yieldPct);
+
+        // Multiply by order item quantity
+        const totalEffectiveQty = effectiveQtyPerPortion * orderQuantity;
+
+        const inventoryItemId = ingredient.inventory_item_id;
+
+        // Lock inventory item for stock update (concurrency safe)
+        const [[item]] = await connection.query(
+          'SELECT current_stock, average_price FROM inventory_items WHERE id = ? FOR UPDATE',
+          [inventoryItemId]
+        );
+        if (!item) {
+          logger.warn(`Open item stock: inventory item ${inventoryItemId} not found, skipping`);
+          continue;
+        }
+
+        const currentStock = parseFloat(item.current_stock) || 0;
+        const balanceBefore = currentStock;
+        const balanceAfter = currentStock - totalEffectiveQty;
+
+        // FIFO batch deduction
+        const batchDeductionDetails = await this._deductFromBatchesFIFO(
+          connection, inventoryItemId, totalEffectiveQty
+        );
+
+        // Update inventory item stock (may go negative — that's OK)
+        await connection.query(
+          'UPDATE inventory_items SET current_stock = ? WHERE id = ?',
+          [balanceAfter, inventoryItemId]
+        );
+
+        const deductionCost = batchDeductionDetails.totalCost;
+        totalCostDeducted += deductionCost;
+
+        // Record ONE movement PER batch deducted (same pattern as regular items for reversal compatibility)
+        let runningBalance = balanceBefore;
+        for (const bd of batchDeductionDetails.batches) {
+          const batchBalanceBefore = runningBalance;
+          runningBalance -= bd.qtyDeducted;
+          await connection.query(
+            `INSERT INTO inventory_movements (
+              outlet_id, inventory_item_id, inventory_batch_id, movement_type,
+              quantity, quantity_in_base, unit_cost, total_cost,
+              balance_before, balance_after, reference_type, reference_id, notes, created_by
+            ) VALUES (?, ?, ?, 'sale', ?, ?, ?, ?, ?, ?, 'order_item', ?, ?, ?)`,
+            [outletId, inventoryItemId, bd.batchId,
+             -bd.qtyDeducted, -bd.qtyDeducted, bd.pricePerUnit, bd.cost,
+             batchBalanceBefore, runningBalance, orderItemId,
+             `Open item order #${orderId}, ${ingredient.name}: ${bd.qtyDeducted.toFixed(4)} from batch #${bd.batchId}`,
+             userId]
+          );
+        }
+
+        // Unbatched quantity (negative stock beyond batches)
+        if (batchDeductionDetails.unbatchedQty > 0) {
+          const avgPrice = parseFloat(item.average_price) || 0;
+          const unbatchedCost = parseFloat((batchDeductionDetails.unbatchedQty * avgPrice).toFixed(2));
+          const ubBalanceBefore = runningBalance;
+          runningBalance -= batchDeductionDetails.unbatchedQty;
+          await connection.query(
+            `INSERT INTO inventory_movements (
+              outlet_id, inventory_item_id, inventory_batch_id, movement_type,
+              quantity, quantity_in_base, unit_cost, total_cost,
+              balance_before, balance_after, reference_type, reference_id, notes, created_by
+            ) VALUES (?, ?, NULL, 'sale', ?, ?, ?, ?, ?, ?, 'order_item', ?, ?, ?)`,
+            [outletId, inventoryItemId,
+             -batchDeductionDetails.unbatchedQty, -batchDeductionDetails.unbatchedQty,
+             avgPrice, unbatchedCost,
+             ubBalanceBefore, runningBalance, orderItemId,
+             `Open item order #${orderId}, ${ingredient.name}: ${batchDeductionDetails.unbatchedQty.toFixed(4)} (no batch, negative stock)`,
+             userId]
+          );
+        }
+
+        // Store ingredient in order_item_ingredients for audit trail
+        await connection.query(
+          `INSERT INTO order_item_ingredients (
+            order_item_id, ingredient_id, quantity, unit_id, conversion_factor, quantity_in_base
+          ) VALUES (?, ?, ?, ?, ?, ?)`,
+          [orderItemId, ingredientId, recipeQty, unitId || 0, conversionFactor, totalEffectiveQty]
+        );
+
+        deductions.push({
+          inventoryItemId,
+          ingredientName: ingredient.name,
+          qtyDeducted: parseFloat(totalEffectiveQty.toFixed(4)),
+          cost: parseFloat(deductionCost.toFixed(2)),
+          batchDetails: batchDeductionDetails.batches,
+          balanceBefore: parseFloat(balanceBefore.toFixed(4)),
+          balanceAfter: parseFloat(balanceAfter.toFixed(4))
+        });
+      }
+
+      if (deductions.length === 0) return null;
+
+      // Mark order item as stock_deducted (enables reversal on cancel)
+      await connection.query(
+        'UPDATE order_items SET stock_deducted = 1 WHERE id = ?',
+        [orderItemId]
+      );
+
+      logger.info(`[OPEN-ITEM-STOCK] Deducted for order_item ${orderItemId}: ${deductions.length} ingredients, cost ₹${totalCostDeducted.toFixed(2)}`);
+
+      return {
+        orderItemId,
+        ingredientCount: deductions.length,
+        totalCostDeducted: parseFloat(totalCostDeducted.toFixed(2)),
+        deductions
+      };
+    } catch (error) {
+      logger.error(`Open item stock deduction failed for order_item ${orderItemId}:`, error);
+      // Stock deduction failure should not block order
+      return null;
+    }
+  },
+
+  /**
    * Reverse stock deduction for a single order item (on full cancel)
    * Uses NET remaining (sale - previous reversals) so full cancel after partial cancels is safe
    * Restores stock to the SAME original batches — no new batches created

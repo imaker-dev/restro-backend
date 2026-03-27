@@ -1088,14 +1088,32 @@ const kotService = {
     // Get updated KOT with new printed_count
     const updatedKot = await this.getKotById(kotId);
 
-    // Print the KOT with REPRINT label
+    // Print the KOT via printerService (handles multi-printer)
     try {
-      const printer = await this.getPrinterForStation(kot.outletId, kot.station);
-      if (printer) {
-        const printService = require('./print.service');
-        await printService.printKot(updatedKot, printer, { isReprint: true });
-        logger.info(`KOT ${kot.kotNumber} reprinted to ${printer.name}`);
-      }
+      const kotPrintData = {
+        outletId: kot.outletId,
+        kotId: kot.id,
+        orderId: kot.orderId,
+        orderNumber: kot.orderNumber,
+        kotNumber: `${kot.kotNumber} [REPRINT]`,
+        station: kot.station,
+        stationName: kot.stationName || kot.station,
+        stationId: kot.stationId || null,
+        isCounter: false,
+        tableNumber: kot.tableNumber,
+        time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+        items: (kot.items || []).map(i => ({
+          itemName: i.name,
+          variantName: i.variantName,
+          quantity: i.quantity,
+          itemType: i.itemType,
+          addonsText: i.addonsText,
+          instructions: i.specialInstructions
+        })),
+        captainName: kot.createdBy || 'Staff'
+      };
+      await printerService.printKot(kotPrintData, userId);
+      logger.info(`KOT ${kot.kotNumber} reprinted to all station printers`);
     } catch (printError) {
       logger.error(`Failed to print KOT reprint: ${printError.message}`);
     }
