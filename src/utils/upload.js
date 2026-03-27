@@ -22,6 +22,9 @@ const ALLOWED_MIMES = [
   'image/heic', 'image/heif', 'image/avif'
 ];
 
+const ALLOWED_PDF_EXTENSIONS = ['.pdf'];
+const ALLOWED_PDF_MIMES = ['application/pdf'];
+
 // Max file size (from config or 10MB default)
 const MAX_FILE_SIZE = config.maxFileSize || 10 * 1024 * 1024;
 
@@ -34,6 +37,17 @@ const UPLOAD_DIR = path.resolve(config.uploadPath || './uploads');
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
+  }
+}
+
+function menuFileFilter(req, file, cb) {
+  const ext = path.extname(file.originalname).toLowerCase();
+  const isImage = ALLOWED_MIMES.includes(file.mimetype) || ALLOWED_EXTENSIONS.includes(ext);
+  const isPdf = ALLOWED_PDF_MIMES.includes(file.mimetype) || ALLOWED_PDF_EXTENSIONS.includes(ext);
+  if (isImage || isPdf) {
+    cb(null, true);
+  } else {
+    cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', 'Invalid file type. Only images or PDF are allowed.'));
   }
 }
 
@@ -96,6 +110,14 @@ function singleImage(fieldName = 'image', subfolder = 'images') {
   }).single(fieldName);
 }
 
+function singleMenuMedia(fieldName = 'file', subfolder = 'menu') {
+  return multer({
+    storage: createStorage(subfolder),
+    fileFilter: menuFileFilter,
+    limits: { fileSize: MAX_FILE_SIZE }
+  }).single(fieldName);
+}
+
 /**
  * Create upload middleware for multiple images
  * @param {string} fieldName - Form field name (default: 'images')
@@ -106,6 +128,14 @@ function multipleImages(fieldName = 'images', maxCount = 10, subfolder = 'images
   return multer({
     storage: createStorage(subfolder),
     fileFilter: imageFileFilter,
+    limits: { fileSize: MAX_FILE_SIZE }
+  }).array(fieldName, maxCount);
+}
+
+function multipleMenuMedia(fieldName = 'files', maxCount = 10, subfolder = 'menu') {
+  return multer({
+    storage: createStorage(subfolder),
+    fileFilter: menuFileFilter,
     limits: { fileSize: MAX_FILE_SIZE }
   }).array(fieldName, maxCount);
 }
@@ -125,6 +155,12 @@ function formatFileResponse(req, file) {
     path: relativePath.replace(/\\/g, '/'),
     url: getFileUrl(req, relativePath)
   };
+}
+
+function buildAbsoluteUrlFromApp(relativePath) {
+  const base = (config.url || '').replace(/\/$/, '');
+  const urlPath = relativePath.replace(/\\/g, '/');
+  return `${base}/${urlPath}`;
 }
 
 function formatBytes(bytes) {
@@ -150,11 +186,16 @@ function deleteFile(relativePath) {
 module.exports = {
   singleImage,
   multipleImages,
+  multipleMenuMedia,
   formatFileResponse,
   deleteFile,
   getFileUrl,
+  buildAbsoluteUrlFromApp,
   ALLOWED_EXTENSIONS,
   ALLOWED_MIMES,
+  ALLOWED_PDF_EXTENSIONS,
+  ALLOWED_PDF_MIMES,
+  singleMenuMedia,
   MAX_FILE_SIZE,
   UPLOAD_DIR
 };

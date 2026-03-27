@@ -21,6 +21,7 @@ router.use('/tax', require('./tax.routes'));
 router.use('/orders', require('./order.routes'));
 router.use('/printers', require('./printer.routes'));
 router.use('/upload', require('./upload.routes'));
+router.use('/menu-media', require('./menuMedia.routes'));
 router.use('/customers', require('./customer.routes'));
 router.use('/settings', require('./settings.routes'));
 router.use('/reports', require('./reports.routes'));

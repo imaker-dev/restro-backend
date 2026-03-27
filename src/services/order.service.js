@@ -1371,12 +1371,15 @@ const orderService = {
     // 2. All items with addons, station info
     const [items] = await pool.query(
       `SELECT oi.*,
-        i.short_name, i.image_url,
+        i.short_name, i.image_url, i.tags as item_tags,
+        CASE WHEN oi.is_open_item = 1 THEN oi.item_name ELSE COALESCE(i.name, oi.item_name) END as display_name,
         ks.name as station_name, ks.station_type,
         c.name as counter_name,
+        v.name as catalog_variant_name,
         u_cancel.name as cancelled_by_name
        FROM order_items oi
        LEFT JOIN items i ON oi.item_id = i.id
+       LEFT JOIN variants v ON oi.variant_id = v.id
        LEFT JOIN kitchen_stations ks ON i.kitchen_station_id = ks.id
        LEFT JOIN counters c ON i.counter_id = c.id
        LEFT JOIN users u_cancel ON oi.cancelled_by = u_cancel.id
@@ -1410,14 +1413,17 @@ const orderService = {
     const formattedItems = items.map(it => ({
       id: it.id,
       itemId: it.item_id,
-      itemName: it.item_name,
-      shortName: it.short_name || null,
+      itemName: it.display_name || it.item_name,
+      shortName: it.is_open_item ? (it.item_name || it.short_name) : (it.short_name || null),
+      variantName: it.catalog_variant_name || it.variant_name || null,
       imageUrl: prefixImageUrl(it.image_url),
       quantity: it.quantity,
       unitPrice: parseFloat(it.unit_price) || 0,
       totalPrice: parseFloat(it.total_price) || 0,
       status: it.status,
       itemType: it.item_type || null,
+      tags: it.item_tags || null,
+      isOpenItem: !!it.is_open_item,
       stationName: it.station_name || null,
       stationType: it.station_type || null,
       counterName: it.counter_name || null,
