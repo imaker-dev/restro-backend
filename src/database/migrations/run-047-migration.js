@@ -16,7 +16,7 @@ async function runMigration() {
     port: process.env.DB_PORT || 3306,
     user: process.env.DB_USER || 'root',
     password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'restro_pos',
+    database: process.env.DB_NAME || 'restro',
     multipleStatements: true
   });
 
@@ -26,7 +26,7 @@ async function runMigration() {
     // Check if table already exists
     const [tables] = await connection.query(
       "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'order_item_ingredients'",
-      [process.env.DB_NAME || 'restro_pos']
+      [process.env.DB_NAME || 'restro']
     );
 
     if (tables.length > 0) {
