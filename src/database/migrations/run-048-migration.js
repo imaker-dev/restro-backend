@@ -5,20 +5,21 @@
 
 require('dotenv').config();
 const mysql = require('mysql2/promise');
+const dbConfig = require('../../config/database.config');
 const fs = require('fs');
 const path = require('path');
 
 async function runMigration() {
   console.log('Running migration 048: Menu Media...\n');
 
-  const pool = await mysql.createPool({
-    host: process.env.DB_HOST || 'localhost',
-    port: process.env.DB_PORT || 3306,
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'restro',
-    multipleStatements: true
-  });
+   const pool = mysql.createPool({
+      host: dbConfig.host,
+      port: dbConfig.port,
+      user: dbConfig.user,
+      password: dbConfig.password,
+      database: dbConfig.database,
+      multipleStatements: true
+    });
 
   try {
     const connection = await pool.getConnection();
@@ -26,7 +27,7 @@ async function runMigration() {
     // Check if table already exists
     const [tables] = await connection.query(
       "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'menu_media'",
-      [process.env.DB_NAME || 'restro']
+       [dbConfig.database]
     );
 
     if (tables.length > 0) {
