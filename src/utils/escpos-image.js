@@ -4,10 +4,12 @@
  * Uses ESC * command for maximum compatibility
  */
 
-const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs').promises;
 const logger = require('./logger');
+
+let sharp = null;
+try { sharp = require('sharp'); } catch (_) { /* native binary not available — image printing disabled */ }
 
 /**
  * Convert image to ESC/POS bit image format using ESC * command
@@ -29,6 +31,11 @@ async function imageToEscPos(imageSource, options = {}) {
   // Supported image formats by sharp
   const SUPPORTED_FORMATS = ['jpeg', 'jpg', 'png', 'webp', 'gif', 'avif', 'tiff', 'svg'];
   
+  if (!sharp) {
+    logger.warn('sharp module not available — logo printing disabled. Install sharp native binaries to enable.');
+    return Buffer.alloc(0);
+  }
+
   try {
     let imageBuffer;
 

@@ -15,10 +15,10 @@ ALTER TABLE table_sessions
   ADD INDEX idx_ts_table_status_started (table_id, status, started_at DESC);
 
 -- 2. table_history: WHERE table_id=? ORDER BY created_at DESC LIMIT 10
---    Current: idx_table_history_table(table_id) — single column, filesort on created_at
---    Fix: Composite covers both WHERE and ORDER BY
-ALTER TABLE table_history
-  ADD INDEX idx_th_table_created (table_id, created_at DESC);
+--    Skipped: table_history does not exist in the current schema.
+--    If it is created in a future migration, add this index there.
+-- ALTER TABLE table_history
+--   ADD INDEX idx_th_table_created (table_id, created_at DESC);
 
 -- 3. order_items: WHERE order_id=? ORDER BY created_at
 --    Current: idx_order_items_order(order_id) — single column, filesort on created_at

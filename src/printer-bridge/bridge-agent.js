@@ -18,6 +18,10 @@
 
 const axios = require('axios');
 const net = require('net');
+const { exec } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 const BINARY_CONTENT_PREFIX = 'b64:';
 
 // ========================
@@ -27,10 +31,10 @@ const BINARY_CONTENT_PREFIX = 'b64:';
 const CONFIG = {
   // Cloud server URL (your backend API)
   // CLOUD_URL: process.env.CLOUD_URL || 'http://localhost:3005',
-  CLOUD_URL: process.env.CLOUD_URL || 'https://another-chess-confirmed-textile.trycloudflare.com',
+  CLOUD_URL: process.env.CLOUD_URL || 'https://made-img-specializing-trio.trycloudflare.com',
   
   // Outlet ID from your system
-  OUTLET_ID: process.env.OUTLET_ID || '45',
+  OUTLET_ID: process.env.OUTLET_ID || '43',
   
   // Bridge code (created via API: POST /api/v1/printers/bridges)
   BRIDGE_CODE: process.env.BRIDGE_CODE || 'KITCHEN-BRIDGE-1',
@@ -67,7 +71,19 @@ const CONFIG = {
   },
   
   // Fallback printer if station not found
-  DEFAULT_PRINTER: { ip: '192.168.1.13', port: 9100 }
+  DEFAULT_PRINTER: { ip: '192.168.1.13', port: 9100 },
+
+  // USB Fallback Configuration
+  // When LAN printing fails, try USB printing as fallback
+  USB_FALLBACK_ENABLED: process.env.USB_FALLBACK_ENABLED !== 'false', // enabled by default
+  
+  // USB Printer name (Windows shared printer name or device path)
+  // Windows: Use printer share name from "Devices and Printers" (e.g., "POS-80" or "\\localhost\POS-80")
+  // Linux/Mac: Use device path (e.g., "/dev/usb/lp0")
+  USB_PRINTER_NAME: process.env.USB_PRINTER_NAME || 'RP 3230',
+  
+  // Temp directory for print files
+  TEMP_DIR: process.env.TEMP_DIR || os.tmpdir()
 };
 
 // Normalize critical config values to avoid auth mismatches from whitespace.
@@ -81,9 +97,9 @@ CONFIG.API_KEY = String(CONFIG.API_KEY || '').trim();
 // ========================
 
 /**
- * Send raw data to thermal printer via TCP socket
+ * Send raw data to thermal printer via TCP socket (LAN)
  */
-function sendToPrinter(printerIp, printerPort, data) {
+function sendToPrinterLAN(printerIp, printerPort, data) {
   return new Promise((resolve, reject) => {
     const client = new net.Socket();
     let connected = false;
@@ -115,6 +131,97 @@ function sendToPrinter(printerIp, printerPort, data) {
       reject(new Error('Connection timeout'));
     });
   });
+}
+
+/**
+ * Send raw data to USB printer via Windows print spooler or direct file write (Linux/Mac)
+ * Windows: Uses 'print' command or 'copy' to printer share
+ * Linux/Mac: Writes directly to device file
+ */
+function sendToPrinterUSB(printerName, data) {
+  return new Promise((resolve, reject) => {
+    const isWindows = process.platform === 'win32';
+    const tempFile = path.join(CONFIG.TEMP_DIR, `print_${Date.now()}_${Math.random().toString(36).slice(2)}.bin`);
+    
+    // Write data to temp file
+    try {
+      fs.writeFileSync(tempFile, data);
+    } catch (err) {
+      return reject(new Error(`Failed to write temp file: ${err.message}`));
+    }
+    
+    if (isWindows) {
+      // Windows: Use 'copy' command to send raw data to printer
+      // Format: copy /b <file> <printer>
+      // Printer can be: "\\localhost\PrinterName" or just "PrinterName" if shared
+      const printerPath = printerName.startsWith('\\\\') ? printerName : `\\\\localhost\\${printerName}`;
+      const cmd = `copy /b "${tempFile}" "${printerPath}"`;
+      
+      exec(cmd, { timeout: 15000 }, (error, stdout, stderr) => {
+        // Clean up temp file
+        try { fs.unlinkSync(tempFile); } catch (e) { /* ignore */ }
+        
+        if (error) {
+          // Try alternative method: print command
+          const altCmd = `print /d:"${printerPath}" "${tempFile}"`;
+          exec(altCmd, { timeout: 15000 }, (altError) => {
+            if (altError) {
+              reject(new Error(`USB print failed: ${error.message}`));
+            } else {
+              console.log(`  ✅ Printed via USB (Windows print command)`);
+              resolve();
+            }
+          });
+        } else {
+          console.log(`  ✅ Printed via USB (Windows copy)`);
+          resolve();
+        }
+      });
+    } else {
+      // Linux/Mac: Write directly to device file
+      // printerName should be device path like "/dev/usb/lp0"
+      const devicePath = printerName.startsWith('/dev') ? printerName : `/dev/usb/lp0`;
+      
+      try {
+        fs.writeFileSync(devicePath, data);
+        fs.unlinkSync(tempFile);
+        console.log(`  ✅ Printed via USB (${devicePath})`);
+        resolve();
+      } catch (err) {
+        fs.unlinkSync(tempFile);
+        reject(new Error(`USB print failed: ${err.message}`));
+      }
+    }
+  });
+}
+
+/**
+ * Send data to printer with LAN → USB fallback
+ * First tries LAN (TCP), if fails and USB fallback is enabled, tries USB
+ */
+async function sendToPrinter(printerIp, printerPort, data) {
+  // Try LAN first
+  try {
+    await sendToPrinterLAN(printerIp, printerPort, data);
+    return { method: 'lan', success: true };
+  } catch (lanError) {
+    console.log(`  ⚠️ LAN print failed: ${lanError.message}`);
+    
+    // Try USB fallback if enabled
+    if (CONFIG.USB_FALLBACK_ENABLED && CONFIG.USB_PRINTER_NAME) {
+      console.log(`  🔄 Attempting USB fallback (${CONFIG.USB_PRINTER_NAME})...`);
+      try {
+        await sendToPrinterUSB(CONFIG.USB_PRINTER_NAME, data);
+        return { method: 'usb', success: true };
+      } catch (usbError) {
+        console.log(`  ⚠️ USB print also failed: ${usbError.message}`);
+        throw new Error(`LAN failed: ${lanError.message}; USB failed: ${usbError.message}`);
+      }
+    } else {
+      // USB fallback not enabled, throw original error
+      throw lanError;
+    }
+  }
 }
 
 function decodeJobContent(content) {
@@ -392,10 +499,11 @@ async function processJob(job) {
 
   try {
     const printableContent = decodeJobContent(job.content);
-    await sendToPrinter(printer.ip, printer.port, printableContent);
+    const result = await sendToPrinter(printer.ip, printer.port, printableContent);
     acknowledgeJob(job.id, 'printed'); // fire-and-forget — don't wait for HTTP round-trip
     jobsProcessed++;
-    console.log(`     ✅ Printed to ${printer.ip}:${printer.port} in ${Date.now() - t0}ms (total: ${jobsProcessed})`);
+    const methodLabel = result.method === 'usb' ? `USB (${CONFIG.USB_PRINTER_NAME})` : `${printer.ip}:${printer.port}`;
+    console.log(`     ✅ Printed via ${result.method.toUpperCase()} to ${methodLabel} in ${Date.now() - t0}ms (total: ${jobsProcessed})`);
   } catch (printError) {
     acknowledgeJob(job.id, 'failed', printError.message); // fire-and-forget
     jobsFailed++;
@@ -485,15 +593,21 @@ function printBanner() {
     console.log(`║    - ${line.padEnd(52)}║`);
   }
   
+  console.log('╠══════════════════════════════════════════════════════════╣');
+  const usbStatus = CONFIG.USB_FALLBACK_ENABLED ? `ON → ${CONFIG.USB_PRINTER_NAME}` : 'OFF';
+  console.log(`║  USB Fallback: ${usbStatus.padEnd(42)}║`);
   console.log('╚══════════════════════════════════════════════════════════╝');
   console.log('');
   console.log('🟢 Bridge agent started. Waiting for print jobs...');
+  console.log('   Print flow: LAN (TCP) → USB fallback (if LAN fails)');
   console.log('   Press Ctrl+C to stop.\n');
 }
 
 function testPrinterConnections() {
   console.log('🔍 Testing printer connections...\n');
   
+  // Test LAN printers
+  console.log('   LAN Printers:');
   for (const [station, printer] of Object.entries(CONFIG.PRINTERS)) {
     const client = new net.Socket();
     client.setTimeout(3000);
@@ -511,6 +625,55 @@ function testPrinterConnections() {
       console.log(`   ⚠️ ${station}: ${printer.ip}:${printer.port} - Timeout`);
       client.destroy();
     });
+  }
+}
+
+/**
+ * Test USB printer connectivity
+ */
+async function testUSBPrinter() {
+  if (!CONFIG.USB_FALLBACK_ENABLED || !CONFIG.USB_PRINTER_NAME) {
+    console.log('   USB Fallback: Disabled\n');
+    return;
+  }
+  
+  console.log(`\n   USB Printer (${CONFIG.USB_PRINTER_NAME}):`);
+  const isWindows = process.platform === 'win32';
+  
+  if (isWindows) {
+    // Test Windows printer by checking if it exists in the system
+    const printerPath = CONFIG.USB_PRINTER_NAME.startsWith('\\\\') 
+      ? CONFIG.USB_PRINTER_NAME 
+      : `\\\\localhost\\${CONFIG.USB_PRINTER_NAME}`;
+    
+    // Use 'wmic' to check printer existence
+    exec(`wmic printer where "name='${CONFIG.USB_PRINTER_NAME}'" get name`, { timeout: 5000 }, (error, stdout) => {
+      if (error || !stdout.includes(CONFIG.USB_PRINTER_NAME)) {
+        // Try checking shared printer
+        exec(`net view \\\\localhost`, { timeout: 5000 }, (err2, stdout2) => {
+          if (stdout2 && stdout2.includes(CONFIG.USB_PRINTER_NAME)) {
+            console.log(`   ✅ USB: ${CONFIG.USB_PRINTER_NAME} - Found (shared printer)`);
+          } else {
+            console.log(`   ⚠️ USB: ${CONFIG.USB_PRINTER_NAME} - Not found (check printer name in Devices & Printers)`);
+            console.log(`      Tip: Share the printer and use exact share name`);
+          }
+        });
+      } else {
+        console.log(`   ✅ USB: ${CONFIG.USB_PRINTER_NAME} - Found`);
+      }
+    });
+  } else {
+    // Linux/Mac: Check if device file exists
+    const devicePath = CONFIG.USB_PRINTER_NAME.startsWith('/dev') 
+      ? CONFIG.USB_PRINTER_NAME 
+      : `/dev/usb/lp0`;
+    
+    if (fs.existsSync(devicePath)) {
+      console.log(`   ✅ USB: ${devicePath} - Device exists`);
+    } else {
+      console.log(`   ❌ USB: ${devicePath} - Device not found`);
+      console.log(`      Tip: Check 'ls /dev/usb/' for available devices`);
+    }
   }
 }
 
@@ -535,6 +698,7 @@ async function startAgent() {
   // Optional: Test printer connections on startup
   if (process.argv.includes('--test')) {
     testPrinterConnections();
+    await testUSBPrinter();
     await new Promise(resolve => setTimeout(resolve, 5000));
     console.log('\nStarting polling...\n');
   }

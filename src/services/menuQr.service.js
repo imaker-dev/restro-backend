@@ -6,8 +6,10 @@
 const { getPool } = require('../database');
 const logger = require('../utils/logger');
 const QRCode = require('qrcode');
-const sharp = require('sharp');
 const path = require('path');
+
+let sharp = null;
+try { sharp = require('sharp'); } catch (_) { /* native binary not available — logo overlay disabled */ }
 const fs = require('fs');
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, '../../uploads');
@@ -68,8 +70,8 @@ const menuQrService = {
       }
     });
 
-    // If logo provided, overlay it on the QR code
-    if (logoPath) {
+    // If logo provided and sharp is available, overlay it on the QR code
+    if (logoPath && sharp) {
       // Strip leading 'uploads/' since UPLOAD_DIR already points to the uploads folder
       const relativeLogoPath = logoPath.replace(/^uploads[\\/]/, '');
       const absoluteLogoPath = relativeLogoPath.startsWith('/') || relativeLogoPath.includes(':')
@@ -102,7 +104,11 @@ const menuQrService = {
     }
 
     // Save QR without logo
-    await sharp(qrBuffer).toFile(qrFilePath);
+    if (sharp) {
+      await sharp(qrBuffer).toFile(qrFilePath);
+    } else {
+      fs.writeFileSync(qrFilePath, qrBuffer);
+    }
     return relativePath;
   },
 

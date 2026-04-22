@@ -24,8 +24,17 @@ const getPoolConnection = async () => {
     database: dbConfig.database,
     user: dbConfig.user,
     password: dbConfig.password,
-    multipleStatements: true,
+    multipleStatements: false,
   });
+};
+
+const splitStatements = (sql) => {
+  return sql
+    .replace(/^[ \t]*--[^\n]*/gm, '') // strip pure comment lines only (-- at line start)
+    .replace(/\/\*[\s\S]*?\*\//g, '') // strip block /* */ comments
+    .split(';')
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
 };
 
 const createDatabase = async () => {
@@ -101,13 +110,43 @@ const runMigrations = async () => {
     console.log(`Batch: ${batch}`);
     console.log(`Pending migrations: ${pendingMigrations.length}\n`);
     
+    // Best-effort: reduce lock wait timeouts so ALTER TABLE fails fast instead of hanging.
+    // Non-fatal — some MariaDB/MySQL versions don't expose these as session variables.
+    try { await connection.query('SET SESSION lock_wait_timeout = 30'); } catch (_) {}
+    try { await connection.query('SET SESSION innodb_lock_wait_timeout = 30'); } catch (_) {}
+
     for (const migrationFile of pendingMigrations) {
       console.log(`→ Running: ${migrationFile}`);
       
       const sqlPath = path.join(migrationsDir, migrationFile);
       const sql = fs.readFileSync(sqlPath, 'utf8');
-      
-      await connection.query(sql);
+
+      const statements = splitStatements(sql);
+      let hasError = false;
+      for (const stmt of statements) {
+        try {
+          await connection.query(stmt);
+        } catch (stmtErr) {
+          // Gracefully skip idempotent errors — these mean the object already exists
+          // or has already been removed. Safe for re-running on updates.
+          const safeToSkip = [
+            'ER_DUP_FIELDNAME',        // ALTER TABLE ADD COLUMN — column already exists
+            'ER_TABLE_EXISTS_ERROR',   // CREATE TABLE — table already exists
+            'ER_DUP_KEYNAME',          // CREATE INDEX — index already exists
+            'ER_DUP_INDEX',            // duplicate index name
+            'ER_CANT_DROP_FIELD_OR_KEY', // DROP COLUMN/KEY that doesn't exist
+            'ER_DB_CREATE_EXISTS',     // CREATE DATABASE — database already exists
+          ];
+          if (safeToSkip.includes(stmtErr.code)) {
+            console.log(`  ⊘ Skipped (already exists): ${stmtErr.sqlMessage || stmtErr.message}`);
+          } else {
+            console.error(`  ✗ Statement failed: ${stmtErr.message}`);
+            console.error(`    SQL: ${stmt.substring(0, 120)}`);
+            hasError = true;
+            throw stmtErr; // rethrow — non-idempotent errors must stop the migration
+          }
+        }
+      }
       await connection.query(
         'INSERT INTO migrations (migration_name, batch) VALUES (?, ?)',
         [migrationFile, batch]
@@ -121,7 +160,8 @@ const runMigrations = async () => {
   } catch (error) {
     console.error('\n✗ Migration failed:', error.message);
     console.error(error.stack);
-    process.exit(1);
+    if (require.main === module) process.exit(1);
+    throw error;
   } finally {
     await connection.end();
   }
@@ -194,16 +234,18 @@ const showStatus = async () => {
   }
 };
 
-// CLI handling
-const command = process.argv[2];
+module.exports = { runMigrations, rollbackMigrations, showStatus };
 
-switch (command) {
-  case 'rollback':
-    rollbackMigrations();
-    break;
-  case 'status':
-    showStatus();
-    break;
-  default:
-    runMigrations();
+if (require.main === module) {
+  const command = process.argv[2];
+  switch (command) {
+    case 'rollback':
+      rollbackMigrations();
+      break;
+    case 'status':
+      showStatus();
+      break;
+    default:
+      runMigrations();
+  }
 }

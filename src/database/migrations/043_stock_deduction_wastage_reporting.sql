@@ -10,7 +10,8 @@ ALTER TABLE inventory_movements
         'production_in', 'production_out', 'production_reversal', 'sale_reversal'
     ) NOT NULL;
 
--- 2. Wastage Logs table
+-- 2. Wastage Logs table (006 created an older schema; drop and recreate with new schema)
+DROP TABLE IF EXISTS wastage_logs;
 CREATE TABLE IF NOT EXISTS wastage_logs (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     outlet_id BIGINT UNSIGNED NOT NULL,

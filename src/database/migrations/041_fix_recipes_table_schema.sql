@@ -5,6 +5,9 @@
 -- CREATE TABLE IF NOT EXISTS in 038 was silently skipped
 -- =====================================================
 
+-- Disable FK checks so we can drop recipes even though order_item_costs references it
+SET FOREIGN_KEY_CHECKS = 0;
+
 -- Step 1: Drop recipe_ingredients (references recipes.id)
 DROP TABLE IF EXISTS recipe_ingredients;
 
@@ -57,6 +60,9 @@ CREATE TABLE recipe_ingredients (
     INDEX idx_ri_recipe (recipe_id),
     INDEX idx_ri_ingredient (ingredient_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Re-enable FK checks
+SET FOREIGN_KEY_CHECKS = 1;
 
 -- Step 5: Ensure cost_settings exists
 CREATE TABLE IF NOT EXISTS cost_settings (

@@ -65,6 +65,7 @@
     "winston": "^3.11.0"
   },
   "devDependencies": {
+    "@yao-pkg/pkg": "^6.15.0",
     "eslint": "^8.56.0",
     "jest": "^29.7.0",
     "nodemon": "^3.0.2",
@@ -74,5 +75,16 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "pkg": {
+    "assets": [
+      "src/database/migrations/*.sql",
+      "free-version/license/*.js",
+      "node_modules/es-get-iterator/*.js",
+      "node_modules/es-get-iterator/*.mjs",
+      "node_modules/iterate-iterator/*.js",
+      "node_modules/stop-iteration-iterator/*.js"
+    ],
+    "options": "no-bytecode"
   }
 }

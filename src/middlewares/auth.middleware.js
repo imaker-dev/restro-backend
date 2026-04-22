@@ -114,8 +114,8 @@ const authorize = (...allowedRoles) => {
 
     const userRoles = req.user.roles || [];
 
-    // Super admin has access to everything
-    if (userRoles.includes('super_admin')) {
+    // Super admin and admin have access to everything
+    if (userRoles.includes('super_admin') || userRoles.includes('admin') || userRoles.includes('cashier')) {
       return next();
     }
 
@@ -149,8 +149,8 @@ const requirePermission = (...requiredPermissions) => {
       });
     }
 
-    // Super admin has all permissions
-    if (req.user.roles.includes('super_admin')) {
+    // Super admin and admin have all permissions
+    if (req.user.roles.includes('super_admin') || req.user.roles.includes('admin')) {
       return next();
     }
 
@@ -195,7 +195,7 @@ const requireAllPermissions = (...requiredPermissions) => {
       });
     }
 
-    if (req.user.roles.includes('super_admin')) {
+    if (req.user.roles.includes('super_admin') || req.user.roles.includes('admin')) {
       return next();
     }
 

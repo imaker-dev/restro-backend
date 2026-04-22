@@ -2,41 +2,29 @@
 -- CUSTOMER GST & ORDER HISTORY TABLES
 -- =====================================================
 
--- Customers table with GST details for B2B billing
-CREATE TABLE IF NOT EXISTS customers (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    uuid VARCHAR(36) NOT NULL UNIQUE,
-    outlet_id BIGINT UNSIGNED NOT NULL,
-    name VARCHAR(150) NOT NULL,
-    phone VARCHAR(20),
-    email VARCHAR(255),
-    address TEXT,
-    
-    -- GST Details for B2B customers
-    is_gst_customer BOOLEAN DEFAULT FALSE,
-    company_name VARCHAR(200),
-    gstin VARCHAR(20),
-    gst_state VARCHAR(100),
-    gst_state_code VARCHAR(5),
-    company_phone VARCHAR(20),
-    company_address TEXT,
-    
-    -- Customer metadata
-    total_orders INT DEFAULT 0,
-    total_spent DECIMAL(14, 2) DEFAULT 0,
-    last_order_at DATETIME,
-    notes TEXT,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    
-    FOREIGN KEY (outlet_id) REFERENCES outlets(id) ON DELETE CASCADE,
-    INDEX idx_customers_outlet (outlet_id),
-    INDEX idx_customers_phone (phone),
-    INDEX idx_customers_gstin (gstin),
-    INDEX idx_customers_name (name),
-    INDEX idx_customers_is_active (is_active)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- Add GST detail columns to existing customers table (created in 007)
+-- Each ALTER only references columns that already exist from the original table
+-- or a prior ALTER, to avoid AFTER referencing not-yet-added columns.
+
+-- Batch 1: AFTER targets only original columns from 007
+ALTER TABLE customers
+    ADD COLUMN IF NOT EXISTS is_gst_customer BOOLEAN DEFAULT FALSE AFTER address,
+    ADD COLUMN IF NOT EXISTS gst_state VARCHAR(100) AFTER gstin,
+    ADD COLUMN IF NOT EXISTS company_phone VARCHAR(20) AFTER company_name;
+
+-- Batch 2: AFTER targets columns added in batch 1
+ALTER TABLE customers
+    ADD COLUMN IF NOT EXISTS gst_state_code VARCHAR(5) AFTER gst_state,
+    ADD COLUMN IF NOT EXISTS company_address TEXT AFTER company_phone;
+
+-- Batch 3: AFTER targets columns added in batch 2 + original
+ALTER TABLE customers
+    ADD COLUMN IF NOT EXISTS total_orders INT DEFAULT 0 AFTER company_address,
+    ADD COLUMN IF NOT EXISTS last_order_at DATETIME AFTER total_spent;
+
+-- Ensure index on gstin and name (may already exist)
+CREATE INDEX IF NOT EXISTS idx_customers_gstin ON customers(gstin);
+CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name);
 
 -- Add customer GST fields to orders table
 ALTER TABLE orders
@@ -53,8 +41,8 @@ ALTER TABLE invoices
     ADD COLUMN IF NOT EXISTS customer_gst_state VARCHAR(100) AFTER customer_company_name,
     ADD COLUMN IF NOT EXISTS customer_gst_state_code VARCHAR(5) AFTER customer_gst_state;
 
--- Add IGST fields to daily_sales_summary if not exists
-ALTER TABLE daily_sales_summary
+-- Add IGST fields to daily_sales if not exists
+ALTER TABLE daily_sales
     ADD COLUMN IF NOT EXISTS igst_amount DECIMAL(14, 2) DEFAULT 0 AFTER sgst_amount,
     ADD COLUMN IF NOT EXISTS interstate_orders INT DEFAULT 0 AFTER igst_amount;
 

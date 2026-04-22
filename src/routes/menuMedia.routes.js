@@ -24,20 +24,14 @@ router.get('/:outletId/menu-types', menuMediaController.getMenuTypes);
 router.get('/:outletId/view', menuMediaController.renderPublicView);
 
 // ==================== QR CODE ROUTES ====================
-// List all QR codes for outlet
-router.get('/:outletId/qr', menuMediaController.listQrCodes);
-
-// Get specific QR code info
-router.get('/:outletId/qr/:menuType', menuMediaController.getQrCode);
-
-// Get QR code image directly (for download/display)
-router.get('/:outletId/qr/:menuType/image', menuMediaController.getQrImage);
-
-// Upload custom logo for QR (regenerates QR with logo overlay)
-router.post('/:outletId/qr/:menuType/logo', menuMediaController.uploadQrLogo);
-
-// Regenerate QR code (e.g., after URL change or to remove logo)
-router.post('/:outletId/qr/:menuType/regenerate', menuMediaController.regenerateQr);
+// Disabled in free version (IS_FREE_VERSION=true)
+if (process.env.IS_FREE_VERSION !== 'true') {
+  router.get('/:outletId/qr', menuMediaController.listQrCodes);
+  router.get('/:outletId/qr/:menuType', menuMediaController.getQrCode);
+  router.get('/:outletId/qr/:menuType/image', menuMediaController.getQrImage);
+  router.post('/:outletId/qr/:menuType/logo', menuMediaController.uploadQrLogo);
+  router.post('/:outletId/qr/:menuType/regenerate', menuMediaController.regenerateQr);
+}
 
 // ==================== ADMIN ENDPOINTS ====================
 // Optional admin-style endpoints (left public per requirement; secure via gateway if needed)

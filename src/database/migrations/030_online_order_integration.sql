@@ -232,6 +232,6 @@ CREATE INDEX idx_orders_external ON orders(external_order_id);
 -- =====================================================
 
 -- Insert system user for online order creation (if not exists)
-INSERT IGNORE INTO users (name, email, phone, password_hash, is_active, is_system_user)
+INSERT IGNORE INTO users (name, email, phone, password_hash, is_active)
 VALUES ('Online Order System', 'system.online@restropos.local', '0000000000', 
-        '$2b$10$placeholder_hash_not_for_login', 1, 1);
+        '$2b$10$placeholder_hash_not_for_login', 1);
