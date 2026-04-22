@@ -70,6 +70,8 @@ router.use('/production', require('./production.routes'));
 router.use('/wastage', require('./wastage.routes'));
 router.use('/inventory-reports', require('./inventoryReports.routes'));
 router.use('/dashboard', require('./dashboard.routes'));
+router.use('/registration', require('./registration.routes'));
+router.use('/token-generation', require('./tokenGeneration.routes'));
 // router.use('/support', require('./support.routes'));
 
 // Future routes (uncomment as modules are developed)
