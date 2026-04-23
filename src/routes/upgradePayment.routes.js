@@ -1,7 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const { createRateLimiter } = require('../middlewares/rateLimiter');
-const { createOrder, verifyAndUpgrade, cancelOrder, getPricing, checkoutPage } = require('../controllers/upgradePayment.controller');
+const { createOrder, verifyAndUpgrade, cancelOrder, getPricing, checkoutPage, paymentCallback } = require('../controllers/upgradePayment.controller');
 
 // 10 order attempts per IP per 15 min
 const orderLimiter = createRateLimiter({
@@ -31,6 +31,14 @@ router.get('/pricing', getPricing);
  * @query   order_id, key_id, amount, restaurant, email, phone
  */
 router.get('/checkout-page', checkoutPage);
+
+/**
+ * @route   POST|GET  /api/v1/upgrade-payment/payment-callback
+ * @desc    Razorpay redirects here after payment; renders result page for Flutter JS bridge
+ * @access  Public
+ */
+router.post('/payment-callback', paymentCallback);
+router.get('/payment-callback', paymentCallback);
 
 /**
  * @route   POST /api/v1/upgrade-payment/create-order
