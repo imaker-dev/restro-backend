@@ -289,10 +289,12 @@ const orderService = {
 
           if (['paid', 'completed', 'cancelled'].includes(orderStatus) || paymentStatus === 'paid') {
             needNewSession = true; // Will end old + create new inside transaction
-          } else if (isPrivileged) {
-            needNewSession = true; // Privileged user force-ends stuck session
           } else {
-            throw new Error(`Table already has an active order (Order ID: ${existingSession.order_id}). Use existing order or end session first.`);
+            // Active order exists — block ALL users (including privileged) from creating a duplicate.
+            // Previously, privileged users could force-end the session, which orphaned the active order
+            // (order stayed active but table/session was released, making it invisible in POS).
+            const orderNum = existingOrder?.order_number || existingSession.order_id;
+            throw new Error(`Table already has an active order (${orderNum}). Complete, cancel, or transfer it before creating a new order.`);
           }
         } else {
           // Session exists but no order — check ownership
@@ -2391,14 +2393,63 @@ const orderService = {
         logger.info(`Cancel order ${orderId}: ${reversedCount} items reversed, ${wastageCount} items wastage`);
       }
 
-      // Release table if dine-in - end session and set to available
+      // Release table if dine-in — inline session close (MUST use same connection
+      // to ensure atomicity; calling endSession() uses a separate connection/transaction
+      // which can commit even if this outer transaction rolls back, orphaning orders)
       if (order.table_id) {
-        // End session first (this also sets table to available)
-        try {
-          await tableService.endSession(order.table_id, userId);
-        } catch (e) {
-          // If no active session, just update table status
-          await tableService.updateStatus(order.table_id, 'available', userId);
+        // Close active session for THIS order's table
+        const [activeSessions] = await connection.query(
+          `SELECT id FROM table_sessions WHERE table_id = ? AND status = 'active'`,
+          [order.table_id]
+        );
+        if (activeSessions.length > 0) {
+          await connection.query(
+            `UPDATE table_sessions SET status = 'completed', ended_at = NOW(), ended_by = ?
+             WHERE table_id = ? AND status = 'active'`,
+            [userId, order.table_id]
+          );
+        }
+
+        // Unmerge any merged tables
+        const [activeMerges] = await connection.query(
+          `SELECT tm.merged_table_id, t.capacity
+           FROM table_merges tm
+           JOIN tables t ON tm.merged_table_id = t.id
+           WHERE tm.primary_table_id = ? AND tm.unmerged_at IS NULL`,
+          [order.table_id]
+        );
+        if (activeMerges.length > 0) {
+          await connection.query(
+            'UPDATE table_merges SET unmerged_at = NOW(), unmerged_by = ? WHERE primary_table_id = ? AND unmerged_at IS NULL',
+            [userId, order.table_id]
+          );
+          const mergedIds = activeMerges.map(m => m.merged_table_id);
+          await connection.query(
+            'UPDATE tables SET status = "available" WHERE id IN (?)',
+            [mergedIds]
+          );
+          const capacityToRemove = activeMerges.reduce((sum, m) => sum + (m.capacity || 0), 0);
+          if (capacityToRemove > 0) {
+            await connection.query(
+              'UPDATE tables SET capacity = GREATEST(1, capacity - ?) WHERE id = ?',
+              [capacityToRemove, order.table_id]
+            );
+          }
+        }
+
+        // Only set table to 'available' if NO other active orders exist on this table
+        const [otherActiveOrders] = await connection.query(
+          `SELECT COUNT(*) as cnt FROM orders
+           WHERE table_id = ? AND id != ? AND status NOT IN ('paid', 'completed', 'cancelled')`,
+          [order.table_id, orderId]
+        );
+        if (otherActiveOrders[0].cnt === 0) {
+          await connection.query(
+            `UPDATE tables SET status = 'available' WHERE id = ?`,
+            [order.table_id]
+          );
+        } else {
+          logger.warn(`cancelOrder: table ${order.table_id} still has ${otherActiveOrders[0].cnt} active order(s) — not releasing table`);
         }
       }
 
@@ -3534,18 +3585,29 @@ const orderService = {
         );
         sourceOrderCancelled = true;
 
-        // End session and free source table
+        // End session and free source table — only if no other active orders remain
         if (srcOrder.table_id) {
+          const [otherActiveOrders] = await connection.query(
+            `SELECT COUNT(*) as cnt FROM orders
+             WHERE table_id = ? AND id != ? AND status NOT IN ('paid', 'completed', 'cancelled')`,
+            [srcOrder.table_id, sourceOrderId]
+          );
+
           await connection.query(
             `UPDATE table_sessions SET status = 'completed', ended_at = NOW(), ended_by = ?
              WHERE table_id = ? AND status = 'active'`,
             [userId, srcOrder.table_id]
           );
-          await connection.query(
-            `UPDATE tables SET status = 'available' WHERE id = ?`,
-            [srcOrder.table_id]
-          );
-          sourceTableFreed = true;
+
+          if (otherActiveOrders[0].cnt === 0) {
+            await connection.query(
+              `UPDATE tables SET status = 'available' WHERE id = ?`,
+              [srcOrder.table_id]
+            );
+            sourceTableFreed = true;
+          } else {
+            logger.warn(`transferItems: source table ${srcOrder.table_id} still has ${otherActiveOrders[0].cnt} other active order(s) — not releasing`);
+          }
         }
       }
 

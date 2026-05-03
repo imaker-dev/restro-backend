@@ -417,11 +417,15 @@ const menuEngineService = {
    * Get menu item with full details for ordering
    */
   async getItemForOrder(itemId, context = {}) {
+    const { floorId, sectionId, timeSlotId } = context;
+    const cacheKey = `menu:item:${itemId}:${floorId || 0}:${sectionId || 0}:${timeSlotId || 0}`;
+    const cached = await cache.get(cacheKey);
+    if (cached) return cached;
+
     const pool = getPool();
     const item = await itemService.getFullDetails(itemId);
     if (!item) return null;
 
-    const { floorId, sectionId, timeSlotId } = context;
     const menuContext = { floorId, sectionId, timeSlotId };
 
     // Calculate price with rules
@@ -435,7 +439,7 @@ const menuEngineService = {
       taxInfo = await taxService.getTaxGroupById(item.tax_group_id);
     }
 
-    return {
+    const result = {
       ...item,
       effectivePrice: priceResult.finalPrice,
       priceBreakdown: priceResult,
@@ -451,6 +455,9 @@ const menuEngineService = {
         };
       })) : []
     };
+
+    await cache.set(cacheKey, result, 30); // 30s — items rarely change mid-order
+    return result;
   },
 
   /**

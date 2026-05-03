@@ -294,6 +294,10 @@ const itemService = {
   },
 
   async getFullDetails(id) {
+    const cacheKey = `item:full:${id}`;
+    const cached = await cache.get(cacheKey);
+    if (cached) return cached;
+
     const item = await this.getById(id);
     if (!item) return null;
 
@@ -309,7 +313,7 @@ const itemService = {
       [id]
     );
 
-    // Get addon groups with addons
+    // Get addon groups (batch fetch addons for ALL groups in one query)
     const [addonGroups] = await pool.query(
       `SELECT ag.*, iag.is_required as item_required
        FROM item_addon_groups iag
@@ -319,12 +323,20 @@ const itemService = {
       [id]
     );
 
-    for (const group of addonGroups) {
-      const [addons] = await pool.query(
-        `SELECT * FROM addons WHERE addon_group_id = ? AND is_active = 1 ORDER BY display_order, name`,
-        [group.id]
+    if (addonGroups.length > 0) {
+      const groupIds = addonGroups.map(g => g.id);
+      const [allAddons] = await pool.query(
+        `SELECT * FROM addons WHERE addon_group_id IN (?) AND is_active = 1 ORDER BY display_order, name`,
+        [groupIds]
       );
-      group.addons = addons;
+      const addonsByGroup = {};
+      for (const a of allAddons) {
+        if (!addonsByGroup[a.addon_group_id]) addonsByGroup[a.addon_group_id] = [];
+        addonsByGroup[a.addon_group_id].push(a);
+      }
+      for (const group of addonGroups) {
+        group.addons = addonsByGroup[group.id] || [];
+      }
     }
 
     // Get visibility rules
@@ -368,7 +380,7 @@ const itemService = {
       [id]
     );
 
-    // Get recipe details with ingredients
+    // Get recipe details with ingredients (batch fetch ALL ingredients in one query)
     let recipes = [];
     const [recipeRows] = await pool.query(
       `SELECT r.id, r.name, r.variant_id, r.portion_size,
@@ -378,8 +390,10 @@ const itemService = {
        ORDER BY r.is_current DESC, r.created_at DESC`,
       [id]
     );
-    for (const recipe of recipeRows) {
-      const [ingredients] = await pool.query(
+
+    if (recipeRows.length > 0) {
+      const recipeIds = recipeRows.map(r => r.id);
+      const [allIngredients] = await pool.query(
         `SELECT ri.id as recipe_ingredient_id, ri.quantity, ri.unit_id,
           ri.wastage_percentage as ri_wastage_pct,
           ing.id as ingredient_id, ing.name as ingredient_name,
@@ -389,67 +403,77 @@ const itemService = {
           COALESCE(pu.abbreviation, bu.abbreviation) as unit_abbreviation,
           COALESCE(pu.conversion_factor, 1) as purchase_conversion_factor,
           ru.abbreviation as recipe_unit_abbreviation,
-          ru.conversion_factor as recipe_unit_cf
+          ru.conversion_factor as recipe_unit_cf,
+          ri.recipe_id
          FROM recipe_ingredients ri
          JOIN ingredients ing ON ri.ingredient_id = ing.id
          LEFT JOIN inventory_items ii ON ing.inventory_item_id = ii.id
          LEFT JOIN units bu ON ii.base_unit_id = bu.id
          LEFT JOIN units pu ON ii.purchase_unit_id = pu.id
          LEFT JOIN units ru ON ri.unit_id = ru.id
-         WHERE ri.recipe_id = ?
+         WHERE ri.recipe_id IN (?)
          ORDER BY ing.name`,
-        [recipe.id]
+        [recipeIds]
       );
 
-      recipes.push({
-        id: recipe.id,
-        name: recipe.name,
-        variantId: recipe.variant_id || null,
-        portionSize: recipe.portion_size || null,
-        isCurrent: !!recipe.is_current,
-        ingredients: ingredients.map(ing => {
-          const cf = parseFloat(ing.purchase_conversion_factor) || 1;
-          const recipeUnitCf = parseFloat(ing.recipe_unit_cf) || 1;
-          const qty = parseFloat(ing.quantity) || 0;
-          const avgPrice = parseFloat(ing.average_price) || 0;
-          const stock = parseFloat(ing.current_stock) || 0;
-          const wastage = parseFloat(ing.ri_wastage_pct) || parseFloat(ing.wastage_percentage) || 0;
-          const yieldPct = parseFloat(ing.yield_percentage) || 100;
-          const effectiveQty = qty * recipeUnitCf * (1 + wastage / 100) * (100 / yieldPct);
-          const costPerPortion = effectiveQty * avgPrice;
+      const ingredientsByRecipe = {};
+      for (const ing of allIngredients) {
+        if (!ingredientsByRecipe[ing.recipe_id]) ingredientsByRecipe[ing.recipe_id] = [];
+        ingredientsByRecipe[ing.recipe_id].push(ing);
+      }
 
-          return {
-            ingredientId: ing.ingredient_id,
-            ingredientName: ing.ingredient_name,
-            inventoryItemId: ing.inventory_item_id,
-            inventoryItemName: ing.inventory_item_name,
-            quantity: qty,
-            recipeUnit: ing.recipe_unit_abbreviation || ing.unit_abbreviation,
-            effectiveQtyBase: parseFloat(effectiveQty.toFixed(4)),
-            displayQty: parseFloat((effectiveQty / cf).toFixed(4)),
-            displayUnit: ing.unit_abbreviation,
-            wastagePercentage: wastage,
-            yieldPercentage: yieldPct,
-            costPerPortion: parseFloat(costPerPortion.toFixed(2)),
-            currentStock: parseFloat((stock / cf).toFixed(4)),
-            stockUnit: ing.unit_abbreviation
-          };
-        }),
-        totalCostPerPortion: parseFloat(
-          ingredients.reduce((sum, ing) => {
+      for (const recipe of recipeRows) {
+        const ingredients = ingredientsByRecipe[recipe.id] || [];
+        recipes.push({
+          id: recipe.id,
+          name: recipe.name,
+          variantId: recipe.variant_id || null,
+          portionSize: recipe.portion_size || null,
+          isCurrent: !!recipe.is_current,
+          ingredients: ingredients.map(ing => {
+            const cf = parseFloat(ing.purchase_conversion_factor) || 1;
             const recipeUnitCf = parseFloat(ing.recipe_unit_cf) || 1;
             const qty = parseFloat(ing.quantity) || 0;
             const avgPrice = parseFloat(ing.average_price) || 0;
+            const stock = parseFloat(ing.current_stock) || 0;
             const wastage = parseFloat(ing.ri_wastage_pct) || parseFloat(ing.wastage_percentage) || 0;
             const yieldPct = parseFloat(ing.yield_percentage) || 100;
             const effectiveQty = qty * recipeUnitCf * (1 + wastage / 100) * (100 / yieldPct);
-            return sum + effectiveQty * avgPrice;
-          }, 0).toFixed(2)
-        )
-      });
+            const costPerPortion = effectiveQty * avgPrice;
+
+            return {
+              ingredientId: ing.ingredient_id,
+              ingredientName: ing.ingredient_name,
+              inventoryItemId: ing.inventory_item_id,
+              inventoryItemName: ing.inventory_item_name,
+              quantity: qty,
+              recipeUnit: ing.recipe_unit_abbreviation || ing.unit_abbreviation,
+              effectiveQtyBase: parseFloat(effectiveQty.toFixed(4)),
+              displayQty: parseFloat((effectiveQty / cf).toFixed(4)),
+              displayUnit: ing.unit_abbreviation,
+              wastagePercentage: wastage,
+              yieldPercentage: yieldPct,
+              costPerPortion: parseFloat(costPerPortion.toFixed(2)),
+              currentStock: parseFloat((stock / cf).toFixed(4)),
+              stockUnit: ing.unit_abbreviation
+            };
+          }),
+          totalCostPerPortion: parseFloat(
+            ingredients.reduce((sum, ing) => {
+              const recipeUnitCf = parseFloat(ing.recipe_unit_cf) || 1;
+              const qty = parseFloat(ing.quantity) || 0;
+              const avgPrice = parseFloat(ing.average_price) || 0;
+              const wastage = parseFloat(ing.ri_wastage_pct) || parseFloat(ing.wastage_percentage) || 0;
+              const yieldPct = parseFloat(ing.yield_percentage) || 100;
+              const effectiveQty = qty * recipeUnitCf * (1 + wastage / 100) * (100 / yieldPct);
+              return sum + effectiveQty * avgPrice;
+            }, 0).toFixed(2)
+          )
+        });
+      }
     }
 
-    return {
+    const result = {
       ...item,
       variants,
       addonGroups,
@@ -458,6 +482,9 @@ const itemService = {
       counters,
       recipes
     };
+
+    await cache.set(cacheKey, result, 30); // 30s TTL — items rarely change mid-order
+    return result;
   },
 
   async update(id, data) {
@@ -546,7 +573,10 @@ const itemService = {
       await connection.commit();
 
       const item = await this.getById(id);
-      if (item) await this.invalidateCache(item.outlet_id);
+      if (item) {
+        await this.invalidateCache(item.outlet_id);
+        await cache.del(`item:full:${id}`);
+      }
       return item;
     } catch (error) {
       await connection.rollback();
@@ -563,6 +593,7 @@ const itemService = {
 
     await pool.query('UPDATE items SET deleted_at = NOW(), is_active = 0 WHERE id = ?', [id]);
     await this.invalidateCache(item.outlet_id);
+    await cache.del(`item:full:${id}`);
     return true;
   },
 

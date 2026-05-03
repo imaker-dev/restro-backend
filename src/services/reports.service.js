@@ -6168,13 +6168,14 @@ const reportsService = {
 
   /**
    * Running Tables - Active tables with order info
+   * Also catches orphaned orders (table marked 'available' but active order exists)
    */
   async getRunningTables(outletId, options = {}) {
     const pool = getPool();
     const { floorIds = [] } = options;
 
-    // Include all non-available tables (occupied, running, reserved, billing, merged, etc.)
-    let conditions = ['t.outlet_id = ?', "t.status != 'available'", 't.is_active = 1'];
+    // Include non-available tables + tables that are 'available' but have active orders (orphaned state)
+    let conditions = ['t.outlet_id = ?', 't.is_active = 1', "(t.status != 'available' OR o.id IS NOT NULL)"];
     let params = [outletId];
 
     if (floorIds.length > 0) {
@@ -6200,6 +6201,16 @@ const reportsService = {
        ORDER BY f.display_order, t.table_number`,
       params
     );
+
+    // Self-heal: if any table is 'available' but has an active order, fix it
+    for (const t of tables) {
+      if (t.status === 'available' && t.order_id) {
+        logger.warn(`[SELF-HEAL] getRunningTables: table ${t.table_number} (id=${t.id}) is 'available' but has active order ${t.order_id} — repairing`);
+        t.status = 'running';
+        pool.query(`UPDATE tables SET status = 'running' WHERE id = ? AND status = 'available'`, [t.id])
+          .catch(err => logger.error(`[SELF-HEAL] getRunningTables repair failed for table ${t.id}:`, err.message));
+      }
+    }
 
     // Group by floor with enhanced structure
     const floors = [];

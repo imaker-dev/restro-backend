@@ -883,10 +883,69 @@ const tableService = {
     const allTableIds = tables.map(t => t.id);
     const mergedTableIds = tables.filter(t => t.status === 'merged').map(t => t.id);
 
+    // ── Self-healing: detect and repair orphaned orders (table available but order still active) ──
+    const repairPromises = [];
     for (const table of tables) {
       if (!table.current_order_id && directOrderByTable[table.id]) {
         table.current_order_id = directOrderByTable[table.id];
+
+        // Table is 'available' but has an active order — repair table status + session
+        if (table.status === 'available') {
+          const repairOrderId = directOrderByTable[table.id];
+          logger.warn(`[SELF-HEAL] Table ${table.table_number} (id=${table.id}) is 'available' but has active order ${repairOrderId} — repairing to 'running'`);
+
+          // Update in-memory status for this response
+          table.status = 'running';
+
+          // Fire-and-forget: repair DB state asynchronously (don't block the response)
+          repairPromises.push(
+            (async () => {
+              try {
+                // Set table to running
+                await pool.query(
+                  `UPDATE tables SET status = 'running' WHERE id = ? AND status = 'available'`,
+                  [table.id]
+                );
+
+                // Check if active session exists, create one if not
+                const [existingSess] = await pool.query(
+                  `SELECT id FROM table_sessions WHERE table_id = ? AND status = 'active' LIMIT 1`,
+                  [table.id]
+                );
+                if (existingSess.length === 0) {
+                  // Get order details for session creation
+                  const [[orderInfo]] = await pool.query(
+                    `SELECT created_by, guest_count FROM orders WHERE id = ?`,
+                    [repairOrderId]
+                  );
+                  const [newSess] = await pool.query(
+                    `INSERT INTO table_sessions (table_id, guest_count, started_by, order_id) VALUES (?, ?, ?, ?)`,
+                    [table.id, orderInfo?.guest_count || 1, orderInfo?.created_by || 0, repairOrderId]
+                  );
+                  // Link session to order if missing
+                  await pool.query(
+                    `UPDATE orders SET table_session_id = ? WHERE id = ? AND (table_session_id IS NULL OR table_session_id NOT IN (SELECT id FROM table_sessions WHERE status = 'active'))`,
+                    [newSess.insertId, repairOrderId]
+                  );
+                  table.session_id = newSess.insertId;
+                  logger.warn(`[SELF-HEAL] Created recovery session ${newSess.insertId} for table ${table.table_number}, order ${repairOrderId}`);
+                }
+
+                // Invalidate cache so next request gets fresh data
+                await this.invalidateCache(table.outlet_id, table.floor_id, table.id);
+              } catch (repairErr) {
+                logger.error(`[SELF-HEAL] Failed to repair table ${table.id}:`, repairErr.message);
+              }
+            })()
+          );
+        }
       }
+    }
+    // Don't await — repairs happen in background
+    if (repairPromises.length > 0) {
+      Promise.all(repairPromises).catch(err =>
+        logger.error('[SELF-HEAL] Repair batch error:', err.message)
+      );
     }
 
     const activeOrderIds = tables.filter(t => t.current_order_id).map(t => t.current_order_id);
@@ -1125,6 +1184,18 @@ const tableService = {
 
     const oldStatus = table.status;
 
+    // ── Safety check: refuse to set 'available' if active orders exist ──
+    if (status === 'available' && oldStatus !== 'available') {
+      const [activeOrders] = await pool.query(
+        `SELECT COUNT(*) as cnt FROM orders
+         WHERE table_id = ? AND status NOT IN ('paid', 'completed', 'cancelled')`,
+        [id]
+      );
+      if (activeOrders[0].cnt > 0) {
+        throw new Error(`Cannot set table to available — it has ${activeOrders[0].cnt} active order(s). Complete or cancel them first.`);
+      }
+    }
+
     await pool.query('UPDATE tables SET status = ? WHERE id = ?', [status, id]);
 
     // Fire-and-forget: log + cache (don't block response)
@@ -1224,12 +1295,28 @@ const tableService = {
     try {
       await connection.beginTransaction();
 
-      // Close any existing active sessions for this table to prevent duplicates
-      await connection.query(
-        `UPDATE table_sessions SET status = 'closed', ended_at = NOW() 
-         WHERE table_id = ? AND status = 'active'`,
+      // Check for existing active sessions — only close if they have no active orders
+      const [existingSessions] = await connection.query(
+        `SELECT ts.id, ts.order_id FROM table_sessions ts
+         WHERE ts.table_id = ? AND ts.status = 'active'`,
         [tableId]
       );
+      for (const sess of existingSessions) {
+        if (sess.order_id) {
+          // Check if the linked order is still active
+          const [[linkedOrder]] = await connection.query(
+            'SELECT id, status FROM orders WHERE id = ?', [sess.order_id]
+          );
+          if (linkedOrder && !['paid', 'completed', 'cancelled'].includes(linkedOrder.status)) {
+            throw new Error(`Table has an active order (ID: ${sess.order_id}). Complete or cancel it before starting a new session.`);
+          }
+        }
+        // Session has no order or order is terminal — safe to close
+        await connection.query(
+          `UPDATE table_sessions SET status = 'closed', ended_at = NOW() WHERE id = ?`,
+          [sess.id]
+        );
+      }
 
       // Create session
       const [result] = await connection.query(
@@ -1289,8 +1376,9 @@ const tableService = {
 
   /**
    * End table session
+   * Guards against orphaning active orders — refuses to end if unpaid orders exist
    */
-  async endSession(tableId, userId) {
+  async endSession(tableId, userId, { force = false } = {}) {
     const pool = getPool();
     const connection = await pool.getConnection();
 
@@ -1309,6 +1397,21 @@ const tableService = {
       if (sessions.length === 0) throw new Error('No active session found');
 
       const session = sessions[0];
+
+      // ── Safety check: refuse to end session if active orders exist on this table ──
+      if (!force) {
+        const [activeOrders] = await connection.query(
+          `SELECT id, order_number, status FROM orders
+           WHERE table_id = ? AND status NOT IN ('paid', 'completed', 'cancelled')
+           LIMIT 5`,
+          [tableId]
+        );
+        if (activeOrders.length > 0) {
+          const orderNums = activeOrders.map(o => o.order_number).join(', ');
+          logger.warn(`endSession blocked: table ${tableId} has ${activeOrders.length} active order(s): ${orderNums}`);
+          throw new Error(`Cannot end session — table has ${activeOrders.length} active order(s): ${orderNums}. Complete or cancel them first.`);
+        }
+      }
 
       // End session
       await connection.query(
@@ -2172,11 +2275,20 @@ const tableService = {
         // Existing KOT history stays intact, new KOTs will get new table number from order
       }
 
-      // 9. Update source table status to available
-      await connection.query(
-        `UPDATE tables SET status = 'available' WHERE id = ?`,
-        [sourceTableId]
+      // 9. Update source table status to available — but only if no other active orders exist
+      const [otherActiveOrders] = await connection.query(
+        `SELECT COUNT(*) as cnt FROM orders
+         WHERE table_id = ? AND id != ? AND status NOT IN ('paid', 'completed', 'cancelled')`,
+        [sourceTableId, session.order_id || 0]
       );
+      if (otherActiveOrders[0].cnt === 0) {
+        await connection.query(
+          `UPDATE tables SET status = 'available' WHERE id = ?`,
+          [sourceTableId]
+        );
+      } else {
+        logger.warn(`transferTable: source table ${sourceTableId} still has ${otherActiveOrders[0].cnt} other active order(s) — not releasing`);
+      }
 
       // 10. Update target table status to match source's previous status
       await connection.query(

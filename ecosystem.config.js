@@ -4,10 +4,10 @@
  * Scale target: 50+ restaurants, 1000+ tables at peak
  *
  * DB connection math (critical):
- *   6 API workers  × 15 conn =  90
- *   2 Queue workers ×  8 conn =  16
- *   Admin/monitoring/misc     =  10
- *   Total                     = 116  (well within MySQL max_connections 300)
+ *   Production: 25 per API worker (6 × 25 = 150 total)
+ *   Queue: 8 per worker (2 × 8 = 16 total)
+ *   Fallback: 15 (safe default — old value of 100 caused DB exhaustion)
+ *   Total                     = 166  (well within MySQL max_connections 300)
  *
  * Previous config had 8 × 100 = 800 connections — caused DB exhaustion at peak.
  *
@@ -30,13 +30,13 @@ module.exports = {
       env: {
         NODE_ENV: 'development',
         UV_THREADPOOL_SIZE: 8,
-        DB_CONNECTION_LIMIT: 15,
+        DB_CONNECTION_LIMIT: 25,
         LOG_LEVEL: 'debug',
       },
       env_production: {
         NODE_ENV: 'production',
         UV_THREADPOOL_SIZE: 8,
-        DB_CONNECTION_LIMIT: 15,
+        DB_CONNECTION_LIMIT: 25,
         LOG_LEVEL: 'warn',
       },
       error_file: './logs/pm2-error.log',

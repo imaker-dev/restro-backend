@@ -261,22 +261,35 @@ const taxService = {
       return a.name.localeCompare(b.name);
     });
     
-    // Get components for each group
-    for (const group of groups) {
-      const [components] = await pool.query(
-        `SELECT tc.id, tc.name, tc.code, tc.rate
+    // Batch-fetch components for ALL groups in one query (eliminates N+1)
+    if (groups.length > 0) {
+      const groupIds = groups.map(g => g.id);
+      const [allComponents] = await pool.query(
+        `SELECT tc.id, tc.name, tc.code, tc.rate, tgc.tax_group_id
          FROM tax_group_components tgc
          JOIN tax_components tc ON tgc.tax_component_id = tc.id
-         WHERE tgc.tax_group_id = ? AND tgc.is_active = 1`,
-        [group.id]
+         WHERE tgc.tax_group_id IN (?) AND tgc.is_active = 1`,
+        [groupIds]
       );
-      group.components = components;
+      const componentsByGroup = {};
+      for (const c of allComponents) {
+        if (!componentsByGroup[c.tax_group_id]) componentsByGroup[c.tax_group_id] = [];
+        componentsByGroup[c.tax_group_id].push(c);
+      }
+      for (const group of groups) {
+        group.components = componentsByGroup[group.id] || [];
+      }
     }
 
     return groups;
   },
 
   async getTaxGroupById(id) {
+    // Cache tax groups (rarely change, called heavily during order creation)
+    const cacheKey = `tax:group:${id}`;
+    const cached = await cache.get(cacheKey);
+    if (cached) return cached;
+
     const pool = getPool();
     const [rows] = await pool.query('SELECT * FROM tax_groups WHERE id = ?', [id]);
 
@@ -290,10 +303,9 @@ const taxService = {
       [id]
     );
 
-    return {
-      ...rows[0],
-      components
-    };
+    const result = { ...rows[0], components };
+    await cache.set(cacheKey, result, 300); // 5 min
+    return result;
   },
 
   async updateTaxGroup(id, data) {
@@ -591,6 +603,8 @@ const taxService = {
     }
     // Clear all outlet-specific tax group caches
     await cache.delPattern('tax:groups:*');
+    // Clear individual tax group caches
+    await cache.delPattern('tax:group:*');
   }
 };
 

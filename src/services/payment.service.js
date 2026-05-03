@@ -410,55 +410,75 @@ const paymentService = {
       // Release table when order is completed (full payment, partial payment, or 0 payment with due)
       const shouldReleaseTable = orderStatus === 'completed' && tableId;
       if (shouldReleaseTable) {
-        // Unmerge any merged tables and restore capacity
-        const [activeMerges] = await connection.query(
-          `SELECT tm.merged_table_id, t.capacity
-           FROM table_merges tm
-           JOIN tables t ON tm.merged_table_id = t.id
-           WHERE tm.primary_table_id = ? AND tm.unmerged_at IS NULL`,
-          [tableId]
+        // Check if any OTHER active orders still exist on this table
+        const [otherActiveOrders] = await connection.query(
+          `SELECT COUNT(*) as cnt FROM orders
+           WHERE table_id = ? AND id != ? AND status NOT IN ('paid', 'completed', 'cancelled')`,
+          [tableId, orderId]
         );
+        const hasOtherOrders = otherActiveOrders[0].cnt > 0;
 
-        if (activeMerges.length > 0) {
-          await connection.query(
-            'UPDATE table_merges SET unmerged_at = NOW(), unmerged_by = ? WHERE primary_table_id = ? AND unmerged_at IS NULL',
-            [data.receivedBy, tableId]
-          );
-          const mergedIds = activeMerges.map(m => m.merged_table_id);
-          await connection.query(
-            'UPDATE tables SET status = "available" WHERE id IN (?)',
-            [mergedIds]
-          );
-          const capacityToRemove = activeMerges.reduce((sum, m) => sum + (m.capacity || 0), 0);
-          if (capacityToRemove > 0) {
+        if (hasOtherOrders) {
+          logger.warn(`processPayment: table ${tableId} still has ${otherActiveOrders[0].cnt} other active order(s) — not releasing table`);
+          // Only close THIS order's specific session, don't touch the table status
+          if (tableSessionId) {
             await connection.query(
-              'UPDATE tables SET capacity = GREATEST(1, capacity - ?) WHERE id = ?',
-              [capacityToRemove, tableId]
+              `UPDATE table_sessions SET status = 'completed', ended_at = NOW() WHERE id = ?`,
+              [tableSessionId]
             );
           }
-        }
-
-        await connection.query(
-          `UPDATE tables SET status = 'available' WHERE id = ?`,
-          [tableId]
-        );
-        
-        // Close table session - use provided ID or find active session for this table
-        if (tableSessionId) {
-          await connection.query(
-            `UPDATE table_sessions SET 
-              status = 'completed', ended_at = NOW()
-             WHERE id = ?`,
-            [tableSessionId]
-          );
         } else {
-          // Fallback: close any active sessions for this table
-          await connection.query(
-            `UPDATE table_sessions SET 
-              status = 'completed', ended_at = NOW()
-             WHERE table_id = ? AND status = 'active'`,
+          // No other active orders — safe to fully release the table
+          // Unmerge any merged tables and restore capacity
+          const [activeMerges] = await connection.query(
+            `SELECT tm.merged_table_id, t.capacity
+             FROM table_merges tm
+             JOIN tables t ON tm.merged_table_id = t.id
+             WHERE tm.primary_table_id = ? AND tm.unmerged_at IS NULL`,
             [tableId]
           );
+
+          if (activeMerges.length > 0) {
+            await connection.query(
+              'UPDATE table_merges SET unmerged_at = NOW(), unmerged_by = ? WHERE primary_table_id = ? AND unmerged_at IS NULL',
+              [data.receivedBy, tableId]
+            );
+            const mergedIds = activeMerges.map(m => m.merged_table_id);
+            await connection.query(
+              'UPDATE tables SET status = "available" WHERE id IN (?)',
+              [mergedIds]
+            );
+            const capacityToRemove = activeMerges.reduce((sum, m) => sum + (m.capacity || 0), 0);
+            if (capacityToRemove > 0) {
+              await connection.query(
+                'UPDATE tables SET capacity = GREATEST(1, capacity - ?) WHERE id = ?',
+                [capacityToRemove, tableId]
+              );
+            }
+          }
+
+          await connection.query(
+            `UPDATE tables SET status = 'available' WHERE id = ?`,
+            [tableId]
+          );
+          
+          // Close table session - use provided ID or find active session for this table
+          if (tableSessionId) {
+            await connection.query(
+              `UPDATE table_sessions SET 
+                status = 'completed', ended_at = NOW()
+               WHERE id = ?`,
+              [tableSessionId]
+            );
+          } else {
+            // Fallback: close any active sessions for this table
+            await connection.query(
+              `UPDATE table_sessions SET 
+                status = 'completed', ended_at = NOW()
+               WHERE table_id = ? AND status = 'active'`,
+              [tableId]
+            );
+          }
         }
       }
 
@@ -834,55 +854,75 @@ const paymentService = {
       // Release table on any payment (full or partial) — order is completed, table should be freed
       const shouldReleaseTable = (paymentStatus === 'completed' || paymentStatus === 'partial') && tableId;
       if (shouldReleaseTable) {
-        // Unmerge any merged tables and restore capacity
-        const [activeMerges] = await connection.query(
-          `SELECT tm.merged_table_id, t.capacity
-           FROM table_merges tm
-           JOIN tables t ON tm.merged_table_id = t.id
-           WHERE tm.primary_table_id = ? AND tm.unmerged_at IS NULL`,
-          [order.table_id]
+        // Check if any OTHER active orders still exist on this table
+        const [otherActiveOrders] = await connection.query(
+          `SELECT COUNT(*) as cnt FROM orders
+           WHERE table_id = ? AND id != ? AND status NOT IN ('paid', 'completed', 'cancelled')`,
+          [tableId, orderId]
         );
+        const hasOtherOrders = otherActiveOrders[0].cnt > 0;
 
-        if (activeMerges.length > 0) {
-          await connection.query(
-            'UPDATE table_merges SET unmerged_at = NOW(), unmerged_by = ? WHERE primary_table_id = ? AND unmerged_at IS NULL',
-            [receivedBy, order.table_id]
-          );
-          const mergedIds = activeMerges.map(m => m.merged_table_id);
-          await connection.query(
-            'UPDATE tables SET status = "available" WHERE id IN (?)',
-            [mergedIds]
-          );
-          const capacityToRemove = activeMerges.reduce((sum, m) => sum + (m.capacity || 0), 0);
-          if (capacityToRemove > 0) {
+        if (hasOtherOrders) {
+          logger.warn(`processSplitPayment: table ${tableId} still has ${otherActiveOrders[0].cnt} other active order(s) — not releasing table`);
+          // Only close THIS order's specific session, don't touch the table status
+          if (order.table_session_id) {
             await connection.query(
-              'UPDATE tables SET capacity = GREATEST(1, capacity - ?) WHERE id = ?',
-              [capacityToRemove, order.table_id]
+              `UPDATE table_sessions SET status = 'completed', ended_at = NOW() WHERE id = ?`,
+              [order.table_session_id]
             );
           }
-        }
-
-        await connection.query(
-          `UPDATE tables SET status = 'available' WHERE id = ?`,
-          [order.table_id]
-        );
-        
-        // Close table session - use provided ID or find active session for this table
-        if (order.table_session_id) {
-          await connection.query(
-            `UPDATE table_sessions SET 
-              status = 'completed', ended_at = NOW()
-             WHERE id = ?`,
-            [order.table_session_id]
-          );
         } else {
-          // Fallback: close any active sessions for this table
-          await connection.query(
-            `UPDATE table_sessions SET 
-              status = 'completed', ended_at = NOW()
-             WHERE table_id = ? AND status = 'active'`,
+          // No other active orders — safe to fully release the table
+          // Unmerge any merged tables and restore capacity
+          const [activeMerges] = await connection.query(
+            `SELECT tm.merged_table_id, t.capacity
+             FROM table_merges tm
+             JOIN tables t ON tm.merged_table_id = t.id
+             WHERE tm.primary_table_id = ? AND tm.unmerged_at IS NULL`,
             [order.table_id]
           );
+
+          if (activeMerges.length > 0) {
+            await connection.query(
+              'UPDATE table_merges SET unmerged_at = NOW(), unmerged_by = ? WHERE primary_table_id = ? AND unmerged_at IS NULL',
+              [receivedBy, order.table_id]
+            );
+            const mergedIds = activeMerges.map(m => m.merged_table_id);
+            await connection.query(
+              'UPDATE tables SET status = "available" WHERE id IN (?)',
+              [mergedIds]
+            );
+            const capacityToRemove = activeMerges.reduce((sum, m) => sum + (m.capacity || 0), 0);
+            if (capacityToRemove > 0) {
+              await connection.query(
+                'UPDATE tables SET capacity = GREATEST(1, capacity - ?) WHERE id = ?',
+                [capacityToRemove, order.table_id]
+              );
+            }
+          }
+
+          await connection.query(
+            `UPDATE tables SET status = 'available' WHERE id = ?`,
+            [order.table_id]
+          );
+          
+          // Close table session - use provided ID or find active session for this table
+          if (order.table_session_id) {
+            await connection.query(
+              `UPDATE table_sessions SET 
+                status = 'completed', ended_at = NOW()
+               WHERE id = ?`,
+              [order.table_session_id]
+            );
+          } else {
+            // Fallback: close any active sessions for this table
+            await connection.query(
+              `UPDATE table_sessions SET 
+                status = 'completed', ended_at = NOW()
+               WHERE table_id = ? AND status = 'active'`,
+              [order.table_id]
+            );
+          }
         }
       }
 

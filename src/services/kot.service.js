@@ -277,8 +277,29 @@ const kotService = {
         ));
       }
       if (order.table_id && order.order_type === 'dine_in') {
+        // Ensure there's an active session — recreate one if missing (must run before status updates)
+        const [activeSess] = await connection.query(
+          `SELECT id FROM table_sessions WHERE table_id = ? AND status = 'active' LIMIT 1`,
+          [order.table_id]
+        );
+        if (activeSess.length === 0) {
+          logger.warn(`sendKot: table ${order.table_id} has no active session — creating recovery session for order ${orderId}`);
+          const [newSess] = await connection.query(
+            `INSERT INTO table_sessions (table_id, guest_count, started_by, order_id) VALUES (?, ?, ?, ?)`,
+            [order.table_id, order.guest_count || 1, createdBy, orderId]
+          );
+          // Link order to the recovery session
+          await connection.query(
+            `UPDATE orders SET table_session_id = ? WHERE id = ? AND table_session_id IS NULL`,
+            [newSess.insertId, orderId]
+          );
+        }
+
+        // Include 'available' so a table erroneously set to available (due to race condition
+        // or orphaned session) gets self-healed when KOT is sent. Exclude 'billing'/'merged'
+        // which have intentional non-running semantics.
         statusUpdates.push(connection.query(
-          `UPDATE tables SET status = 'running' WHERE id = ? AND status IN ('occupied', 'running')`,
+          `UPDATE tables SET status = 'running' WHERE id = ? AND status IN ('available', 'occupied', 'running')`,
           [order.table_id]
         ));
       }
