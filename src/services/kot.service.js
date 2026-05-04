@@ -78,11 +78,11 @@ function formatKot(kot) {
     acceptedAt: kot.accepted_at || null,
     readyAt: kot.ready_at || null,
     servedAt: kot.served_at || null,
-    servedBy: kot.served_by || null,
-    cancelledBy: kot.cancelled_by || null,
+    servedBy: kot.served_by_name || kot.served_by || null,
+    cancelledBy: kot.cancelled_by_name || kot.cancelled_by || null,
     cancelledAt: kot.cancelled_at || null,
     cancelReason: kot.cancel_reason || null,
-    createdBy: kot.created_by,
+    createdBy: kot.created_by_name || kot.created_by || null,
     createdAt: kot.created_at,
     items: (kot.items || []).map(formatKotItem)
   };
@@ -148,6 +148,10 @@ const kotService = {
       );
       if (!orders[0]) throw new Error('Order not found');
       const order = orders[0];
+
+      // Resolve creator ID → name for KOT emits/print slips (avoid showing raw ID)
+      const [[kotCreatorRow]] = await connection.query('SELECT name FROM users WHERE id = ?', [createdBy]);
+      const kotCreatorName = kotCreatorRow?.name || order.created_by_name || null;
 
       // Get pending items with station info and item_type for routing
       const [pendingItems] = await connection.query(
@@ -328,6 +332,7 @@ const kotService = {
               status: 'pending',
               priority: order.is_priority ? 1 : 0,
               created_by: createdBy,
+              created_by_name: kotCreatorName,
               created_at: ticket.createdAt,
               item_count: ticket.itemCount,
               total_item_count: ticket.itemCount,
@@ -808,12 +813,21 @@ const kotService = {
     const pool = getPool();
 
     // Run KOT ticket + items queries in parallel
+    // JOIN users to resolve IDs → names for print slips and socket events
     const [[rows], [items]] = await Promise.all([
       pool.query(
-        `SELECT kt.*, o.order_number, o.table_id, t.table_number
+        `SELECT kt.*, o.order_number, o.table_id, t.table_number,
+                u_created.name as created_by_name,
+                u_cancelled.name as cancelled_by_name,
+                u_served.name as served_by_name,
+                u_accepted.name as accepted_by_name
          FROM kot_tickets kt
          LEFT JOIN orders o ON kt.order_id = o.id
          LEFT JOIN tables t ON o.table_id = t.id
+         LEFT JOIN users u_created ON kt.created_by = u_created.id
+         LEFT JOIN users u_cancelled ON kt.cancelled_by = u_cancelled.id
+         LEFT JOIN users u_served ON kt.served_by = u_served.id
+         LEFT JOIN users u_accepted ON kt.accepted_by = u_accepted.id
          WHERE kt.id = ?`,
         [id]
       ),
@@ -855,10 +869,18 @@ const kotService = {
   // Fallback: read KOT via a specific connection (avoids pool visibility lag)
   async _getKotByIdViaConnection(connection, id) {
     const [rows] = await connection.query(
-      `SELECT kt.*, o.order_number, o.table_id, t.table_number
+      `SELECT kt.*, o.order_number, o.table_id, t.table_number,
+              u_created.name as created_by_name,
+              u_cancelled.name as cancelled_by_name,
+              u_served.name as served_by_name,
+              u_accepted.name as accepted_by_name
        FROM kot_tickets kt
        LEFT JOIN orders o ON kt.order_id = o.id
        LEFT JOIN tables t ON o.table_id = t.id
+       LEFT JOIN users u_created ON kt.created_by = u_created.id
+       LEFT JOIN users u_cancelled ON kt.cancelled_by = u_cancelled.id
+       LEFT JOIN users u_served ON kt.served_by = u_served.id
+       LEFT JOIN users u_accepted ON kt.accepted_by = u_accepted.id
        WHERE kt.id = ?`,
       [id]
     );
@@ -1152,9 +1174,13 @@ const kotService = {
     const kot = await this.getKotById(kotId);
     if (!kot) throw new Error('KOT not found');
 
+    // Resolve reprint user ID → name for socket events and print slips
+    const [[reprintUserRow]] = await pool.query('SELECT name FROM users WHERE id = ?', [userId]);
+    const reprintUserName = reprintUserRow?.name || userId;
+
     // Update reprint count
     await pool.query(
-      `UPDATE kot_tickets SET 
+      `UPDATE kot_tickets SET
         printed_count = printed_count + 1, last_printed_at = NOW()
        WHERE id = ?`,
       [kotId]
@@ -1197,7 +1223,7 @@ const kotService = {
     // Emit reprint event to kitchen for real-time update
     await this.emitKotUpdate(kot.outletId, {
       ...updatedKot,
-      reprintedBy: userId,
+      reprintedBy: reprintUserName,
       reprintCount: updatedKot.printedCount
     }, 'kot:reprinted');
 

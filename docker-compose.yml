@@ -3,7 +3,7 @@
 # Usage: docker-compose up -d
 # ============================================
 
-version: '3.8'
+
 
 services:
   # ==========================================
@@ -52,8 +52,32 @@ services:
     command: >
       redis-server
       --appendonly yes
-      --maxmemory 128mb
+      --maxmemory 512mb
       --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - restro-network
+
+  # ==========================================
+  # Redis Queues (BullMQ — noeviction, jobs must never be evicted)
+  # ==========================================
+  redis-queues:
+    image: redis:7-alpine
+    container_name: restro-redis-queues
+    restart: unless-stopped
+    ports:
+      - "${REDIS_QUEUES_PORT:-6380}:6379"
+    volumes:
+      - redis_queues_data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy noeviction
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -80,9 +104,12 @@ services:
       DB_NAME: ${DB_NAME:-restro_pos}
       DB_USER: ${DB_USER:-restro_user}
       DB_PASSWORD: ${DB_PASSWORD:-restro_password}
-      # Redis
+      # Redis (cache + pub/sub)
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      # Redis Queues (BullMQ — isolated instance)
+      REDIS_QUEUES_HOST: redis-queues
+      REDIS_QUEUES_PORT: 6379
       # JWT
       JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
       JWT_ACCESS_EXPIRY: ${JWT_ACCESS_EXPIRY:-15m}
@@ -98,6 +125,8 @@ services:
       mysql:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      redis-queues:
         condition: service_healthy
     networks:
       - restro-network
@@ -120,15 +149,20 @@ services:
       DB_NAME: ${DB_NAME:-restro_pos}
       DB_USER: ${DB_USER:-restro_user}
       DB_PASSWORD: ${DB_PASSWORD:-restro_password}
-      # Redis
+      # Redis (cache + pub/sub)
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      # Redis Queues (BullMQ — isolated instance)
+      REDIS_QUEUES_HOST: redis-queues
+      REDIS_QUEUES_PORT: 6379
     volumes:
       - ./logs:/app/logs
     depends_on:
       mysql:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      redis-queues:
         condition: service_healthy
     networks:
       - restro-network
@@ -147,4 +181,6 @@ volumes:
   mysql_data:
     driver: local
   redis_data:
+    driver: local
+  redis_queues_data:
     driver: local

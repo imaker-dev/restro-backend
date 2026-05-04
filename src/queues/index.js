@@ -8,9 +8,10 @@ const queues = {};
 let queuesInitialized = false;
 
 const redisConnection = {
-  host: redisConfig.host,
-  port: redisConfig.port,
-  password: redisConfig.password || undefined,
+  host: redisConfig.queueConnection.host,
+  port: redisConfig.queueConnection.port,
+  password: redisConfig.queueConnection.password || undefined,
+  db: redisConfig.queueConnection.db || 0,
 };
 
 const defaultJobOptions = {

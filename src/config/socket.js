@@ -62,8 +62,11 @@ const initializeSocket = (server) => {
         db: redisConfig.db,
       });
       const subClient = pubClient.duplicate();
-      io.adapter(createAdapter(pubClient, subClient));
-      logger.info('Socket.IO Redis adapter attached (cluster-safe)');
+      const adapterNamespace = redisConfig.pubsubNamespace || process.env.NODE_ENV || 'default';
+      io.adapter(createAdapter(pubClient, subClient, {
+        key: `socket.io:${adapterNamespace}`
+      }));
+      logger.info(`Socket.IO Redis adapter attached (cluster-safe) — adapter key: socket.io:${adapterNamespace}`);
     } catch (err) {
       logger.warn('Socket.IO Redis adapter setup failed, cluster sync disabled:', err.message);
     }

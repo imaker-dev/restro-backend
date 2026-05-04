@@ -125,12 +125,17 @@ const cache = {
   },
 };
 
+// Namespace pub/sub channels so multiple backend instances sharing one Redis
+// don't cross-talk. Channel `kot:update` becomes `<ns>:kot:update` on the wire.
+const PUBSUB_NS = redisConfig.pubsubNamespace || 'default';
+const _nsChannel = (channel) => `${PUBSUB_NS}:${channel}`;
+
 // Pub/Sub helpers (gracefully handle when Redis is not available)
 const pubsub = {
   async publish(channel, message) {
     if (!redisAvailable || !redisClient) return;
     try {
-      await redisClient.publish(channel, JSON.stringify(message));
+      await redisClient.publish(_nsChannel(channel), JSON.stringify(message));
     } catch (error) {
       logger.warn('Pubsub publish failed:', error.message);
     }
@@ -139,9 +144,10 @@ const pubsub = {
   subscribe(channel, callback) {
     if (!redisAvailable || !redisSubscriber) return;
     try {
-      redisSubscriber.subscribe(channel);
+      const nsCh = _nsChannel(channel);
+      redisSubscriber.subscribe(nsCh);
       redisSubscriber.on('message', (ch, message) => {
-        if (ch === channel) {
+        if (ch === nsCh) {
           callback(JSON.parse(message));
         }
       });
@@ -153,7 +159,7 @@ const pubsub = {
   unsubscribe(channel) {
     if (!redisAvailable || !redisSubscriber) return;
     try {
-      redisSubscriber.unsubscribe(channel);
+      redisSubscriber.unsubscribe(_nsChannel(channel));
     } catch (error) {
       logger.warn('Pubsub unsubscribe failed:', error.message);
     }

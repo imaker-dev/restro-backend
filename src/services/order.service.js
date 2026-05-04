@@ -1991,6 +1991,10 @@ const orderService = {
     try {
       await connection.beginTransaction();
 
+      // Resolve user ID → name once for print slips and events
+      const [[cancelUserRow]] = await connection.query('SELECT name FROM users WHERE id = ?', [userId]);
+      const cancelUserName = cancelUserRow?.name || userId;
+
       const [items] = await connection.query(
         `SELECT oi.*, o.outlet_id, o.status as order_status, o.order_number, o.table_id,
           t.table_number, kt.kot_number, kt.station as kot_station,
@@ -2119,8 +2123,8 @@ const orderService = {
         
         if (kotItems[0] && Number(kotItems[0].total) > 0 && Number(kotItems[0].total) === Number(kotItems[0].cancelled)) {
           await connection.query(
-            `UPDATE kot_tickets SET status = 'cancelled' WHERE id = ?`,
-            [item.kot_id]
+            `UPDATE kot_tickets SET status = 'cancelled', cancelled_by = ?, cancelled_at = NOW() WHERE id = ?`,
+            [userId, item.kot_id]
           );
           kotCancelled = true;
         }
@@ -2218,7 +2222,7 @@ const orderService = {
           station: item.kot_station || 'kitchen',
           time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
           reason: reason,
-          cancelledBy: userId,
+          cancelledBy: cancelUserName,
           items: [{
             itemName: item.item_name,
             variantName: item.variant_name,
@@ -2254,6 +2258,10 @@ const orderService = {
 
       const order = await this.getById(orderId);
       if (!order) throw new Error('Order not found');
+
+      // Resolve user ID → name once for print slips and events
+      const [[cancelUserRow]] = await connection.query('SELECT name FROM users WHERE id = ?', [userId]);
+      const cancelUserName = cancelUserRow?.name || userId;
 
       const { reason, reasonId, approvedBy, stockAction } = data;
 
@@ -2326,11 +2334,11 @@ const orderService = {
         [orderId]
       );
 
-      // Cancel all KOTs
+      // Cancel all KOTs (record who cancelled for name resolution in slips/events)
       await connection.query(
-        `UPDATE kot_tickets SET status = 'cancelled'
+        `UPDATE kot_tickets SET status = 'cancelled', cancelled_by = ?, cancelled_at = NOW()
          WHERE order_id = ? AND status NOT IN ('served', 'cancelled')`,
-        [orderId]
+        [userId, orderId]
       );
 
       // Cancel order
@@ -2516,7 +2524,7 @@ const orderService = {
               station: kot.station || 'kitchen',
               time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
               reason: reason || 'Order cancelled',
-              cancelledBy: userId,
+              cancelledBy: cancelUserName,
               items: kotItems
             };
 
