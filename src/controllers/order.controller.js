@@ -1342,7 +1342,7 @@ const orderController = {
         endDate,
         status,
         page = 1,
-        limit = 20,
+        limit = 10,
         sortBy = 'opening_time',
         sortOrder = 'DESC'
       } = req.query;
